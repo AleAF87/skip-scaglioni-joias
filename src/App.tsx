@@ -1,0 +1,132 @@
+import React from 'react'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { AuthProvider } from '@/contexts/AuthContext'
+import { ProtectedRoute } from '@/components/ProtectedRoute'
+import Layout from '@/components/Layout'
+import { Toaster } from 'sonner'
+
+// Pages
+import LoginPage from '@/pages/LoginPage'
+import ForgotPasswordPage from '@/pages/ForgotPasswordPage'
+import ResellerRequestPage from '@/pages/ResellerRequestPage'
+import Dashboard from '@/pages/Dashboard'
+import VoiceProductEntry from '@/pages/VoiceProductEntry'
+import StockInventory from '@/pages/StockInventory'
+import AuxiliariesCrud from '@/pages/AuxiliariesCrud'
+import PosSale from '@/pages/PosSale'
+import CatalogVitrine from '@/pages/CatalogVitrine'
+import ConsignmentsManagement from '@/pages/ConsignmentsManagement'
+import ResellersManagement from '@/pages/ResellersManagement'
+import UsersManagement from '@/pages/UsersManagement'
+import UserProfile from '@/pages/UserProfile'
+import NotFound from '@/pages/NotFound'
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <AuthProvider>
+        <Toaster richColors position="top-right" />
+        <Routes>
+          {/* Public Routes */}
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/recuperar-senha" element={<ForgotPasswordPage />} />
+          <Route path="/solicitar-revendedor" element={<ResellerRequestPage />} />
+
+          {/* Authenticated Root under Layout */}
+          <Route
+            path="/"
+            element={
+              <ProtectedRoute>
+                <Layout />
+              </ProtectedRoute>
+            }
+          >
+            <Route index element={<Navigate to="/dashboard" replace />} />
+
+            {/* Dashboard (Admin & Operator) */}
+            <Route
+              path="dashboard"
+              element={
+                <ProtectedRoute allowedRoles={['admin', 'operator']}>
+                  <Dashboard />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Voice Product Entry (Mobile-first anchor screen) */}
+            <Route
+              path="voz"
+              element={
+                <ProtectedRoute allowedRoles={['admin', 'operator']}>
+                  <VoiceProductEntry />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Products / Auxiliaries CRUD */}
+            <Route
+              path="produtos"
+              element={
+                <ProtectedRoute allowedRoles={['admin', 'operator']}>
+                  <AuxiliariesCrud />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Stock / Inventory */}
+            <Route
+              path="estoque"
+              element={
+                <ProtectedRoute allowedRoles={['admin', 'operator']}>
+                  <StockInventory />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* POS Sales */}
+            <Route
+              path="pdv"
+              element={
+                <ProtectedRoute allowedRoles={['admin', 'operator']}>
+                  <PosSale />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Catalog / Vitrine (Accessible to Resellers, Operators, Admins) */}
+            <Route path="vitrine" element={<CatalogVitrine />} />
+
+            {/* Consignments */}
+            <Route path="consignacoes" element={<ConsignmentsManagement />} />
+
+            {/* Resellers management (Admin & Operator) */}
+            <Route
+              path="revendedores"
+              element={
+                <ProtectedRoute allowedRoles={['admin', 'operator']}>
+                  <ResellersManagement />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Users management (Admin only) */}
+            <Route
+              path="usuarios"
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <UsersManagement />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Profile */}
+            <Route path="perfil" element={<UserProfile />} />
+          </Route>
+
+          {/* Catch-all 404 */}
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </AuthProvider>
+    </BrowserRouter>
+  )
+}
