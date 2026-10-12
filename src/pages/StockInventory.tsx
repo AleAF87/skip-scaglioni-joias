@@ -15,6 +15,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { Barcode128 } from '@/components/Barcode128'
+import { ImageLightbox } from '@/components/ImageLightbox'
 import {
   Boxes,
   Search,
@@ -33,6 +34,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Camera,
+  ArrowLeft,
+  ArrowRight,
+  ZoomIn,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Link } from 'react-router-dom'
@@ -71,9 +75,18 @@ export default function StockInventory() {
   // Print Labels modal
   const [printModalOpen, setPrintModalOpen] = useState(false)
 
+  // Lightbox state
+  const [lightboxOpen, setLightboxOpen] = useState(false)
+  const [lightboxPhotos, setLightboxPhotos] = useState<string[]>([])
+  const [lightboxTitle, setLightboxTitle] = useState('')
+  const [lightboxIndex, setLightboxIndex] = useState(0)
+
   // Product edit modal
   const [editProductModalOpen, setEditProductModalOpen] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
+  const [editExistingPhotos, setEditExistingPhotos] = useState<string[]>([])
+  const [editNewPhotoFiles, setEditNewPhotoFiles] = useState<{ file: File; preview: string }[]>([])
+  const [isSavingEdit, setIsSavingEdit] = useState(false)
   const [editForm, setEditForm] = useState({
     code: '',
     description: '',
@@ -196,9 +209,21 @@ export default function StockInventory() {
     }
   }
 
+  // Lightbox opener
+  const handleOpenLightbox = (p: Product, initialIdx: number = 0) => {
+    if (!p.photos || p.photos.length === 0) return
+    const urls = p.photos.map((photoName) => getFileUrl('products', p.id, photoName))
+    setLightboxPhotos(urls)
+    setLightboxTitle(`${p.code} — ${p.description}`)
+    setLightboxIndex(initialIdx)
+    setLightboxOpen(true)
+  }
+
   // Open Edit Product
   const handleOpenEdit = (p: Product) => {
     setEditingProduct(p)
+    setEditExistingPhotos(p.photos ? [...p.photos] : [])
+    setEditNewPhotoFiles([])
     setEditForm({
       code: p.code,
       description: p.description,
@@ -216,31 +241,86 @@ export default function StockInventory() {
     setEditProductModalOpen(true)
   }
 
+  // Edit photo handlers
+  const handleAddEditPhotos = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return
+    const incoming = Array.from(e.target.files)
+    const newItems = incoming.map((file) => ({
+      file,
+      preview: URL.createObjectURL(file),
+    }))
+    setEditNewPhotoFiles((prev) => [...prev, ...newItems])
+    toast.success(`${incoming.length} nova(s) imagem(ns) adicionada(s).`)
+  }
+
+  const handleRemoveExistingPhoto = (index: number) => {
+    setEditExistingPhotos((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  const handleMoveExistingPhoto = (index: number, direction: 'left' | 'right') => {
+    const targetIndex = direction === 'left' ? index - 1 : index + 1
+    if (targetIndex < 0 || targetIndex >= editExistingPhotos.length) return
+    const updated = [...editExistingPhotos]
+    const temp = updated[index]
+    updated[index] = updated[targetIndex]
+    updated[targetIndex] = temp
+    setEditExistingPhotos(updated)
+  }
+
+  const handleRemoveNewPhoto = (index: number) => {
+    setEditNewPhotoFiles((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  const handleMoveNewPhoto = (index: number, direction: 'left' | 'right') => {
+    const targetIndex = direction === 'left' ? index - 1 : index + 1
+    if (targetIndex < 0 || targetIndex >= editNewPhotoFiles.length) return
+    const updated = [...editNewPhotoFiles]
+    const temp = updated[index]
+    updated[index] = updated[targetIndex]
+    updated[targetIndex] = temp
+    setEditNewPhotoFiles(updated)
+  }
+
   const handleSaveFullEdit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!editingProduct) return
 
+    setIsSavingEdit(true)
     try {
-      await productService.updateProduct(editingProduct.id, {
+      const parsedQty = parseInt(editForm.quantity, 10)
+      const fields = {
         code: editForm.code.trim().toUpperCase(),
         description: editForm.description.trim(),
-        type: editForm.type || null,
-        material: editForm.material || null,
-        size: editForm.size || null,
-        target_audience: (editForm.target_audience as any) || null,
-        invested_value: editForm.invested_value ? parseFloat(editForm.invested_value) : null,
+        type: editForm.type || '',
+        material: editForm.material || '',
+        size: editForm.size || '',
+        target_audience: editForm.target_audience || '',
+        invested_value: editForm.invested_value ? parseFloat(editForm.invested_value) : '',
         selling_price: parseFloat(editForm.selling_price),
-        quantity: parseInt(editForm.quantity, 10),
+        quantity: parsedQty,
         minimum_quantity: editForm.minimum_quantity ? parseInt(editForm.minimum_quantity, 10) : 3,
         observations: editForm.observations,
-        status: (parseInt(editForm.quantity, 10) > 0 ? 'available' : 'unavailable') as any,
-      })
-      toast.success('Produto atualizado com sucesso!')
+        status: parsedQty > 0 ? 'available' : 'unavailable',
+      }
+
+      const filesToUpload = editNewPhotoFiles.map((item) => item.file)
+
+      await productService.updateProductWithPhotos(
+        editingProduct.id,
+        fields,
+        filesToUpload,
+        editExistingPhotos,
+      )
+
+      toast.success('Produto e fotos atualizados com sucesso!')
       setEditProductModalOpen(false)
       setEditingProduct(null)
       loadProducts()
     } catch (err: any) {
+      console.error('Erro ao atualizar produto:', err)
       toast.error('Falha ao atualizar produto: ' + (err.message || ''))
+    } finally {
+      setIsSavingEdit(false)
     }
   }
 
@@ -405,8 +485,9 @@ export default function StockInventory() {
                   </button>
                 </th>
                 <th className="py-3 px-4">Joia</th>
-                <th className="py-3 px-4">Tipo & Material</th>
+                <th className="py-3 px-4">Tipo</th>
                 <th className="py-3 px-4">Tamanho</th>
+                <th className="py-3 px-4">Perfil</th>
                 <th className="py-3 px-4">Investido</th>
                 <th className="py-3 px-4">Preço Venda</th>
                 <th className="py-3 px-4">Estoque</th>
@@ -417,7 +498,7 @@ export default function StockInventory() {
             <tbody className="divide-y divide-[#E5DFD5] text-sm">
               {loading ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-[#6B655E]">
+                  <td colSpan={10} className="py-12 text-center text-[#6B655E]">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#C6A664] border-t-transparent" />
                       <span>Carregando joias do estoque...</span>
@@ -426,7 +507,7 @@ export default function StockInventory() {
                 </tr>
               ) : products.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-[#6B655E]">
+                  <td colSpan={10} className="py-12 text-center text-[#6B655E]">
                     <PackageCheck className="h-10 w-10 text-[#C6A664] mx-auto mb-2 opacity-50" />
                     <p className="font-semibold text-[#2D2A26]">Nenhuma peça encontrada.</p>
                     <p className="text-xs text-[#6B655E] mt-1">
@@ -443,6 +524,7 @@ export default function StockInventory() {
                     p.photos && p.photos.length > 0
                       ? getFileUrl('products', p.id, p.photos[0])
                       : null
+                  const hasPhoto = Boolean(photo)
 
                   return (
                     <tr
@@ -466,17 +548,37 @@ export default function StockInventory() {
 
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-3">
-                          <div className="h-11 w-11 rounded-lg bg-[#F3EAD8] overflow-hidden shrink-0 border border-[#E5DFD5] flex items-center justify-center">
+                          <button
+                            type="button"
+                            onClick={() => hasPhoto && handleOpenLightbox(p)}
+                            disabled={!hasPhoto}
+                            className={`relative group h-12 w-12 rounded-lg bg-[#F3EAD8] overflow-hidden shrink-0 border border-[#E5DFD5] flex items-center justify-center transition-all ${
+                              hasPhoto
+                                ? 'cursor-pointer hover:border-[#C6A664] hover:shadow-md'
+                                : 'cursor-default'
+                            }`}
+                            title={hasPhoto ? 'Clique para ampliar foto' : 'Sem foto'}
+                          >
                             {photo ? (
-                              <img
-                                src={photo}
-                                alt={p.description}
-                                className="h-full w-full object-cover"
-                              />
+                              <>
+                                <img
+                                  src={photo}
+                                  alt={p.description}
+                                  className="h-full w-full object-cover group-hover:scale-105 transition-transform"
+                                />
+                                <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white">
+                                  <ZoomIn className="h-4 w-4" />
+                                </div>
+                                {p.photos && p.photos.length > 1 && (
+                                  <span className="absolute bottom-0 right-0 bg-black/70 text-white text-[9px] font-mono px-1 rounded-tl-sm">
+                                    +{p.photos.length - 1}
+                                  </span>
+                                )}
+                              </>
                             ) : (
                               <PackageCheck className="h-5 w-5 text-[#C6A664]" />
                             )}
-                          </div>
+                          </button>
                           <div>
                             <span className="font-mono text-xs font-bold text-[#7A5C2E] block">
                               {p.code}
@@ -484,21 +586,32 @@ export default function StockInventory() {
                             <span className="font-medium text-[#2D2A26] line-clamp-1">
                               {p.description}
                             </span>
+                            {p.expand?.material?.name && (
+                              <span className="text-[11px] text-[#6B655E]">
+                                {p.expand?.material?.name}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </td>
 
+                      {/* Tipo separado */}
                       <td className="py-3 px-4">
-                        <span className="block font-medium text-[#2D2A26]">
+                        <span className="font-medium text-[#2D2A26]">
                           {p.expand?.type?.name || '—'}
-                        </span>
-                        <span className="text-xs text-[#6B655E]">
-                          {p.expand?.material?.name || '—'}
                         </span>
                       </td>
 
+                      {/* Tamanho separado */}
                       <td className="py-3 px-4 text-[#6B655E]">
                         {p.expand?.size?.name || 'Único'}
+                      </td>
+
+                      {/* Perfil separado */}
+                      <td className="py-3 px-4">
+                        <span className="capitalize text-xs font-medium px-2 py-0.5 rounded-full bg-[#F3EAD8] text-[#7A5C2E] inline-block">
+                          {p.target_audience || 'Unissex'}
+                        </span>
                       </td>
 
                       <td className="py-3 px-4 text-[#6B655E]">
@@ -780,7 +893,7 @@ export default function StockInventory() {
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div>
                 <Label className="text-xs font-semibold">Tipo</Label>
                 <select
@@ -826,6 +939,20 @@ export default function StockInventory() {
                       {s.name}
                     </option>
                   ))}
+                </select>
+              </div>
+
+              <div>
+                <Label className="text-xs font-semibold">Perfil</Label>
+                <select
+                  value={editForm.target_audience}
+                  onChange={(e) => setEditForm({ ...editForm, target_audience: e.target.value })}
+                  className="w-full h-10 rounded-md border border-[#E5DFD5] px-3 text-sm mt-1"
+                >
+                  <option value="">Selecione...</option>
+                  <option value="feminino">Feminino</option>
+                  <option value="masculino">Masculino</option>
+                  <option value="unissex">Unissex</option>
                 </select>
               </div>
             </div>
@@ -876,17 +1003,215 @@ export default function StockInventory() {
               />
             </div>
 
+            {/* Gerenciamento Completo de Fotos da Peça */}
+            <div className="pt-3 border-t border-[#E5DFD5] space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-xs font-semibold text-[#2D2A26] block">
+                    Fotos da Peça (Capa = 1ª foto)
+                  </Label>
+                  <p className="text-[11px] text-[#6B655E]">
+                    Exclua imagens, adicione mais fotos ou reordene as posições (a primeira imagem é
+                    a capa).
+                  </p>
+                </div>
+
+                <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] text-xs font-semibold cursor-pointer">
+                  <Plus className="h-3.5 w-3.5" /> Adicionar Fotos
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    onChange={handleAddEditPhotos}
+                  />
+                </label>
+              </div>
+
+              {/* Fotos Existentes */}
+              {editExistingPhotos.length > 0 && (
+                <div className="space-y-1.5">
+                  <span className="text-[11px] font-semibold text-[#6B655E] uppercase tracking-wider block">
+                    Fotos Salvas Atuais ({editExistingPhotos.length})
+                  </span>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {editExistingPhotos.map((photoName, idx) => {
+                      const url = editingProduct
+                        ? getFileUrl('products', editingProduct.id, photoName)
+                        : ''
+                      const isFirst = idx === 0
+                      const isLast = idx === editExistingPhotos.length - 1
+
+                      return (
+                        <div
+                          key={`exist-${photoName}-${idx}`}
+                          className="relative rounded-xl border-2 border-[#E5DFD5] bg-[#FDFBF7] p-1.5 flex flex-col items-center gap-1.5 group"
+                        >
+                          {isFirst && (
+                            <span className="absolute top-2 left-2 z-10 px-1.5 py-0.5 rounded-sm bg-[#7A5C2E] text-white text-[9px] font-bold uppercase tracking-wider shadow-xs">
+                              Capa
+                            </span>
+                          )}
+
+                          <div className="w-full aspect-square rounded-lg overflow-hidden bg-white border border-[#E5DFD5]">
+                            <img
+                              src={url}
+                              alt="Foto da joia"
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+
+                          <div className="flex items-center justify-between w-full px-1">
+                            <div className="flex items-center gap-0.5">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                disabled={isFirst}
+                                onClick={() => handleMoveExistingPhoto(idx, 'left')}
+                                className="h-6 w-6 text-[#2D2A26] disabled:opacity-30 hover:bg-[#E5DFD5]"
+                                title="Mover para esquerda"
+                              >
+                                <ArrowLeft className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                disabled={isLast}
+                                onClick={() => handleMoveExistingPhoto(idx, 'right')}
+                                className="h-6 w-6 text-[#2D2A26] disabled:opacity-30 hover:bg-[#E5DFD5]"
+                                title="Mover para direita"
+                              >
+                                <ArrowRight className="h-3 w-3" />
+                              </Button>
+                            </div>
+
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleRemoveExistingPhoto(idx)}
+                              className="h-6 w-6 text-[#B3261E] hover:bg-[#B3261E]/10"
+                              title="Excluir esta foto"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Novas Fotos a Enviar */}
+              {editNewPhotoFiles.length > 0 && (
+                <div className="space-y-1.5 pt-2">
+                  <span className="text-[11px] font-semibold text-[#2E7D4F] uppercase tracking-wider block">
+                    Novas Fotos a Adicionar ({editNewPhotoFiles.length})
+                  </span>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {editNewPhotoFiles.map((item, idx) => {
+                      const isFirst = idx === 0 && editExistingPhotos.length === 0
+                      const isFirstInNew = idx === 0
+                      const isLastInNew = idx === editNewPhotoFiles.length - 1
+
+                      return (
+                        <div
+                          key={`new-${idx}`}
+                          className="relative rounded-xl border-2 border-[#2E7D4F]/40 bg-[#2E7D4F]/5 p-1.5 flex flex-col items-center gap-1.5 group"
+                        >
+                          {isFirst && (
+                            <span className="absolute top-2 left-2 z-10 px-1.5 py-0.5 rounded-sm bg-[#7A5C2E] text-white text-[9px] font-bold uppercase tracking-wider">
+                              Capa
+                            </span>
+                          )}
+
+                          <div className="w-full aspect-square rounded-lg overflow-hidden bg-white border border-[#E5DFD5]">
+                            <img
+                              src={item.preview}
+                              alt="Nova foto"
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+
+                          <div className="flex items-center justify-between w-full px-1">
+                            <div className="flex items-center gap-0.5">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                disabled={isFirstInNew}
+                                onClick={() => handleMoveNewPhoto(idx, 'left')}
+                                className="h-6 w-6 text-[#2D2A26] disabled:opacity-30 hover:bg-[#E5DFD5]"
+                                title="Mover para esquerda"
+                              >
+                                <ArrowLeft className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                disabled={isLastInNew}
+                                onClick={() => handleMoveNewPhoto(idx, 'right')}
+                                className="h-6 w-6 text-[#2D2A26] disabled:opacity-30 hover:bg-[#E5DFD5]"
+                                title="Mover para direita"
+                              >
+                                <ArrowRight className="h-3 w-3" />
+                              </Button>
+                            </div>
+
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleRemoveNewPhoto(idx)}
+                              className="h-6 w-6 text-[#B3261E] hover:bg-[#B3261E]/10"
+                              title="Remover foto"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {editExistingPhotos.length === 0 && editNewPhotoFiles.length === 0 && (
+                <p className="text-xs text-[#6B655E] italic bg-[#FDFBF7] p-3 rounded-lg border border-dashed border-[#E5DFD5] text-center">
+                  Esta peça não possui fotos vinculadas. Clique em "Adicionar Fotos" acima para
+                  anexar.
+                </p>
+              )}
+            </div>
+
             <DialogFooter className="pt-3">
               <Button type="button" variant="ghost" onClick={() => setEditProductModalOpen(false)}>
                 Cancelar
               </Button>
-              <Button type="submit" className="bg-[#2E7D4F] hover:bg-[#256640] text-white">
-                Salvar Alterações
+              <Button
+                type="submit"
+                disabled={isSavingEdit}
+                className="bg-[#2E7D4F] hover:bg-[#256640] text-white"
+              >
+                {isSavingEdit ? 'Salvando...' : 'Salvar Alterações'}
               </Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Lightbox Modal Reutilizável */}
+      <ImageLightbox
+        open={lightboxOpen}
+        onClose={() => setLightboxOpen(false)}
+        photos={lightboxPhotos}
+        initialIndex={lightboxIndex}
+        title={lightboxTitle}
+      />
 
       {/* Print Barcodes Modal (A4 printable layout) */}
       <Dialog open={printModalOpen} onOpenChange={setPrintModalOpen}>

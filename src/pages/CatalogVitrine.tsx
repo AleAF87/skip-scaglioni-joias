@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { ImageLightbox } from '@/components/ImageLightbox'
 import {
   Store,
   Search,
@@ -17,6 +18,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  ZoomIn,
 } from 'lucide-react'
 
 export default function CatalogVitrine() {
@@ -34,6 +36,21 @@ export default function CatalogVitrine() {
   // Detail Modal
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [activePhotoIndex, setActivePhotoIndex] = useState(0)
+
+  // Lightbox
+  const [lightboxOpen, setLightboxOpen] = useState(false)
+  const [lightboxPhotos, setLightboxPhotos] = useState<string[]>([])
+  const [lightboxTitle, setLightboxTitle] = useState('')
+  const [lightboxIndex, setLightboxIndex] = useState(0)
+
+  const handleOpenLightbox = (p: Product, initialIdx: number = 0) => {
+    if (!p.photos || p.photos.length === 0) return
+    const urls = p.photos.map((ph) => getFileUrl('products', p.id, ph))
+    setLightboxPhotos(urls)
+    setLightboxTitle(`${p.code} — ${p.description}`)
+    setLightboxIndex(initialIdx)
+    setLightboxOpen(true)
+  }
 
   useEffect(() => {
     loadAuxiliaries()
@@ -147,7 +164,7 @@ export default function CatalogVitrine() {
                 onChange={(e) => setTargetAudience(e.target.value)}
                 className="w-full h-10 rounded-md border border-[#E5DFD5] bg-white px-3 py-2 text-sm text-[#2D2A26] focus:outline-none focus:ring-2 focus:ring-[#C6A664]"
               >
-                <option value="">Todo o Público</option>
+                <option value="">Todo Perfil</option>
                 <option value="feminino">Feminino</option>
                 <option value="masculino">Masculino</option>
                 <option value="unissex">Unissex</option>
@@ -191,11 +208,24 @@ export default function CatalogVitrine() {
                 {/* Photo container */}
                 <div className="relative aspect-square w-full bg-[#FDFBF7] overflow-hidden flex items-center justify-center border-b border-[#E5DFD5]/60">
                   {photoUrl ? (
-                    <img
-                      src={photoUrl}
-                      alt={p.description}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    />
+                    <>
+                      <img
+                        src={photoUrl}
+                        alt={p.description}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleOpenLightbox(p, 0)
+                        }}
+                        className="absolute bottom-2 right-2 p-1.5 rounded-lg bg-black/60 text-white hover:bg-black/80 transition-all opacity-80 group-hover:opacity-100 shadow-md"
+                        title="Ampliar foto em lightbox"
+                      >
+                        <ZoomIn className="h-4 w-4" />
+                      </button>
+                    </>
                   ) : (
                     <div className="flex flex-col items-center justify-center text-[#C6A664]/60">
                       <Gem className="h-12 w-12 stroke-[1.5]" />
@@ -221,13 +251,20 @@ export default function CatalogVitrine() {
                   </div>
                 </div>
 
-                {/* Info Container */}
+                {/* Info Container — Colunas/badges separados para Tipo, Tamanho e Perfil */}
                 <CardContent className="p-4 flex-1 flex flex-col justify-between">
                   <div>
-                    <p className="text-xs text-[#6B655E] font-medium">
-                      {p.expand?.material?.name || 'Metal Nobre'}{' '}
-                      {p.expand?.size?.name ? `• ${p.expand?.size?.name}` : ''}
-                    </p>
+                    <div className="flex flex-wrap items-center gap-1.5 text-[11px] mb-1.5">
+                      <span className="px-1.5 py-0.5 rounded-md bg-[#F3EAD8] text-[#7A5C2E] font-medium">
+                        {p.expand?.type?.name || 'Joia'}
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded-md bg-neutral-100 text-[#2D2A26]">
+                        Tam: {p.expand?.size?.name || 'Único'}
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded-md bg-neutral-100 text-[#2D2A26] capitalize">
+                        Perfil: {p.target_audience || 'Unissex'}
+                      </span>
+                    </div>
                     <h3 className="font-serif text-base font-bold text-[#2D2A26] line-clamp-2 mt-1 leading-snug">
                       {p.description}
                     </h3>
@@ -277,17 +314,28 @@ export default function CatalogVitrine() {
 
               {/* Gallery view */}
               <div className="space-y-3">
-                <div className="relative aspect-video w-full rounded-xl overflow-hidden bg-[#FDFBF7] border border-[#E5DFD5] flex items-center justify-center">
+                <div
+                  className="relative aspect-video w-full rounded-xl overflow-hidden bg-[#FDFBF7] border border-[#E5DFD5] flex items-center justify-center cursor-pointer group"
+                  onClick={() => handleOpenLightbox(selectedProduct, activePhotoIndex)}
+                  title="Clique para ver em tela cheia (Lightbox)"
+                >
                   {selectedProduct.photos && selectedProduct.photos.length > 0 ? (
-                    <img
-                      src={getFileUrl(
-                        'products',
-                        selectedProduct.id,
-                        selectedProduct.photos[activePhotoIndex],
-                      )}
-                      alt={selectedProduct.description}
-                      className="w-full h-full object-contain"
-                    />
+                    <>
+                      <img
+                        src={getFileUrl(
+                          'products',
+                          selectedProduct.id,
+                          selectedProduct.photos[activePhotoIndex],
+                        )}
+                        alt={selectedProduct.description}
+                        className="w-full h-full object-contain"
+                      />
+                      <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white">
+                        <span className="px-3 py-1.5 rounded-full bg-black/60 text-xs font-semibold flex items-center gap-1.5">
+                          <ZoomIn className="h-4 w-4" /> Ampliar Imagem
+                        </span>
+                      </div>
+                    </>
                   ) : (
                     <Gem className="h-16 w-16 text-[#C6A664] opacity-50" />
                   )}
@@ -303,8 +351,9 @@ export default function CatalogVitrine() {
                         className={`h-14 w-14 rounded-lg overflow-hidden border-2 shrink-0 transition-all ${
                           activePhotoIndex === idx
                             ? 'border-[#C6A664] ring-2 ring-[#C6A664]/30'
-                            : 'border-[#E5DFD5] opacity-70'
+                            : 'border-[#E5DFD5] opacity-70 hover:opacity-100'
                         }`}
+                        title="Ver foto"
                       >
                         <img
                           src={getFileUrl('products', selectedProduct.id, photo)}
@@ -317,12 +366,12 @@ export default function CatalogVitrine() {
                 )}
               </div>
 
-              {/* Specs Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-4 bg-[#FDFBF7] rounded-xl border border-[#E5DFD5] text-xs">
+              {/* Specs Grid — Separado Tipo, Tamanho e Perfil */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 bg-[#FDFBF7] rounded-xl border border-[#E5DFD5] text-xs">
                 <div>
-                  <span className="text-[#6B655E] block">Material:</span>
+                  <span className="text-[#6B655E] block">Tipo:</span>
                   <span className="font-semibold text-[#2D2A26]">
-                    {selectedProduct.expand?.material?.name || '—'}
+                    {selectedProduct.expand?.type?.name || '—'}
                   </span>
                 </div>
                 <div>
@@ -332,7 +381,7 @@ export default function CatalogVitrine() {
                   </span>
                 </div>
                 <div>
-                  <span className="text-[#6B655E] block">Público:</span>
+                  <span className="text-[#6B655E] block">Perfil:</span>
                   <span className="font-semibold text-[#2D2A26] capitalize">
                     {selectedProduct.target_audience || 'Unissex'}
                   </span>
@@ -372,6 +421,15 @@ export default function CatalogVitrine() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Lightbox Modal Reutilizável */}
+      <ImageLightbox
+        open={lightboxOpen}
+        onClose={() => setLightboxOpen(false)}
+        photos={lightboxPhotos}
+        initialIndex={lightboxIndex}
+        title={lightboxTitle}
+      />
     </div>
   )
 }

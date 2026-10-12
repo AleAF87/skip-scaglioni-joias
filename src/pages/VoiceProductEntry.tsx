@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { ImageLightbox } from '@/components/ImageLightbox'
 import {
   Mic,
   MicOff,
@@ -22,6 +23,7 @@ import {
   PackageCheck,
   Loader2,
   HelpCircle,
+  ZoomIn,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -60,6 +62,12 @@ export default function VoiceProductEntry() {
   const [missingFields, setMissingFields] = useState<string[]>([])
   const [isSaving, setIsSaving] = useState(false)
   const [recentProducts, setRecentProducts] = useState<Product[]>([])
+
+  // Lightbox
+  const [lightboxOpen, setLightboxOpen] = useState(false)
+  const [lightboxPhotos, setLightboxPhotos] = useState<string[]>([])
+  const [lightboxTitle, setLightboxTitle] = useState('')
+  const [lightboxIndex, setLightboxIndex] = useState(0)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -114,9 +122,14 @@ export default function VoiceProductEntry() {
     }
   }, [])
 
-  const generateSuggestedCode = () => {
-    const random = Math.floor(1000 + Math.random() * 9000)
-    setCode(`JOIA-${random}`)
+  const generateSuggestedCode = async () => {
+    try {
+      const nextCode = await productService.getNextProductCode()
+      setCode(nextCode)
+    } catch {
+      const random = Math.floor(100000 + Math.random() * 900000)
+      setCode(`${random}`)
+    }
   }
 
   const loadAuxiliaries = async () => {
@@ -159,6 +172,45 @@ export default function VoiceProductEntry() {
     }
   }
 
+  // Helper to sanitize description: remove repeated type, size and audience if present
+  const sanitizeDescription = (
+    desc: string,
+    typeName?: string,
+    sizeName?: string,
+    audience?: string,
+  ) => {
+    if (!desc) return ''
+    let cleaned = desc
+
+    // Remove audience references
+    if (audience) {
+      const audRegex = new RegExp(`\\b(${audience}|feminino|masculino|unissex)\\b`, 'gi')
+      cleaned = cleaned.replace(audRegex, '')
+    } else {
+      cleaned = cleaned.replace(/\b(feminino|masculino|unissex)\b/gi, '')
+    }
+
+    // Remove size references if size was detected
+    if (sizeName) {
+      const esc = sizeName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const sizeRegex = new RegExp(`\\b(tamanho\\s+)?${esc}\\b`, 'gi')
+      cleaned = cleaned.replace(sizeRegex, '')
+    }
+    // Also remove generic "tamanho único"
+    cleaned = cleaned.replace(/\btamanho\s+(único|unico)\b/gi, '')
+
+    // Clean up trailing/leading commas, dots, extra spaces
+    cleaned = cleaned
+      .replace(/,\s*,/g, ',')
+      .replace(/,\s*\./g, '.')
+      .replace(/\s+/g, ' ')
+      .replace(/^\s*[,.\-—]\s*/, '')
+      .replace(/\s*[,.\-—]\s*$/, '')
+      .trim()
+
+    return cleaned || desc
+  }
+
   // Process text with Skip AI Gateway (fast model)
   const handleProcessWithAi = async () => {
     const textToAnalyze = transcribedText.trim()
@@ -172,7 +224,14 @@ export default function VoiceProductEntry() {
       const result = await productService.interpretVoiceDescription(textToAnalyze)
 
       // Apply interpreted values to state without overwriting non-empty fields arbitrarily
-      if (result.description) setDescription(result.description)
+      const cleanDesc = sanitizeDescription(
+        result.description,
+        result.type_name,
+        result.size_name,
+        result.target_audience || '',
+      )
+
+      if (cleanDesc) setDescription(cleanDesc)
       if (result.type_id) setSelectedType(result.type_id)
       if (result.material_id) setSelectedMaterial(result.material_id)
       if (result.size_id) setSelectedSize(result.size_id)
@@ -504,7 +563,7 @@ export default function VoiceProductEntry() {
                               : f === 'size'
                                 ? 'Tamanho'
                                 : f === 'target_audience'
-                                  ? 'Público'
+                                  ? 'Perfil'
                                   : f}
                     </Badge>
                   ))}
@@ -540,7 +599,7 @@ export default function VoiceProductEntry() {
                   id="code"
                   value={code}
                   onChange={(e) => setCode(e.target.value.toUpperCase())}
-                  placeholder="Ex: JOIA-1020"
+                  placeholder="Ex: 100001"
                   required
                   className="mt-1 border-[#E5DFD5] focus-visible:ring-[#C6A664] uppercase font-mono font-bold"
                 />
@@ -612,7 +671,7 @@ export default function VoiceProductEntry() {
               </div>
 
               <div>
-                <Label className="text-xs font-semibold text-[#2D2A26]">Público / Sexo</Label>
+                <Label className="text-xs font-semibold text-[#2D2A26]">Perfil</Label>
                 <select
                   value={targetAudience}
                   onChange={(e) => setTargetAudience(e.target.value)}
@@ -814,58 +873,126 @@ export default function VoiceProductEntry() {
         </div>
       </form>
 
-      {/* Recently Added Products List */}
+      {/* Recently Added Products List — Com colunas separadas para Tipo, Tamanho e Perfil */}
       <div className="pt-6 border-t border-[#E5DFD5]">
         <h2 className="font-serif text-lg md:text-xl font-bold text-[#2D2A26] mb-4 flex items-center gap-2">
           <CheckCircle2 className="h-5 w-5 text-[#C6A664]" />
-          Produtos Cadastrados Recentemente
+          Últimos Produtos Cadastrados
         </h2>
 
         {recentProducts.length === 0 ? (
           <p className="text-sm text-[#6B655E] italic">Nenhum produto cadastrado ainda.</p>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {recentProducts.map((p) => {
-              const photo =
-                p.photos && p.photos.length > 0 ? getFileUrl('products', p.id, p.photos[0]) : null
-              return (
-                <Card
-                  key={p.id}
-                  className="border-[#E5DFD5] bg-white overflow-hidden shadow-xs hover:shadow-md transition-shadow"
-                >
-                  <div className="flex items-center p-3 gap-3">
-                    <div className="h-16 w-16 rounded-lg bg-[#F3EAD8] overflow-hidden flex items-center justify-center shrink-0 border border-[#E5DFD5]">
-                      {photo ? (
-                        <img
-                          src={photo}
-                          alt={p.description}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <PackageCheck className="h-7 w-7 text-[#C6A664]" />
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <span className="font-mono text-xs font-bold text-[#7A5C2E]">{p.code}</span>
-                        <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                          {p.quantity} em estoque
-                        </Badge>
-                      </div>
-                      <p className="text-sm font-semibold text-[#2D2A26] truncate mt-0.5">
-                        {p.description}
-                      </p>
-                      <p className="text-xs font-bold text-[#2E7D4F] mt-1">
-                        {formatCurrency(p.selling_price)}
-                      </p>
-                    </div>
-                  </div>
-                </Card>
-              )
-            })}
-          </div>
+          <Card className="border-[#E5DFD5] bg-white shadow-xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-[#F3EAD8] text-[#2D2A26] border-b border-[#E5DFD5] font-semibold uppercase tracking-wider">
+                    <th className="py-2.5 px-3">Joia</th>
+                    <th className="py-2.5 px-3">Tipo</th>
+                    <th className="py-2.5 px-3">Tamanho</th>
+                    <th className="py-2.5 px-3">Perfil</th>
+                    <th className="py-2.5 px-3 text-right">Preço</th>
+                    <th className="py-2.5 px-3 text-center">Estoque</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#E5DFD5]">
+                  {recentProducts.map((p) => {
+                    const photo =
+                      p.photos && p.photos.length > 0
+                        ? getFileUrl('products', p.id, p.photos[0])
+                        : null
+                    const hasPhoto = Boolean(photo)
+
+                    return (
+                      <tr key={p.id} className="hover:bg-[#FDFBF7]">
+                        <td className="py-2.5 px-3">
+                          <div className="flex items-center gap-2.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (!hasPhoto || !p.photos) return
+                                const urls = p.photos.map((ph) => getFileUrl('products', p.id, ph))
+                                setLightboxPhotos(urls)
+                                setLightboxTitle(`${p.code} — ${p.description}`)
+                                setLightboxIndex(0)
+                                setLightboxOpen(true)
+                              }}
+                              disabled={!hasPhoto}
+                              className={`relative group h-10 w-10 rounded-lg bg-[#F3EAD8] overflow-hidden flex items-center justify-center shrink-0 border border-[#E5DFD5] ${
+                                hasPhoto
+                                  ? 'cursor-pointer hover:border-[#C6A664]'
+                                  : 'cursor-default'
+                              }`}
+                              title={hasPhoto ? 'Clique para ampliar foto' : 'Sem foto'}
+                            >
+                              {photo ? (
+                                <>
+                                  <img
+                                    src={photo}
+                                    alt={p.description}
+                                    className="h-full w-full object-cover group-hover:scale-105 transition-transform"
+                                  />
+                                  <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white">
+                                    <ZoomIn className="h-3.5 w-3.5" />
+                                  </div>
+                                </>
+                              ) : (
+                                <PackageCheck className="h-4 w-4 text-[#C6A664]" />
+                              )}
+                            </button>
+                            <div>
+                              <span className="font-mono font-bold text-[#7A5C2E] block">
+                                {p.code}
+                              </span>
+                              <span className="font-medium text-[#2D2A26] line-clamp-1 max-w-[200px]">
+                                {p.description}
+                              </span>
+                            </div>
+                          </div>
+                        </td>
+
+                        <td className="py-2.5 px-3 font-medium text-[#2D2A26]">
+                          {p.expand?.type?.name || '—'}
+                        </td>
+
+                        <td className="py-2.5 px-3 text-[#6B655E]">
+                          {p.expand?.size?.name || 'Único'}
+                        </td>
+
+                        <td className="py-2.5 px-3">
+                          <span className="capitalize px-2 py-0.5 rounded-full bg-[#F3EAD8] text-[#7A5C2E] inline-block font-medium">
+                            {p.target_audience || 'Unissex'}
+                          </span>
+                        </td>
+
+                        <td className="py-2.5 px-3 text-right font-bold text-[#2E7D4F]">
+                          {formatCurrency(p.selling_price)}
+                        </td>
+
+                        <td className="py-2.5 px-3 text-center">
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                            {p.quantity} unid.
+                          </Badge>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Card>
         )}
       </div>
+
+      {/* Lightbox Modal Reutilizável */}
+      <ImageLightbox
+        open={lightboxOpen}
+        onClose={() => setLightboxOpen(false)}
+        photos={lightboxPhotos}
+        initialIndex={lightboxIndex}
+        title={lightboxTitle}
+      />
     </div>
   )
 }

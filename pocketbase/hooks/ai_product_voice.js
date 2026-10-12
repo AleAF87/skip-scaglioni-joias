@@ -33,15 +33,17 @@ REGRAS CRÍTICAS INVIOLÁVEIS:
 1. NUNCA invente preço de venda, valor investido, quantidade ou qualquer outro campo que não tenha sido explicitamente falado ou claramente deduzido da fala. Se não foi falado, deixe como null ou string vazia ("").
 2. Se o usuário falou por exemplo "investi 20", valor investido é 20.00. Se falou "vendo por 60", preço de venda é 60.00.
 3. Se o usuário falou "uma unidade", quantidade é 1. Se falou "cinco", quantidade é 5. Se não mencionou quantidade, retorne null.
-4. Tipo de produto: deve casar com uma das opções cadastradas: [${typeNames}] se identificável, senão null.
-5. Material: deve casar com uma das opções cadastradas: [${materialNames}] se identificável, senão null.
-6. Tamanho: deve casar com uma das opções cadastradas: [${sizeNames}] se identificável, senão null.
-7. Público/Sexo: apenas "feminino", "masculino", "unissex" se mencionado ou inferido com alta confiança (ex: "brinco feminino" -> "feminino", "pulseira masculina" -> "masculino"), senão null.
-8. Retorne SEMPRE E APENAS um objeto JSON válido, sem texto antes ou depois, sem markdown, sem blocos \`\`\`json.
+4. Tipo de produto (type_name): deve casar com uma das opções cadastradas: [${typeNames}] se identificável, senão null.
+5. Material (material_name): deve casar com uma das opções cadastradas: [${materialNames}] se identificável, senão null.
+6. Tamanho (size_name): deve casar com uma das opções cadastradas: [${sizeNames}] se identificável, senão null.
+7. Perfil (target_audience): apenas "feminino", "masculino" ou "unissex" se mencionado ou inferido com alta confiança (ex: "brinco feminino" -> "feminino", "pulseira masculina" -> "masculino"), senão null.
+8. REGRA CRUCIAL DO CAMPO "description": O campo "description" deve conter SOMENTE a descrição real/estética da peça (ex: "Brinco folheado a ouro com cristais" ou "Anel solitário com zircônia redonda").
+   NUNCA inclua o tipo ("brinco", "anel"), o tamanho ("tamanho único", "18cm", "aro 16") nem o perfil ("feminino", "masculino", "unissex") repetidos dentro de "description", pois já existem campos próprios para cada um deles. Se o usuário disser "brinco folheado a ouro, feminino, tamanho único", a "description" deve ser apenas "Folheado a ouro" ou "Brinco folheado a ouro" (sem as palavras ", feminino, tamanho único").
+9. Retorne SEMPRE E APENAS um objeto JSON válido, sem texto antes ou depois, sem markdown, sem blocos \`\`\`json.
 
 Formato JSON esperado:
 {
-  "description": "Texto refinado e limpo da descrição da joia para exibição",
+  "description": "Texto limpo da peça SEM tipo, tamanho ou perfil (ex: Brinco folheado a ouro com pedras de rubi)",
   "type_name": "Nome do tipo ou null",
   "material_name": "Nome do material ou null",
   "size_name": "Nome do tamanho ou null",

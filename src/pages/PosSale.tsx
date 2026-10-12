@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react'
 import { salesService } from '@/services/salesService'
 import { productService } from '@/services/productService'
 import { Product, Customer, Sale, SaleItem } from '@/types'
-import { formatCurrency, formatDateTime } from '@/lib/formatters'
+import { formatCurrency, formatDateTime, getFileUrl } from '@/lib/formatters'
+import { ImageLightbox } from '@/components/ImageLightbox'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -33,6 +34,8 @@ import {
   Sparkles,
   Layers,
   ArrowRight,
+  PackageCheck,
+  ZoomIn,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -68,6 +71,21 @@ export default function PosSale() {
   const [newCustName, setNewCustName] = useState('')
   const [newCustPhone, setNewCustPhone] = useState('')
   const [newCustEmail, setNewCustEmail] = useState('')
+
+  // Lightbox
+  const [lightboxOpen, setLightboxOpen] = useState(false)
+  const [lightboxPhotos, setLightboxPhotos] = useState<string[]>([])
+  const [lightboxTitle, setLightboxTitle] = useState('')
+  const [lightboxIndex, setLightboxIndex] = useState(0)
+
+  const handleOpenLightbox = (p: Product, initialIdx: number = 0) => {
+    if (!p.photos || p.photos.length === 0) return
+    const urls = p.photos.map((ph) => getFileUrl('products', p.id, ph))
+    setLightboxPhotos(urls)
+    setLightboxTitle(`${p.code} — ${p.description}`)
+    setLightboxIndex(initialIdx)
+    setLightboxOpen(true)
+  }
 
   const [isProcessing, setIsProcessing] = useState(false)
   const barcodeInputRef = useRef<HTMLInputElement>(null)
@@ -392,34 +410,88 @@ export default function PosSale() {
                 />
               </div>
 
-              {/* Autocomplete Dropdown preview */}
+              {/* Autocomplete Dropdown preview com miniatura amplificável e colunas/badges separadas */}
               {filteredProducts.length > 0 && (
-                <div className="divide-y divide-[#E5DFD5] border border-[#E5DFD5] rounded-xl bg-[#FDFBF7] overflow-hidden shadow-sm">
-                  {filteredProducts.map((p) => (
-                    <div
-                      key={p.id}
-                      onClick={() => addToCart(p)}
-                      className="p-2.5 flex items-center justify-between hover:bg-[#F3EAD8] cursor-pointer transition-colors"
-                    >
-                      <div>
-                        <span className="font-mono text-xs font-bold text-[#7A5C2E] mr-2">
-                          {p.code}
-                        </span>
-                        <span className="text-sm font-medium text-[#2D2A26]">{p.description}</span>
-                        <span className="text-xs text-[#6B655E] ml-2 font-light">
-                          (Restam {p.quantity})
-                        </span>
+                <div className="divide-y divide-[#E5DFD5] border border-[#E5DFD5] rounded-xl bg-[#FDFBF7] overflow-hidden shadow-sm max-h-80 overflow-y-auto">
+                  {filteredProducts.map((p) => {
+                    const photo =
+                      p.photos && p.photos.length > 0
+                        ? getFileUrl('products', p.id, p.photos[0])
+                        : null
+                    const hasPhoto = Boolean(photo)
+
+                    return (
+                      <div
+                        key={p.id}
+                        onClick={() => addToCart(p)}
+                        className="p-2.5 flex items-center justify-between hover:bg-[#F3EAD8] cursor-pointer transition-colors gap-3"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (hasPhoto) handleOpenLightbox(p)
+                            }}
+                            disabled={!hasPhoto}
+                            className={`relative group h-10 w-10 rounded-lg bg-white border border-[#E5DFD5] shrink-0 overflow-hidden flex items-center justify-center ${
+                              hasPhoto ? 'hover:border-[#C6A664]' : ''
+                            }`}
+                            title={hasPhoto ? 'Ampliar foto' : 'Sem foto'}
+                          >
+                            {photo ? (
+                              <>
+                                <img
+                                  src={photo}
+                                  alt={p.description}
+                                  className="h-full w-full object-cover group-hover:scale-105 transition-transform"
+                                />
+                                <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white">
+                                  <ZoomIn className="h-3 w-3" />
+                                </div>
+                              </>
+                            ) : (
+                              <PackageCheck className="h-4 w-4 text-[#C6A664]" />
+                            )}
+                          </button>
+
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs font-bold text-[#7A5C2E]">
+                                {p.code}
+                              </span>
+                              <span className="text-xs text-[#6B655E] font-light">
+                                ({p.quantity} em estoque)
+                              </span>
+                            </div>
+                            <span className="text-sm font-medium text-[#2D2A26] block truncate">
+                              {p.description}
+                            </span>
+                            <div className="flex items-center gap-1.5 text-[10px] text-[#6B655E] mt-0.5">
+                              <span className="px-1 py-0.2 rounded bg-[#E5DFD5]/60 text-[#2D2A26]">
+                                {p.expand?.type?.name || 'Joia'}
+                              </span>
+                              <span className="px-1 py-0.2 rounded bg-[#E5DFD5]/60 text-[#2D2A26]">
+                                Tam: {p.expand?.size?.name || 'Único'}
+                              </span>
+                              <span className="px-1 py-0.2 rounded bg-[#E5DFD5]/60 text-[#2D2A26] capitalize">
+                                Perfil: {p.target_audience || 'Unissex'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3 shrink-0">
+                          <span className="font-bold text-sm text-[#2E7D4F]">
+                            {formatCurrency(p.selling_price)}
+                          </span>
+                          <Button size="sm" variant="ghost" className="h-7 text-[#7A5C2E]">
+                            <Plus className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <span className="font-bold text-sm text-[#2E7D4F]">
-                          {formatCurrency(p.selling_price)}
-                        </span>
-                        <Button size="sm" variant="ghost" className="h-7 text-[#7A5C2E]">
-                          <Plus className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </CardContent>
@@ -949,6 +1021,15 @@ export default function PosSale() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Lightbox Modal Reutilizável */}
+      <ImageLightbox
+        open={lightboxOpen}
+        onClose={() => setLightboxOpen(false)}
+        photos={lightboxPhotos}
+        initialIndex={lightboxIndex}
+        title={lightboxTitle}
+      />
     </div>
   )
 }

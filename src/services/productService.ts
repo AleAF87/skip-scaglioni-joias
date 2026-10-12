@@ -51,6 +51,33 @@ export const productService = {
     return pb.collection('products').update<Product>(id, data)
   },
 
+  async updateProductWithPhotos(
+    id: string,
+    fields: Record<string, any>,
+    newPhotoFiles: File[],
+    retainedExistingPhotoNames: string[],
+  ) {
+    const formData = new FormData()
+
+    Object.entries(fields).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        formData.append(key, value.toString())
+      }
+    })
+
+    // Retained photos (names as strings) tell PocketBase which existing files to keep
+    retainedExistingPhotoNames.forEach((name) => {
+      formData.append('photos', name)
+    })
+
+    // New photo files
+    newPhotoFiles.forEach((file) => {
+      formData.append('photos', file)
+    })
+
+    return pb.collection('products').update<Product>(id, formData)
+  },
+
   async deleteProduct(id: string) {
     return pb.collection('products').delete(id)
   },
@@ -74,7 +101,7 @@ export const productService = {
       material_name: string
       size_id: string | null
       size_name: string
-      target_audience: 'feminino' | 'masculino' | 'unissex' | ''
+      target_audience: 'feminino' | 'masculino' | 'unissex' | '' | null
       invested_value: number | null
       selling_price: number | null
       quantity: number | null
@@ -89,5 +116,44 @@ export const productService = {
   async updateBatch(ids: string[], updates: Partial<Product>) {
     const promises = ids.map((id) => pb.collection('products').update(id, updates))
     return Promise.all(promises)
+  },
+
+  async getNextProductCode(): Promise<string> {
+    try {
+      // Find highest numerical code or fallback starting from 100001
+      const list = await pb.collection('products').getFullList<Product>({
+        fields: 'code',
+      })
+
+      let maxNum = 100000
+      for (const item of list) {
+        if (!item.code) continue
+        // Check if code is purely digits
+        if (/^\d+$/.test(item.code)) {
+          const val = parseInt(item.code, 10)
+          if (!isNaN(val) && val > maxNum) {
+            maxNum = val
+          }
+        }
+      }
+
+      const nextCode = (maxNum + 1).toString()
+
+      // Validate uniqueness just in case
+      try {
+        const existing = await pb.collection('products').getFirstListItem(`code = '${nextCode}'`)
+        if (existing) {
+          return (maxNum + 2).toString()
+        }
+      } catch {
+        // Not found means it's available
+      }
+
+      return nextCode
+    } catch (err) {
+      console.error('Erro ao gerar código numérico sequencial:', err)
+      // Fallback: 6-digit random number starting at 100000+
+      return (100000 + Math.floor(Math.random() * 899999)).toString()
+    }
   },
 }
