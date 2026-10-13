@@ -273,11 +273,12 @@ export default function VoiceProductEntry() {
       if (
         err?.status === 503 ||
         err?.data?.configured === false ||
+        errorMsg.includes('SKIP_AI_GATEWAY_API_KEY') ||
         errorMsg.includes('OPENAI_API_KEY')
       ) {
         setIsSttConfigured(false)
         setTranscriptionError(
-          'A chave de API de transcrição (OPENAI_API_KEY) não está configurada no servidor. Configure a chave para habilitar a transcrição automática por IA ou digite o texto diretamente no campo abaixo.',
+          'A gateway de IA de transcrição (SKIP_AI_GATEWAY_API_KEY) não está configurada no servidor. Configure a chave para habilitar a transcrição automática por IA ou digite o texto diretamente no campo abaixo.',
         )
         toast.error('Transcrição por IA não configurada no servidor.')
       } else {
@@ -847,9 +848,9 @@ export default function VoiceProductEntry() {
             <div>
               <p className="font-semibold">Transcrição de áudio por IA aguardando configuração</p>
               <p className="text-xs text-[#2D2A26] mt-0.5">
-                Para ativar a transcrição automática no servidor, adicione a variável de ambiente{' '}
+                Para ativar a transcrição automática no servidor, verifique a variável de ambiente{' '}
                 <code className="font-mono bg-white/70 px-1 py-0.5 rounded border border-[#B26A00]/30">
-                  OPENAI_API_KEY
+                  SKIP_AI_GATEWAY_API_KEY
                 </code>{' '}
                 no Skip Cloud. Enquanto isso, você pode digitar ou colar a descrição no campo abaixo
                 e usar normalmente o botão "Preencher Formulário com IA".

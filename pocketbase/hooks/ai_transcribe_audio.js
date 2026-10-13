@@ -1,16 +1,26 @@
-// Hook to transcribe audio sent from client using OpenAI Whisper / STT provider
+// Hook to transcribe audio sent from client using Skip AI Gateway / OpenAI-compatible STT endpoint
 routerAdd(
   'POST',
   '/backend/v1/ai/transcribe-audio',
   (e) => {
-    // 1. Check for OpenAI or Whisper API key in environment
-    const openaiKey =
-      $os.getenv('OPENAI_API_KEY') || $os.getenv('WHISPER_API_KEY') || $os.getenv('STT_API_KEY')
+    // 1. Resolve AI Gateway credentials:
+    // Primary: SKIP_AI_GATEWAY_API_KEY and SKIP_AI_GATEWAY_URL from environment
+    // Fallback: OPENAI_API_KEY / WHISPER_API_KEY / STT_API_KEY and OPENAI_API_BASE
+    const gatewayKey =
+      $os.getenv('SKIP_AI_GATEWAY_API_KEY') ||
+      $os.getenv('OPENAI_API_KEY') ||
+      $os.getenv('WHISPER_API_KEY') ||
+      $os.getenv('STT_API_KEY')
 
-    if (!openaiKey) {
+    let gatewayUrl =
+      $os.getenv('SKIP_AI_GATEWAY_URL') ||
+      $os.getenv('OPENAI_API_BASE') ||
+      'https://api.openai.com/v1'
+
+    if (!gatewayKey) {
       return e.json(503, {
         error:
-          'Chave de API de transcrição (OPENAI_API_KEY) não está configurada no servidor. Por favor configure a variável de ambiente OPENAI_API_KEY para habilitar a transcrição de áudio por IA.',
+          'Chave da Skip AI Gateway (SKIP_AI_GATEWAY_API_KEY) não está configurada no servidor. Por favor verifique as variáveis de ambiente para habilitar a transcrição de áudio por IA.',
         configured: false,
       })
     }
@@ -26,7 +36,7 @@ routerAdd(
     const audioFile = uploadedFiles[0]
     const originalName = audioFile.name || 'audio.mp4'
 
-    // Determine safe extension and filename for OpenAI Whisper
+    // Determine safe extension and filename for Whisper / STT endpoint
     let fileName = originalName
     const lower = originalName.toLowerCase()
     if (
@@ -42,7 +52,7 @@ routerAdd(
     }
 
     try {
-      // 3. Prepare multipart FormData for OpenAI Whisper API
+      // 3. Prepare multipart FormData for OpenAI-compatible Whisper endpoint
       const formData = new FormData()
       formData.append('model', 'whisper-1')
       formData.append('language', 'pt')
@@ -53,13 +63,24 @@ routerAdd(
       )
       formData.append('file', audioFile, fileName)
 
-      const apiBase = $os.getenv('OPENAI_API_BASE') || 'https://api.openai.com/v1'
+      // Normalize base URL: strip trailing slash
+      let baseUrl = gatewayUrl.trim().replace(/\/+$/, '')
+      let endpoint = `${baseUrl}/audio/transcriptions`
+      // If gatewayUrl already points to an audio/transcriptions endpoint
+      if (baseUrl.endsWith('/audio/transcriptions')) {
+        endpoint = baseUrl
+      }
+
+      const headers = {
+        Authorization: `Bearer ${gatewayKey}`,
+      }
+
+      // Also include api-key header for gateways that accept Azure / custom style
+      // while preserving standard Bearer token
       const response = $http.send({
-        url: `${apiBase}/audio/transcriptions`,
+        url: endpoint,
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${openaiKey}`,
-        },
+        headers: headers,
         body: formData,
         timeout: 60,
       })
@@ -69,9 +90,14 @@ routerAdd(
         if (response.json && response.json.error && response.json.error.message) {
           errorDetail = response.json.error.message
         } else if (response.json && response.json.error) {
-          errorDetail = String(response.json.error)
+          errorDetail =
+            typeof response.json.error === 'string'
+              ? response.json.error
+              : JSON.stringify(response.json.error)
+        } else if (response.raw) {
+          errorDetail = response.raw.slice(0, 300)
         }
-        console.log('Erro retornado pela API Whisper:', response.statusCode, errorDetail)
+        console.log('Erro retornado pela API de transcrição:', response.statusCode, errorDetail)
         return e.json(response.statusCode >= 400 && response.statusCode < 500 ? 400 : 502, {
           error: `Erro ao transcrever áudio: ${errorDetail}`,
         })
