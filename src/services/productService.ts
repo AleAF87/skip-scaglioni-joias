@@ -135,6 +135,7 @@ export const productService = {
       text: string
       configured: boolean
       error?: string
+      useBrowserStt?: boolean
     }>('/backend/v1/ai/transcribe-audio', {
       method: 'POST',
       body: formData,

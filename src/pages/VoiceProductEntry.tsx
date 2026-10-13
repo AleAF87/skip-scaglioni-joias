@@ -130,8 +130,21 @@ export default function VoiceProductEntry() {
 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Check microphone permissions
+  // SpeechRecognition instance ref for Web Speech API fallback/hybrid
+  const speechRecognitionRef = useRef<any>(null)
+  const [hasBrowserSpeechRecognition, setHasBrowserSpeechRecognition] = useState(false)
+  const [speechRecognitionActive, setSpeechRecognitionActive] = useState(false)
+
+  // Check microphone permissions & browser speech support
   const checkMicPermission = async () => {
+    // Check SpeechRecognition support in browser
+    if (typeof window !== 'undefined') {
+      const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+      if (SpeechRec) {
+        setHasBrowserSpeechRecognition(true)
+      }
+    }
+
     try {
       if (navigator.permissions && navigator.permissions.query) {
         const status = await navigator.permissions.query({ name: 'microphone' as PermissionName })
@@ -240,8 +253,53 @@ export default function VoiceProductEntry() {
     }
   }
 
+  // Start native browser SpeechRecognition as parallel / direct STT
+  const startBrowserSpeechRecognition = (onResult: (text: string) => void) => {
+    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    if (!SpeechRec) return null
+
+    try {
+      const recognition = new SpeechRec()
+      recognition.lang = 'pt-BR'
+      recognition.continuous = true
+      recognition.interimResults = true
+      recognition.maxAlternatives = 1
+
+      let accumulated = ''
+
+      recognition.onresult = (event: any) => {
+        let currentTranscript = ''
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript
+          if (event.results[i].isFinal) {
+            accumulated += (accumulated ? ' ' : '') + transcript
+          } else {
+            currentTranscript += transcript
+          }
+        }
+        const full = (accumulated + ' ' + currentTranscript).trim()
+        if (full) {
+          onResult(full)
+        }
+      }
+
+      recognition.onerror = (event: any) => {
+        console.warn('SpeechRecognition event error:', event.error)
+      }
+
+      recognition.start()
+      return recognition
+    } catch (err) {
+      console.warn('SpeechRecognition start failed:', err)
+      return null
+    }
+  }
+
   // Send audio Blob to server-side transcription
   const processAudioBlob = async (audioBlob: Blob, extension: string) => {
+    // If browser speech recognition already captured text while speaking, keep it as fallback/preview
+    const existingBrowserText = transcribedText.trim()
+
     setIsTranscribing(true)
     setTranscriptionError(null)
 
@@ -253,15 +311,18 @@ export default function VoiceProductEntry() {
       setIsSttConfigured(true)
       const text = (res.text || '').trim()
 
-      if (!text) {
+      if (text) {
+        setTranscribedText(text)
+        toast.success(
+          'Áudio transcrito com sucesso! Revise ou clique em "Preencher Formulário com IA".',
+        )
+      } else if (existingBrowserText) {
+        toast.success(
+          'Fala transcrita diretamente pelo navegador! Revise ou clique em "Preencher Formulário com IA".',
+        )
+      } else {
         toast.warning('O áudio gravado não contém fala compreensível. Tente gravar novamente.')
-        return
       }
-
-      setTranscribedText(text)
-      toast.success(
-        'Áudio transcrito com sucesso! Revise ou clique em "Preencher Formulário com IA".',
-      )
     } catch (err: any) {
       console.error('Erro na transcrição:', err)
       const errorMsg =
@@ -269,21 +330,38 @@ export default function VoiceProductEntry() {
         err?.message ||
         'Falha ao transcrever o áudio no servidor. Verifique a conexão.'
 
-      // Detect if STT is not configured
+      // Detect if server-side STT is not configured
       if (
         err?.status === 503 ||
         err?.data?.configured === false ||
-        errorMsg.includes('SKIP_AI_GATEWAY_API_KEY') ||
-        errorMsg.includes('OPENAI_API_KEY')
+        err?.data?.useBrowserStt ||
+        errorMsg.includes('Speech-to-Text') ||
+        errorMsg.includes('OPENAI_API_KEY') ||
+        errorMsg.includes('GROQ_API_KEY') ||
+        errorMsg.includes('SKIP_AI_GATEWAY_API_KEY')
       ) {
         setIsSttConfigured(false)
-        setTranscriptionError(
-          'A gateway de IA de transcrição (SKIP_AI_GATEWAY_API_KEY) não está configurada no servidor. Configure a chave para habilitar a transcrição automática por IA ou digite o texto diretamente no campo abaixo.',
-        )
-        toast.error('Transcrição por IA não configurada no servidor.')
+        if (existingBrowserText) {
+          // We have the text from browser recognition!
+          toast.success(
+            'Transcrição concluída via microfone do navegador! Agora clique em "Preencher Formulário com IA".',
+          )
+        } else {
+          setTranscriptionError(
+            'Transcrição no servidor requer chave STT (OPENAI_API_KEY ou GROQ_API_KEY). Use o reconhecimento de voz nativo ou digite no campo abaixo.',
+          )
+          toast.info(
+            'A transcrição no servidor requer chave STT. O reconhecimento nativo do navegador foi ativado.',
+          )
+        }
       } else {
-        setTranscriptionError(errorMsg)
-        toast.error(`Erro ao transcrever: ${errorMsg}`)
+        // Upstream or other error
+        if (existingBrowserText) {
+          toast.info('Transcrição local do navegador preservada.')
+        } else {
+          setTranscriptionError(errorMsg)
+          toast.error(`Erro ao transcrever áudio: ${errorMsg}`)
+        }
       }
     } finally {
       setIsTranscribing(false)
@@ -297,7 +375,7 @@ export default function VoiceProductEntry() {
     }
   }
 
-  // Start real MediaRecorder
+  // Start recording with dual MediaRecorder + Browser SpeechRecognition (for real-time STT support)
   const startRecording = async () => {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       toast.error('Seu navegador não suporta captura de microfone.')
@@ -329,6 +407,15 @@ export default function VoiceProductEntry() {
       mediaRecorderRef.current = recorder
       audioChunksRef.current = []
 
+      // Also start SpeechRecognition in parallel if available (real-time dictation)
+      if (hasBrowserSpeechRecognition) {
+        const recognition = startBrowserSpeechRecognition((recognizedText) => {
+          setTranscribedText(recognizedText)
+        })
+        speechRecognitionRef.current = recognition
+        setSpeechRecognitionActive(!!recognition)
+      }
+
       recorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) {
           audioChunksRef.current.push(event.data)
@@ -336,6 +423,17 @@ export default function VoiceProductEntry() {
       }
 
       recorder.onstop = () => {
+        // Stop browser SpeechRecognition if active
+        if (speechRecognitionRef.current) {
+          try {
+            speechRecognitionRef.current.stop()
+          } catch {
+            // ignore
+          }
+          speechRecognitionRef.current = null
+          setSpeechRecognitionActive(false)
+        }
+
         // Release mic tracks
         stream.getTracks().forEach((track) => track.stop())
         audioStreamRef.current = null
@@ -381,11 +479,21 @@ export default function VoiceProductEntry() {
     }
   }
 
-  // Stop real MediaRecorder
+  // Stop real MediaRecorder & SpeechRecognition
   const stopRecording = () => {
     if (timerIntervalRef.current) {
       clearInterval(timerIntervalRef.current)
       timerIntervalRef.current = null
+    }
+
+    if (speechRecognitionRef.current) {
+      try {
+        speechRecognitionRef.current.stop()
+      } catch {
+        // ignore
+      }
+      speechRecognitionRef.current = null
+      setSpeechRecognitionActive(false)
     }
 
     setIsRecording(false)
@@ -408,7 +516,7 @@ export default function VoiceProductEntry() {
     }
   }
 
-  // Dictate Observations with server-side STT
+  // Dictate Observations with server-side STT & native fallback
   const toggleNotesRecording = async () => {
     if (isRecordingNotes) {
       // Stop notes recording
@@ -444,6 +552,14 @@ export default function VoiceProductEntry() {
         notesMediaRecorderRef.current = recorder
         notesAudioChunksRef.current = []
 
+        let browserNotesText = ''
+        let notesRecognition: any = null
+        if (hasBrowserSpeechRecognition) {
+          notesRecognition = startBrowserSpeechRecognition((recognizedText) => {
+            browserNotesText = recognizedText
+          })
+        }
+
         recorder.ondataavailable = (event) => {
           if (event.data && event.data.size > 0) {
             notesAudioChunksRef.current.push(event.data)
@@ -451,13 +567,20 @@ export default function VoiceProductEntry() {
         }
 
         recorder.onstop = async () => {
+          if (notesRecognition) {
+            try {
+              notesRecognition.stop()
+            } catch {
+              // ignore
+            }
+          }
           stream.getTracks().forEach((track) => track.stop())
           notesAudioStreamRef.current = null
 
           const blobType = recorder.mimeType || mimeType || 'audio/mp4'
           const audioBlob = new Blob(notesAudioChunksRef.current, { type: blobType })
 
-          if (audioBlob.size < 500) {
+          if (audioBlob.size < 500 && !browserNotesText) {
             toast.warning('Gravação de observação muito curta.')
             return
           }
@@ -468,16 +591,23 @@ export default function VoiceProductEntry() {
               audioBlob,
               `obs_${Date.now()}.${extension}`,
             )
-            const text = (res.text || '').trim()
+            const text = (res.text || '').trim() || browserNotesText.trim()
             if (text) {
               setObservations((prev) => (prev ? `${prev} | ${text}` : text))
               toast.success('Observação transcrita e adicionada!')
             }
           } catch (err: any) {
             console.error('Erro ao transcrever observação:', err)
-            toast.error(
-              'Erro ao transcrever observação: ' + (err?.data?.error || err?.message || 'falha'),
-            )
+            if (browserNotesText.trim()) {
+              setObservations((prev) =>
+                prev ? `${prev} | ${browserNotesText.trim()}` : browserNotesText.trim(),
+              )
+              toast.success('Observação transcrita pelo navegador e adicionada!')
+            } else {
+              toast.error(
+                'Erro ao transcrever observação: ' + (err?.data?.error || err?.message || 'falha'),
+              )
+            }
           } finally {
             setIsTranscribingNotes(false)
           }
@@ -914,10 +1044,13 @@ export default function VoiceProductEntry() {
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#B3261E] opacity-75" />
                     <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#B3261E]" />
                   </span>
-                  <span>GRAVANDO ÁUDIO ({formatTimer(recordingSeconds)})</span>
+                  <span>
+                    GRAVANDO ÁUDIO ({formatTimer(recordingSeconds)})
+                    {speechRecognitionActive && ' • DITADO ATIVO'}
+                  </span>
                 </div>
                 <p className="text-xs text-[#6B655E] mt-1 font-medium">
-                  Clique no botão vermelho quando terminar de falar para enviar ao servidor.
+                  Fale a descrição da joia. Clique no botão vermelho quando terminar para concluir.
                 </p>
               </div>
             ) : isTranscribing ? (
