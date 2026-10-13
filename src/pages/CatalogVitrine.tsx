@@ -265,7 +265,7 @@ export default function CatalogVitrine() {
                         Perfil: {p.target_audience || 'Unissex'}
                       </span>
                     </div>
-                    <h3 className="font-serif text-base font-bold text-[#2D2A26] line-clamp-2 mt-1 leading-snug">
+                    <h3 className="font-serif text-base font-bold text-[#2D2A26] mt-1 leading-snug whitespace-normal break-words">
                       {p.description}
                     </h3>
                   </div>
@@ -375,7 +375,7 @@ export default function CatalogVitrine() {
                   </span>
                 </div>
                 <div>
-                  <span className="text-[#6B655E] block">Tamanho / Medida:</span>
+                  <span className="text-[#6B655E] block">Tamanho:</span>
                   <span className="font-semibold text-[#2D2A26]">
                     {selectedProduct.expand?.size?.name || 'Único'}
                   </span>

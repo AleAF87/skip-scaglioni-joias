@@ -43,7 +43,7 @@ export default function Layout() {
       : []),
     ...(canManageInternal
       ? [
-          { to: '/produtos', label: 'Produtos', icon: Gem },
+          { to: '/produtos', label: 'Catálogo de Joias', icon: Gem },
           { to: '/estoque', label: 'Estoque', icon: Boxes },
           { to: '/pdv', label: 'PDV / Vendas', icon: ShoppingCart },
         ]

@@ -48,11 +48,14 @@ export default function StockInventory() {
   const [materials, setMaterials] = useState<ProductMaterial[]>([])
   const [sizes, setSizes] = useState<ProductSize[]>([])
 
-  // Search & Filters
+  // Search & Multiple Choice Filters
   const [search, setSearch] = useState('')
-  const [selectedType, setSelectedType] = useState('')
-  const [selectedMaterial, setSelectedMaterial] = useState('')
-  const [selectedStatus, setSelectedStatus] = useState('')
+  const [selectedTypes, setSelectedTypes] = useState<string[]>([])
+  const [selectedMaterials, setSelectedMaterials] = useState<string[]>([])
+  const [selectedSizes, setSelectedSizes] = useState<string[]>([])
+  const [selectedAudiences, setSelectedAudiences] = useState<string[]>([])
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([])
+  const [showFiltersPanel, setShowFiltersPanel] = useState(false)
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [totalItems, setTotalItems] = useState(0)
@@ -108,7 +111,15 @@ export default function StockInventory() {
 
   useEffect(() => {
     loadProducts()
-  }, [search, selectedType, selectedMaterial, selectedStatus, page])
+  }, [
+    search,
+    selectedTypes,
+    selectedMaterials,
+    selectedSizes,
+    selectedAudiences,
+    selectedStatuses,
+    page,
+  ])
 
   const loadAuxiliaries = async () => {
     try {
@@ -126,9 +137,11 @@ export default function StockInventory() {
     try {
       const res = await productService.getProducts({
         search,
-        type: selectedType,
-        material: selectedMaterial,
-        status: selectedStatus,
+        types: selectedTypes,
+        materials: selectedMaterials,
+        sizes: selectedSizes,
+        targetAudience: selectedAudiences,
+        statuses: selectedStatuses,
         page,
         perPage: 15,
       })
@@ -142,6 +155,33 @@ export default function StockInventory() {
       setLoading(false)
     }
   }
+
+  const toggleArrayFilter = (
+    setter: React.Dispatch<React.SetStateAction<string[]>>,
+    value: string,
+  ) => {
+    setter((prev) =>
+      prev.includes(value) ? prev.filter((item) => item !== value) : [...prev, value],
+    )
+    setPage(1)
+  }
+
+  const clearAllFilters = () => {
+    setSearch('')
+    setSelectedTypes([])
+    setSelectedMaterials([])
+    setSelectedSizes([])
+    setSelectedAudiences([])
+    setSelectedStatuses([])
+    setPage(1)
+  }
+
+  const totalActiveFilters =
+    selectedTypes.length +
+    selectedMaterials.length +
+    selectedSizes.length +
+    selectedAudiences.length +
+    selectedStatuses.length
 
   const handleSelectAll = () => {
     if (selectedIds.length === products.length) {
@@ -394,12 +434,12 @@ export default function StockInventory() {
         </div>
       </div>
 
-      {/* Filter Toolbar */}
+      {/* Filter Toolbar (Multi-choice style) */}
       <Card className="border-[#E5DFD5] bg-white shadow-xs">
-        <CardContent className="p-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        <CardContent className="p-4 space-y-4">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
             {/* Search */}
-            <div className="relative lg:col-span-2">
+            <div className="relative flex-1">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-[#6B655E]" />
               <Input
                 value={search}
@@ -407,65 +447,281 @@ export default function StockInventory() {
                   setSearch(e.target.value)
                   setPage(1)
                 }}
-                placeholder="Buscar por código ou descrição..."
+                placeholder="Buscar por código ou descrição completa..."
                 className="pl-9 border-[#E5DFD5] focus-visible:ring-[#C6A664]"
               />
             </div>
 
-            {/* Type Filter */}
-            <div>
-              <select
-                value={selectedType}
-                onChange={(e) => {
-                  setSelectedType(e.target.value)
-                  setPage(1)
-                }}
-                className="w-full h-10 rounded-md border border-[#E5DFD5] bg-white px-3 py-2 text-sm text-[#2D2A26] focus:outline-none focus:ring-2 focus:ring-[#C6A664]"
-              >
-                <option value="">Todos os Tipos</option>
-                {types.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {/* Toggle Multi-choice filters button */}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setShowFiltersPanel((v) => !v)}
+              className={`border-[#C6A664] flex items-center gap-2 ${
+                totalActiveFilters > 0
+                  ? 'bg-[#C6A664]/15 text-[#7A5C2E] font-semibold'
+                  : 'text-[#6B655E] hover:bg-[#F3EAD8]'
+              }`}
+            >
+              <Filter className="h-4 w-4 text-[#7A5C2E]" />
+              <span>Filtros Múltipla Escolha</span>
+              {totalActiveFilters > 0 && (
+                <Badge className="bg-[#7A5C2E] text-white text-[10px] px-1.5 py-0 h-5">
+                  {totalActiveFilters}
+                </Badge>
+              )}
+            </Button>
 
-            {/* Material Filter */}
-            <div>
-              <select
-                value={selectedMaterial}
-                onChange={(e) => {
-                  setSelectedMaterial(e.target.value)
-                  setPage(1)
-                }}
-                className="w-full h-10 rounded-md border border-[#E5DFD5] bg-white px-3 py-2 text-sm text-[#2D2A26] focus:outline-none focus:ring-2 focus:ring-[#C6A664]"
+            {(totalActiveFilters > 0 || search) && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={clearAllFilters}
+                className="text-xs text-[#B3261E] hover:bg-[#B3261E]/10"
               >
-                <option value="">Todos os Materiais</option>
-                {materials.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Status Filter */}
-            <div>
-              <select
-                value={selectedStatus}
-                onChange={(e) => {
-                  setSelectedStatus(e.target.value)
-                  setPage(1)
-                }}
-                className="w-full h-10 rounded-md border border-[#E5DFD5] bg-white px-3 py-2 text-sm text-[#2D2A26] focus:outline-none focus:ring-2 focus:ring-[#C6A664]"
-              >
-                <option value="">Todos os Status</option>
-                <option value="available">Disponível</option>
-                <option value="unavailable">Esgotado</option>
-              </select>
-            </div>
+                <X className="h-3.5 w-3.5 mr-1" /> Limpar filtros
+              </Button>
+            )}
           </div>
+
+          {/* Collapsible / Expandable Multiple-Choice Filter Chips Panel */}
+          {showFiltersPanel && (
+            <div className="pt-3 border-t border-[#E5DFD5] space-y-4 animate-fade-in">
+              {/* Tipos */}
+              <div>
+                <Label className="text-xs font-semibold text-[#6B655E] uppercase tracking-wider block mb-2">
+                  Tipo de Joia (Múltipla Escolha):
+                </Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {types.map((t) => {
+                    const isChecked = selectedTypes.includes(t.id)
+                    return (
+                      <button
+                        type="button"
+                        key={t.id}
+                        onClick={() => toggleArrayFilter(setSelectedTypes, t.id)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors flex items-center gap-1.5 ${
+                          isChecked
+                            ? 'bg-[#7A5C2E] border-[#7A5C2E] text-white shadow-xs'
+                            : 'bg-white border-[#E5DFD5] text-[#2D2A26] hover:bg-[#F3EAD8]'
+                        }`}
+                      >
+                        <span
+                          className={`h-2 w-2 rounded-full ${isChecked ? 'bg-white' : 'bg-[#C6A664]'}`}
+                        />
+                        {t.name}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Materiais */}
+              <div>
+                <Label className="text-xs font-semibold text-[#6B655E] uppercase tracking-wider block mb-2">
+                  Material (Múltipla Escolha):
+                </Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {materials.map((m) => {
+                    const isChecked = selectedMaterials.includes(m.id)
+                    return (
+                      <button
+                        type="button"
+                        key={m.id}
+                        onClick={() => toggleArrayFilter(setSelectedMaterials, m.id)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors flex items-center gap-1.5 ${
+                          isChecked
+                            ? 'bg-[#7A5C2E] border-[#7A5C2E] text-white shadow-xs'
+                            : 'bg-white border-[#E5DFD5] text-[#2D2A26] hover:bg-[#F3EAD8]'
+                        }`}
+                      >
+                        <span
+                          className={`h-2 w-2 rounded-full ${isChecked ? 'bg-white' : 'bg-[#C6A664]'}`}
+                        />
+                        {m.name}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Perfil */}
+              <div>
+                <Label className="text-xs font-semibold text-[#6B655E] uppercase tracking-wider block mb-2">
+                  Perfil (Múltipla Escolha):
+                </Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { val: 'feminino', label: 'Feminino' },
+                    { val: 'masculino', label: 'Masculino' },
+                    { val: 'unissex', label: 'Unissex' },
+                  ].map((aud) => {
+                    const isChecked = selectedAudiences.includes(aud.val)
+                    return (
+                      <button
+                        type="button"
+                        key={aud.val}
+                        onClick={() => toggleArrayFilter(setSelectedAudiences, aud.val)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors flex items-center gap-1.5 ${
+                          isChecked
+                            ? 'bg-[#7A5C2E] border-[#7A5C2E] text-white shadow-xs'
+                            : 'bg-white border-[#E5DFD5] text-[#2D2A26] hover:bg-[#F3EAD8]'
+                        }`}
+                      >
+                        <span
+                          className={`h-2 w-2 rounded-full ${isChecked ? 'bg-white' : 'bg-[#C6A664]'}`}
+                        />
+                        {aud.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Tamanhos */}
+              <div>
+                <Label className="text-xs font-semibold text-[#6B655E] uppercase tracking-wider block mb-2">
+                  Tamanho (Múltipla Escolha):
+                </Label>
+                <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto">
+                  {sizes.map((s) => {
+                    const isChecked = selectedSizes.includes(s.id)
+                    return (
+                      <button
+                        type="button"
+                        key={s.id}
+                        onClick={() => toggleArrayFilter(setSelectedSizes, s.id)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors flex items-center gap-1.5 ${
+                          isChecked
+                            ? 'bg-[#7A5C2E] border-[#7A5C2E] text-white shadow-xs'
+                            : 'bg-white border-[#E5DFD5] text-[#2D2A26] hover:bg-[#F3EAD8]'
+                        }`}
+                      >
+                        <span
+                          className={`h-2 w-2 rounded-full ${isChecked ? 'bg-white' : 'bg-[#C6A664]'}`}
+                        />
+                        {s.name}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Status */}
+              <div>
+                <Label className="text-xs font-semibold text-[#6B655E] uppercase tracking-wider block mb-2">
+                  Status de Estoque (Múltipla Escolha):
+                </Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { val: 'available', label: 'Disponível' },
+                    { val: 'unavailable', label: 'Esgotado' },
+                  ].map((st) => {
+                    const isChecked = selectedStatuses.includes(st.val)
+                    return (
+                      <button
+                        type="button"
+                        key={st.val}
+                        onClick={() => toggleArrayFilter(setSelectedStatuses, st.val)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors flex items-center gap-1.5 ${
+                          isChecked
+                            ? 'bg-[#7A5C2E] border-[#7A5C2E] text-white shadow-xs'
+                            : 'bg-white border-[#E5DFD5] text-[#2D2A26] hover:bg-[#F3EAD8]'
+                        }`}
+                      >
+                        <span
+                          className={`h-2 w-2 rounded-full ${isChecked ? 'bg-white' : 'bg-[#C6A664]'}`}
+                        />
+                        {st.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Active Filter Chips summary */}
+          {totalActiveFilters > 0 && !showFiltersPanel && (
+            <div className="flex flex-wrap items-center gap-1.5 pt-1 text-xs text-[#6B655E]">
+              <span className="font-semibold text-[#7A5C2E]">Filtros ativos:</span>
+              {selectedTypes.map((tid) => {
+                const name = types.find((t) => t.id === tid)?.name || tid
+                return (
+                  <Badge
+                    key={tid}
+                    variant="secondary"
+                    className="bg-[#F3EAD8] text-[#7A5C2E] border border-[#E5DFD5] flex items-center gap-1"
+                  >
+                    Tipo: {name}
+                    <X
+                      className="h-3 w-3 cursor-pointer hover:text-[#B3261E]"
+                      onClick={() => toggleArrayFilter(setSelectedTypes, tid)}
+                    />
+                  </Badge>
+                )
+              })}
+              {selectedMaterials.map((mid) => {
+                const name = materials.find((m) => m.id === mid)?.name || mid
+                return (
+                  <Badge
+                    key={mid}
+                    variant="secondary"
+                    className="bg-[#F3EAD8] text-[#7A5C2E] border border-[#E5DFD5] flex items-center gap-1"
+                  >
+                    Material: {name}
+                    <X
+                      className="h-3 w-3 cursor-pointer hover:text-[#B3261E]"
+                      onClick={() => toggleArrayFilter(setSelectedMaterials, mid)}
+                    />
+                  </Badge>
+                )
+              })}
+              {selectedAudiences.map((aud) => (
+                <Badge
+                  key={aud}
+                  variant="secondary"
+                  className="bg-[#F3EAD8] text-[#7A5C2E] border border-[#E5DFD5] flex items-center gap-1 capitalize"
+                >
+                  Perfil: {aud}
+                  <X
+                    className="h-3 w-3 cursor-pointer hover:text-[#B3261E]"
+                    onClick={() => toggleArrayFilter(setSelectedAudiences, aud)}
+                  />
+                </Badge>
+              ))}
+              {selectedSizes.map((sid) => {
+                const name = sizes.find((s) => s.id === sid)?.name || sid
+                return (
+                  <Badge
+                    key={sid}
+                    variant="secondary"
+                    className="bg-[#F3EAD8] text-[#7A5C2E] border border-[#E5DFD5] flex items-center gap-1"
+                  >
+                    Tamanho: {name}
+                    <X
+                      className="h-3 w-3 cursor-pointer hover:text-[#B3261E]"
+                      onClick={() => toggleArrayFilter(setSelectedSizes, sid)}
+                    />
+                  </Badge>
+                )
+              })}
+              {selectedStatuses.map((st) => (
+                <Badge
+                  key={st}
+                  variant="secondary"
+                  className="bg-[#F3EAD8] text-[#7A5C2E] border border-[#E5DFD5] flex items-center gap-1"
+                >
+                  Status: {st === 'available' ? 'Disponível' : 'Esgotado'}
+                  <X
+                    className="h-3 w-3 cursor-pointer hover:text-[#B3261E]"
+                    onClick={() => toggleArrayFilter(setSelectedStatuses, st)}
+                  />
+                </Badge>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -484,13 +740,16 @@ export default function StockInventory() {
                     )}
                   </button>
                 </th>
-                <th className="py-3 px-4">Joia</th>
+                <th className="py-3 px-4 w-16">Foto</th>
+                <th className="py-3 px-4">Código</th>
                 <th className="py-3 px-4">Tipo</th>
-                <th className="py-3 px-4">Tamanho</th>
+                <th className="py-3 px-4">Material</th>
                 <th className="py-3 px-4">Perfil</th>
+                <th className="py-3 px-4">Tamanho</th>
+                <th className="py-3 px-4 min-w-[220px]">Descrição Completa</th>
                 <th className="py-3 px-4">Investido</th>
                 <th className="py-3 px-4">Preço Venda</th>
-                <th className="py-3 px-4">Estoque</th>
+                <th className="py-3 px-4 text-center">Estoque</th>
                 <th className="py-3 px-4">Status</th>
                 <th className="py-3 px-4 text-right">Ações</th>
               </tr>
@@ -498,7 +757,7 @@ export default function StockInventory() {
             <tbody className="divide-y divide-[#E5DFD5] text-sm">
               {loading ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-[#6B655E]">
+                  <td colSpan={13} className="py-12 text-center text-[#6B655E]">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#C6A664] border-t-transparent" />
                       <span>Carregando joias do estoque...</span>
@@ -547,71 +806,71 @@ export default function StockInventory() {
                       </td>
 
                       <td className="py-3 px-4">
-                        <div className="flex items-center gap-3">
-                          <button
-                            type="button"
-                            onClick={() => hasPhoto && handleOpenLightbox(p)}
-                            disabled={!hasPhoto}
-                            className={`relative group h-12 w-12 rounded-lg bg-[#F3EAD8] overflow-hidden shrink-0 border border-[#E5DFD5] flex items-center justify-center transition-all ${
-                              hasPhoto
-                                ? 'cursor-pointer hover:border-[#C6A664] hover:shadow-md'
-                                : 'cursor-default'
-                            }`}
-                            title={hasPhoto ? 'Clique para ampliar foto' : 'Sem foto'}
-                          >
-                            {photo ? (
-                              <>
-                                <img
-                                  src={photo}
-                                  alt={p.description}
-                                  className="h-full w-full object-cover group-hover:scale-105 transition-transform"
-                                />
-                                <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white">
-                                  <ZoomIn className="h-4 w-4" />
-                                </div>
-                                {p.photos && p.photos.length > 1 && (
-                                  <span className="absolute bottom-0 right-0 bg-black/70 text-white text-[9px] font-mono px-1 rounded-tl-sm">
-                                    +{p.photos.length - 1}
-                                  </span>
-                                )}
-                              </>
-                            ) : (
-                              <PackageCheck className="h-5 w-5 text-[#C6A664]" />
-                            )}
-                          </button>
-                          <div>
-                            <span className="font-mono text-xs font-bold text-[#7A5C2E] block">
-                              {p.code}
-                            </span>
-                            <span className="font-medium text-[#2D2A26] line-clamp-1">
-                              {p.description}
-                            </span>
-                            {p.expand?.material?.name && (
-                              <span className="text-[11px] text-[#6B655E]">
-                                {p.expand?.material?.name}
-                              </span>
-                            )}
-                          </div>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => hasPhoto && handleOpenLightbox(p)}
+                          disabled={!hasPhoto}
+                          className={`relative group h-12 w-12 rounded-lg bg-[#F3EAD8] overflow-hidden shrink-0 border border-[#E5DFD5] flex items-center justify-center transition-all ${
+                            hasPhoto
+                              ? 'cursor-pointer hover:border-[#C6A664] hover:shadow-md'
+                              : 'cursor-default'
+                          }`}
+                          title={hasPhoto ? 'Clique para ampliar foto' : 'Sem foto'}
+                        >
+                          {photo ? (
+                            <>
+                              <img
+                                src={photo}
+                                alt={p.description}
+                                className="h-full w-full object-cover group-hover:scale-105 transition-transform"
+                              />
+                              <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white">
+                                <ZoomIn className="h-4 w-4" />
+                              </div>
+                              {p.photos && p.photos.length > 1 && (
+                                <span className="absolute bottom-0 right-0 bg-black/70 text-white text-[9px] font-mono px-1 rounded-tl-sm">
+                                  +{p.photos.length - 1}
+                                </span>
+                              )}
+                            </>
+                          ) : (
+                            <PackageCheck className="h-5 w-5 text-[#C6A664]" />
+                          )}
+                        </button>
                       </td>
 
-                      {/* Tipo separado */}
+                      <td className="py-3 px-4">
+                        <span className="font-mono text-xs font-bold text-[#7A5C2E] block">
+                          {p.code}
+                        </span>
+                      </td>
+
+                      {/* Ordem obrigatória: Tipo, Material, Perfil, Tamanho, Descrição */}
                       <td className="py-3 px-4">
                         <span className="font-medium text-[#2D2A26]">
                           {p.expand?.type?.name || '—'}
                         </span>
                       </td>
 
-                      {/* Tamanho separado */}
                       <td className="py-3 px-4 text-[#6B655E]">
-                        {p.expand?.size?.name || 'Único'}
+                        {p.expand?.material?.name || '—'}
                       </td>
 
-                      {/* Perfil separado */}
                       <td className="py-3 px-4">
                         <span className="capitalize text-xs font-medium px-2 py-0.5 rounded-full bg-[#F3EAD8] text-[#7A5C2E] inline-block">
                           {p.target_audience || 'Unissex'}
                         </span>
+                      </td>
+
+                      <td className="py-3 px-4 text-[#6B655E]">
+                        {p.expand?.size?.name || 'Único'}
+                      </td>
+
+                      {/* Descrição Completa sem truncamento nem reticências */}
+                      <td className="py-3 px-4">
+                        <div className="font-medium text-[#2D2A26] whitespace-normal break-words leading-relaxed">
+                          {p.description}
+                        </div>
                       </td>
 
                       <td className="py-3 px-4 text-[#6B655E]">
@@ -893,6 +1152,7 @@ export default function StockInventory() {
               </div>
             </div>
 
+            {/* Ordem obrigatória: Tipo, Material, Perfil, Tamanho */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div>
                 <Label className="text-xs font-semibold">Tipo</Label>
@@ -927,6 +1187,20 @@ export default function StockInventory() {
               </div>
 
               <div>
+                <Label className="text-xs font-semibold">Perfil</Label>
+                <select
+                  value={editForm.target_audience}
+                  onChange={(e) => setEditForm({ ...editForm, target_audience: e.target.value })}
+                  className="w-full h-10 rounded-md border border-[#E5DFD5] px-3 text-sm mt-1"
+                >
+                  <option value="">Selecione...</option>
+                  <option value="feminino">Feminino</option>
+                  <option value="masculino">Masculino</option>
+                  <option value="unissex">Unissex</option>
+                </select>
+              </div>
+
+              <div>
                 <Label className="text-xs font-semibold">Tamanho</Label>
                 <select
                   value={editForm.size}
@@ -939,20 +1213,6 @@ export default function StockInventory() {
                       {s.name}
                     </option>
                   ))}
-                </select>
-              </div>
-
-              <div>
-                <Label className="text-xs font-semibold">Perfil</Label>
-                <select
-                  value={editForm.target_audience}
-                  onChange={(e) => setEditForm({ ...editForm, target_audience: e.target.value })}
-                  className="w-full h-10 rounded-md border border-[#E5DFD5] px-3 text-sm mt-1"
-                >
-                  <option value="">Selecione...</option>
-                  <option value="feminino">Feminino</option>
-                  <option value="masculino">Masculino</option>
-                  <option value="unissex">Unissex</option>
                 </select>
               </div>
             </div>
@@ -988,8 +1248,31 @@ export default function StockInventory() {
                   min="0"
                   required
                   value={editForm.quantity}
-                  onChange={(e) => setEditForm({ ...editForm, quantity: e.target.value })}
+                  onChange={(e) => {
+                    const newQtyStr = e.target.value
+                    const newQty = parseInt(newQtyStr, 10) || 0
+                    const tenPercent = Math.max(1, Math.round(newQty * 0.1))
+                    setEditForm({
+                      ...editForm,
+                      quantity: newQtyStr,
+                      minimum_quantity: editForm.minimum_quantity || tenPercent.toString(),
+                    })
+                  }}
                   className="mt-1 font-bold"
+                />
+              </div>
+
+              <div>
+                <Label className="text-xs font-semibold text-[#6B655E]">
+                  Alerta Estoque Mín. (10%)
+                </Label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={editForm.minimum_quantity}
+                  onChange={(e) => setEditForm({ ...editForm, minimum_quantity: e.target.value })}
+                  placeholder="10% do estoque"
+                  className="mt-1 font-medium"
                 />
               </div>
             </div>

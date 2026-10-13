@@ -53,15 +53,18 @@ export default function VoiceProductEntry() {
   const [investedValue, setInvestedValue] = useState<string>('')
   const [sellingPrice, setSellingPrice] = useState<string>('')
   const [quantity, setQuantity] = useState<string>('')
-  const [minimumQuantity, setMinimumQuantity] = useState<string>('3')
+  const [minimumQuantity, setMinimumQuantity] = useState<string>('')
   const [observations, setObservations] = useState('')
   const [photos, setPhotos] = useState<File[]>([])
   const [photoPreviews, setPhotoPreviews] = useState<string[]>([])
 
-  // UI status
+  // UI status & Form scroll target
   const [missingFields, setMissingFields] = useState<string[]>([])
   const [isSaving, setIsSaving] = useState(false)
   const [recentProducts, setRecentProducts] = useState<Product[]>([])
+  const formReviewRef = useRef<HTMLDivElement>(null)
+  const descriptionInputRef = useRef<HTMLInputElement>(null)
+  const manualStopRequestedRef = useRef(false)
 
   // Lightbox
   const [lightboxOpen, setLightboxOpen] = useState(false)
@@ -77,43 +80,60 @@ export default function VoiceProductEntry() {
     loadRecentProducts()
     generateSuggestedCode()
 
-    // Setup Web Speech API
+    // Setup Web Speech API com modo contínuo garantido até o usuário parar manualmente
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition()
-      recognition.continuous = false
+      // continuous = true para manter gravando continuamente até que o usuário clique para parar
+      recognition.continuous = true
       recognition.interimResults = true
       recognition.lang = 'pt-BR'
 
       recognition.onstart = () => {
         setIsListening(true)
+        manualStopRequestedRef.current = false
       }
 
       recognition.onresult = (event: any) => {
-        let currentTranscript = ''
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          currentTranscript += event.results[i][0].transcript
+        let fullTranscript = ''
+        for (let i = 0; i < event.results.length; ++i) {
+          fullTranscript += event.results[i][0].transcript + ' '
         }
-        setTranscribedText(currentTranscript)
+        setTranscribedText(fullTranscript.trim())
       }
 
       recognition.onerror = (event: any) => {
         console.error('Speech recognition error:', event.error)
-        setIsListening(false)
         if (event.error === 'not-allowed') {
+          setIsListening(false)
+          manualStopRequestedRef.current = true
           toast.error(
             'Permissão de microfone negada. Habilite o microfone nas permissões do navegador para usar o comando por voz.',
           )
         } else if (event.error === 'no-speech') {
-          toast.info('Nenhuma fala detectada. Toque no microfone e fale com clareza.')
-        } else {
-          toast.warning('Falha na captura de voz. Tente novamente ou digite a descrição.')
+          // Se for silêncio, NÃO para se o usuário não pediu para parar manualmente
+          if (!manualStopRequestedRef.current) {
+            try {
+              recognition.start()
+            } catch {
+              // ignore restart collision
+            }
+          }
         }
       }
 
       recognition.onend = () => {
-        setIsListening(false)
+        // Se a gravação parou por timeout automático da engine do navegador, mas o usuário NÃO pediu para parar, reinicia!
+        if (!manualStopRequestedRef.current) {
+          try {
+            recognition.start()
+          } catch {
+            setIsListening(false)
+          }
+        } else {
+          setIsListening(false)
+        }
       }
 
       setRecognitionInstance(recognition)
@@ -152,7 +172,7 @@ export default function VoiceProductEntry() {
     }
   }
 
-  // Toggle main speech recognition
+  // Toggle main speech recognition - microfone fica ativado até que o usuário clique para parar
   const toggleListening = () => {
     if (!speechSupported) {
       toast.warning('Seu navegador não suporta reconhecimento de voz. Por favor, digite o texto.')
@@ -160,15 +180,34 @@ export default function VoiceProductEntry() {
     }
 
     if (isListening) {
+      manualStopRequestedRef.current = true
       recognitionInstance?.stop()
       setIsListening(false)
+      toast.info('Gravação de voz finalizada pelo usuário.')
     } else {
+      manualStopRequestedRef.current = false
       setTranscribedText('')
       try {
         recognitionInstance?.start()
+        toast.info(
+          'Microfone ativo. Fale livremente; a gravação continuará até você clicar para parar.',
+        )
       } catch (err) {
         console.error('Start recognition failed:', err)
       }
+    }
+  }
+
+  // Handle quantity changes: automatically set minimumQuantity to 10% of initial quantity (editable)
+  const handleQuantityChange = (newQtyStr: string) => {
+    setQuantity(newQtyStr)
+    const num = parseInt(newQtyStr, 10)
+    if (!isNaN(num) && num > 0) {
+      // 10% do estoque inicial (mínimo 1 unidade)
+      const tenPercent = Math.max(1, Math.round(num * 0.1))
+      setMinimumQuantity(tenPercent.toString())
+    } else {
+      setMinimumQuantity('')
     }
   }
 
@@ -245,6 +284,9 @@ export default function VoiceProductEntry() {
       }
       if (typeof result.quantity === 'number') {
         setQuantity(result.quantity.toString())
+        // Alerta de estoque mínimo pré-definido para 10% do estoque inicial
+        const tenPercent = Math.max(1, Math.round(result.quantity * 0.1))
+        setMinimumQuantity(tenPercent.toString())
       }
       if (result.observations) {
         setObservations((prev) => (prev ? `${prev} | ${result.observations}` : result.observations))
@@ -252,9 +294,15 @@ export default function VoiceProductEntry() {
 
       setMissingFields(result.missing_fields || [])
 
+      // Rolar e focar nos campos do formulário com destaque
+      setTimeout(() => {
+        formReviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        descriptionInputRef.current?.focus()
+      }, 100)
+
       if (result.missing_fields && result.missing_fields.length > 0) {
         toast.info(
-          'Descrição interpretada! Alguns campos não foram detectados na fala e precisam ser preenchidos manualmente.',
+          'Descrição interpretada! A tela foi posicionada nos campos do formulário para revisão.',
         )
       } else {
         toast.success('Produto interpretado com sucesso pela IA! Revise os campos antes de salvar.')
@@ -478,11 +526,11 @@ export default function VoiceProductEntry() {
             <p className="mt-3 text-sm font-semibold text-[#2D2A26]">
               {isListening ? (
                 <span className="text-[#B3261E] flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-[#B3261E] animate-ping" /> Ouvindo você
-                  falar... Toque para pausar
+                  <span className="h-2 w-2 rounded-full bg-[#B3261E] animate-ping" /> Microfone
+                  ativo — Clique no botão vermelho para parar de gravar
                 </span>
               ) : (
-                'Toque para começar a falar'
+                'Clique no microfone para gravar (fica ativo até você parar)'
               )}
             </p>
             {!speechSupported && (
@@ -574,304 +622,310 @@ export default function VoiceProductEntry() {
         </CardContent>
       </Card>
 
-      {/* Main Review and Save Form */}
-      <form onSubmit={handleSaveProduct} className="space-y-6">
-        <Card className="border-[#E5DFD5] bg-white shadow-sm">
-          <CardHeader className="border-b border-[#E5DFD5] pb-4">
-            <CardTitle className="font-serif text-lg md:text-xl text-[#2D2A26] flex items-center gap-2">
-              <CheckCircle2 className="h-5 w-5 text-[#2E7D4F]" />
-              Revisão dos Dados da Joia
-            </CardTitle>
-            <CardDescription className="text-xs md:text-sm text-[#6B655E]">
-              Nada é salvo automaticamente. Valide todas as informações antes de confirmar o
-              cadastro.
-            </CardDescription>
-          </CardHeader>
+      {/* Main Review and Save Form com Ref para foco e scroll da IA */}
+      <div ref={formReviewRef}>
+        <form onSubmit={handleSaveProduct} className="space-y-6">
+          <Card className="border-[#E5DFD5] bg-white shadow-sm">
+            <CardHeader className="border-b border-[#E5DFD5] pb-4">
+              <CardTitle className="font-serif text-lg md:text-xl text-[#2D2A26] flex items-center gap-2">
+                <CheckCircle2 className="h-5 w-5 text-[#2E7D4F]" />
+                Revisão dos Dados da Joia
+              </CardTitle>
+              <CardDescription className="text-xs md:text-sm text-[#6B655E]">
+                Nada é salvo automaticamente. Valide todas as informações antes de confirmar o
+                cadastro.
+              </CardDescription>
+            </CardHeader>
 
-          <CardContent className="pt-6 space-y-5">
-            {/* Row 1: Code & Description */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <Label htmlFor="code" className="text-xs font-semibold text-[#2D2A26]">
-                  Código do Produto *
-                </Label>
-                <Input
-                  id="code"
-                  value={code}
-                  onChange={(e) => setCode(e.target.value.toUpperCase())}
-                  placeholder="Ex: 100001"
-                  required
-                  className="mt-1 border-[#E5DFD5] focus-visible:ring-[#C6A664] uppercase font-mono font-bold"
-                />
+            <CardContent className="pt-6 space-y-5">
+              {/* Row 1: Code & Description */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <Label htmlFor="code" className="text-xs font-semibold text-[#2D2A26]">
+                    Código do Produto *
+                  </Label>
+                  <Input
+                    id="code"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value.toUpperCase())}
+                    placeholder="Ex: 100001"
+                    required
+                    className="mt-1 border-[#E5DFD5] focus-visible:ring-[#C6A664] uppercase font-mono font-bold"
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <Label htmlFor="desc" className="text-xs font-semibold text-[#2D2A26]">
+                    Descrição da Joia *
+                  </Label>
+                  <Input
+                    ref={descriptionInputRef}
+                    id="desc"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="Ex: Brinco folheado a ouro com zircônia redonda"
+                    required
+                    className="mt-1 border-[#E5DFD5] focus-visible:ring-[#C6A664]"
+                  />
+                </div>
               </div>
 
-              <div className="md:col-span-2">
-                <Label htmlFor="desc" className="text-xs font-semibold text-[#2D2A26]">
-                  Descrição da Joia *
-                </Label>
-                <Input
-                  id="desc"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Ex: Brinco folheado a ouro com zircônia redonda"
-                  required
-                  className="mt-1 border-[#E5DFD5] focus-visible:ring-[#C6A664]"
-                />
-              </div>
-            </div>
-
-            {/* Row 2: Type, Material, Size, Audience */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div>
-                <Label className="text-xs font-semibold text-[#2D2A26]">Tipo de Joia</Label>
-                <select
-                  value={selectedType}
-                  onChange={(e) => setSelectedType(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-[#E5DFD5] bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C6A664]"
-                >
-                  <option value="">Selecione...</option>
-                  {types.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <Label className="text-xs font-semibold text-[#2D2A26]">Material</Label>
-                <select
-                  value={selectedMaterial}
-                  onChange={(e) => setSelectedMaterial(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-[#E5DFD5] bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C6A664]"
-                >
-                  <option value="">Selecione...</option>
-                  {materials.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <Label className="text-xs font-semibold text-[#2D2A26]">Tamanho / Medida</Label>
-                <select
-                  value={selectedSize}
-                  onChange={(e) => setSelectedSize(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-[#E5DFD5] bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C6A664]"
-                >
-                  <option value="">Selecione...</option>
-                  {sizes.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <Label className="text-xs font-semibold text-[#2D2A26]">Perfil</Label>
-                <select
-                  value={targetAudience}
-                  onChange={(e) => setTargetAudience(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-[#E5DFD5] bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C6A664]"
-                >
-                  <option value="">Selecione...</option>
-                  <option value="feminino">Feminino</option>
-                  <option value="masculino">Masculino</option>
-                  <option value="unissex">Unissex</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Row 3: Invested value, Selling price, Quantity, Min stock */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 rounded-xl bg-[#FDFBF7] border border-[#E5DFD5]">
-              <div>
-                <Label htmlFor="invested" className="text-xs font-semibold text-[#6B655E]">
-                  Valor Investido (R$)
-                </Label>
-                <Input
-                  id="invested"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={investedValue}
-                  onChange={(e) => setInvestedValue(e.target.value)}
-                  placeholder="0,00"
-                  className="mt-1 bg-white border-[#E5DFD5] focus-visible:ring-[#C6A664]"
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="selling" className="text-xs font-semibold text-[#2D2A26]">
-                  Preço de Venda (R$) *
-                </Label>
-                <Input
-                  id="selling"
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  value={sellingPrice}
-                  onChange={(e) => setSellingPrice(e.target.value)}
-                  placeholder="0,00"
-                  required
-                  className="mt-1 bg-white border-[#C6A664] focus-visible:ring-[#C6A664] font-semibold text-[#7A5C2E]"
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="qty" className="text-xs font-semibold text-[#2D2A26]">
-                  Quantidade em Estoque *
-                </Label>
-                <Input
-                  id="qty"
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={quantity}
-                  onChange={(e) => setQuantity(e.target.value)}
-                  placeholder="1"
-                  required
-                  className="mt-1 bg-white border-[#E5DFD5] focus-visible:ring-[#C6A664] font-semibold"
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="minQty" className="text-xs font-semibold text-[#6B655E]">
-                  Alerta Estoque Mínimo
-                </Label>
-                <Input
-                  id="minQty"
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={minimumQuantity}
-                  onChange={(e) => setMinimumQuantity(e.target.value)}
-                  placeholder="3"
-                  className="mt-1 bg-white border-[#E5DFD5] focus-visible:ring-[#C6A664]"
-                />
-              </div>
-            </div>
-
-            {/* Row 4: Observations with Dictate button */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <Label htmlFor="obs" className="text-xs font-semibold text-[#2D2A26]">
-                  Observações e Detalhes
-                </Label>
-                {speechSupported && (
-                  <button
-                    type="button"
-                    onClick={toggleNotesDictation}
-                    className={`text-xs flex items-center gap-1 font-medium transition-colors ${
-                      isDictatingNotes
-                        ? 'text-[#B3261E] animate-pulse'
-                        : 'text-[#7A5C2E] hover:underline'
-                    }`}
+              {/* Ordem obrigatória: Tipo, Material, Perfil, Tamanho (sem ' / Medida') */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <Label className="text-xs font-semibold text-[#2D2A26]">Tipo</Label>
+                  <select
+                    value={selectedType}
+                    onChange={(e) => setSelectedType(e.target.value)}
+                    className="mt-1 w-full rounded-md border border-[#E5DFD5] bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C6A664]"
                   >
-                    <Mic className="h-3 w-3" />
-                    {isDictatingNotes ? 'Ouvindo observações...' : 'Ditar observação por voz'}
-                  </button>
+                    <option value="">Selecione...</option>
+                    {types.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <Label className="text-xs font-semibold text-[#2D2A26]">Material</Label>
+                  <select
+                    value={selectedMaterial}
+                    onChange={(e) => setSelectedMaterial(e.target.value)}
+                    className="mt-1 w-full rounded-md border border-[#E5DFD5] bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C6A664]"
+                  >
+                    <option value="">Selecione...</option>
+                    {materials.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <Label className="text-xs font-semibold text-[#2D2A26]">Perfil</Label>
+                  <select
+                    value={targetAudience}
+                    onChange={(e) => setTargetAudience(e.target.value)}
+                    className="mt-1 w-full rounded-md border border-[#E5DFD5] bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C6A664]"
+                  >
+                    <option value="">Selecione...</option>
+                    <option value="feminino">Feminino</option>
+                    <option value="masculino">Masculino</option>
+                    <option value="unissex">Unissex</option>
+                  </select>
+                </div>
+
+                <div>
+                  <Label className="text-xs font-semibold text-[#2D2A26]">Tamanho</Label>
+                  <select
+                    value={selectedSize}
+                    onChange={(e) => setSelectedSize(e.target.value)}
+                    className="mt-1 w-full rounded-md border border-[#E5DFD5] bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C6A664]"
+                  >
+                    <option value="">Selecione...</option>
+                    {sizes.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Row 3: Invested value, Selling price, Quantity, Min stock */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 rounded-xl bg-[#FDFBF7] border border-[#E5DFD5]">
+                <div>
+                  <Label htmlFor="invested" className="text-xs font-semibold text-[#6B655E]">
+                    Valor Investido (R$)
+                  </Label>
+                  <Input
+                    id="invested"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={investedValue}
+                    onChange={(e) => setInvestedValue(e.target.value)}
+                    placeholder="0,00"
+                    className="mt-1 bg-white border-[#E5DFD5] focus-visible:ring-[#C6A664]"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="selling" className="text-xs font-semibold text-[#2D2A26]">
+                    Preço de Venda (R$) *
+                  </Label>
+                  <Input
+                    id="selling"
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    value={sellingPrice}
+                    onChange={(e) => setSellingPrice(e.target.value)}
+                    placeholder="0,00"
+                    required
+                    className="mt-1 bg-white border-[#C6A664] focus-visible:ring-[#C6A664] font-semibold text-[#7A5C2E]"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="qty" className="text-xs font-semibold text-[#2D2A26]">
+                    Quantidade em Estoque *
+                  </Label>
+                  <Input
+                    id="qty"
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={quantity}
+                    onChange={(e) => handleQuantityChange(e.target.value)}
+                    placeholder="1"
+                    required
+                    className="mt-1 bg-white border-[#E5DFD5] focus-visible:ring-[#C6A664] font-semibold"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="minQty" className="text-xs font-semibold text-[#6B655E]">
+                      Alerta Estoque Mínimo
+                    </Label>
+                    <span className="text-[10px] text-[#7A5C2E] font-medium">(10% sugerido)</span>
+                  </div>
+                  <Input
+                    id="minQty"
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={minimumQuantity}
+                    onChange={(e) => setMinimumQuantity(e.target.value)}
+                    placeholder="Auto 10%"
+                    className="mt-1 bg-white border-[#E5DFD5] focus-visible:ring-[#C6A664]"
+                  />
+                </div>
+              </div>
+
+              {/* Row 4: Observations with Dictate button */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <Label htmlFor="obs" className="text-xs font-semibold text-[#2D2A26]">
+                    Observações e Detalhes
+                  </Label>
+                  {speechSupported && (
+                    <button
+                      type="button"
+                      onClick={toggleNotesDictation}
+                      className={`text-xs flex items-center gap-1 font-medium transition-colors ${
+                        isDictatingNotes
+                          ? 'text-[#B3261E] animate-pulse'
+                          : 'text-[#7A5C2E] hover:underline'
+                      }`}
+                    >
+                      <Mic className="h-3 w-3" />
+                      {isDictatingNotes ? 'Ouvindo observações...' : 'Ditar observação por voz'}
+                    </button>
+                  )}
+                </div>
+                <Textarea
+                  id="obs"
+                  value={observations}
+                  onChange={(e) => setObservations(e.target.value)}
+                  placeholder="Ex: Cravação reforçada, banho 10 milésimos, garantia de 1 ano..."
+                  rows={2}
+                  className="border-[#E5DFD5] focus-visible:ring-[#C6A664]"
+                />
+              </div>
+
+              {/* Row 5: Camera & Photo capture */}
+              <div className="space-y-3 pt-2">
+                <Label className="text-xs font-semibold text-[#2D2A26] block">
+                  Fotos do Produto (Câmera do celular ou arquivo)
+                </Label>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  {/* Mobile Camera capture trigger */}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    multiple
+                    onChange={handlePhotoSelect}
+                    className="hidden"
+                  />
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8]"
+                  >
+                    <Camera className="h-4 w-4 mr-2" />
+                    Fotografar / Anexar Fotos
+                  </Button>
+
+                  <span className="text-xs text-[#6B655E]">Máx. 5 fotos (JPG, PNG, WebP)</span>
+                </div>
+
+                {/* Photos Previews */}
+                {photoPreviews.length > 0 && (
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-3 pt-2">
+                    {photoPreviews.map((preview, index) => (
+                      <div
+                        key={index}
+                        className="relative group rounded-xl overflow-hidden border border-[#E5DFD5] aspect-square bg-[#FDFBF7]"
+                      >
+                        <img
+                          src={preview}
+                          alt={`Prévia ${index + 1}`}
+                          className="w-full h-full object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleRemovePhoto(index)}
+                          className="absolute top-1 right-1 p-1 rounded-full bg-black/60 text-white hover:bg-[#B3261E] transition-colors"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
-              <Textarea
-                id="obs"
-                value={observations}
-                onChange={(e) => setObservations(e.target.value)}
-                placeholder="Ex: Cravação reforçada, banho 10 milésimos, garantia de 1 ano..."
-                rows={2}
-                className="border-[#E5DFD5] focus-visible:ring-[#C6A664]"
-              />
-            </div>
+            </CardContent>
+          </Card>
 
-            {/* Row 5: Camera & Photo capture */}
-            <div className="space-y-3 pt-2">
-              <Label className="text-xs font-semibold text-[#2D2A26] block">
-                Fotos do Produto (Câmera do celular ou arquivo)
-              </Label>
+          {/* Submit Actions */}
+          <div className="flex flex-col sm:flex-row items-center justify-end gap-3 pt-2">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={handleClearForm}
+              className="w-full sm:w-auto text-[#6B655E]"
+            >
+              Cancelar / Limpar
+            </Button>
 
-              <div className="flex flex-wrap items-center gap-3">
-                {/* Mobile Camera capture trigger */}
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  multiple
-                  onChange={handlePhotoSelect}
-                  className="hidden"
-                />
-
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8]"
-                >
-                  <Camera className="h-4 w-4 mr-2" />
-                  Fotografar / Anexar Fotos
-                </Button>
-
-                <span className="text-xs text-[#6B655E]">Máx. 5 fotos (JPG, PNG, WebP)</span>
-              </div>
-
-              {/* Photos Previews */}
-              {photoPreviews.length > 0 && (
-                <div className="grid grid-cols-3 sm:grid-cols-5 gap-3 pt-2">
-                  {photoPreviews.map((preview, index) => (
-                    <div
-                      key={index}
-                      className="relative group rounded-xl overflow-hidden border border-[#E5DFD5] aspect-square bg-[#FDFBF7]"
-                    >
-                      <img
-                        src={preview}
-                        alt={`Prévia ${index + 1}`}
-                        className="w-full h-full object-cover"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => handleRemovePhoto(index)}
-                        className="absolute top-1 right-1 p-1 rounded-full bg-black/60 text-white hover:bg-[#B3261E] transition-colors"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
+            <Button
+              type="submit"
+              disabled={isSaving}
+              className="w-full sm:w-auto bg-[#2E7D4F] hover:bg-[#256640] text-white font-semibold shadow-md px-8 py-2.5"
+            >
+              {isSaving ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Salvando Joia...
+                </>
+              ) : (
+                <>
+                  <PackageCheck className="h-4 w-4 mr-2" /> Salvar Produto no Estoque
+                </>
               )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Submit Actions */}
-        <div className="flex flex-col sm:flex-row items-center justify-end gap-3 pt-2">
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={handleClearForm}
-            className="w-full sm:w-auto text-[#6B655E]"
-          >
-            Cancelar / Limpar
-          </Button>
-
-          <Button
-            type="submit"
-            disabled={isSaving}
-            className="w-full sm:w-auto bg-[#2E7D4F] hover:bg-[#256640] text-white font-semibold shadow-md px-8 py-2.5"
-          >
-            {isSaving ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Salvando Joia...
-              </>
-            ) : (
-              <>
-                <PackageCheck className="h-4 w-4 mr-2" /> Salvar Produto no Estoque
-              </>
-            )}
-          </Button>
-        </div>
-      </form>
+            </Button>
+          </div>
+        </form>
+      </div>
 
       {/* Recently Added Products List — Com colunas separadas para Tipo, Tamanho e Perfil */}
       <div className="pt-6 border-t border-[#E5DFD5]">
@@ -888,10 +942,13 @@ export default function VoiceProductEntry() {
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-[#F3EAD8] text-[#2D2A26] border-b border-[#E5DFD5] font-semibold uppercase tracking-wider">
-                    <th className="py-2.5 px-3">Joia</th>
+                    <th className="py-2.5 px-3">Foto</th>
+                    <th className="py-2.5 px-3">Código</th>
                     <th className="py-2.5 px-3">Tipo</th>
-                    <th className="py-2.5 px-3">Tamanho</th>
+                    <th className="py-2.5 px-3">Material</th>
                     <th className="py-2.5 px-3">Perfil</th>
+                    <th className="py-2.5 px-3">Tamanho</th>
+                    <th className="py-2.5 px-3 min-w-[200px]">Descrição Completa</th>
                     <th className="py-2.5 px-3 text-right">Preço</th>
                     <th className="py-2.5 px-3 text-center">Estoque</th>
                   </tr>
@@ -907,53 +964,54 @@ export default function VoiceProductEntry() {
                     return (
                       <tr key={p.id} className="hover:bg-[#FDFBF7]">
                         <td className="py-2.5 px-3">
-                          <div className="flex items-center gap-2.5">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (!hasPhoto || !p.photos) return
-                                const urls = p.photos.map((ph) => getFileUrl('products', p.id, ph))
-                                setLightboxPhotos(urls)
-                                setLightboxTitle(`${p.code} — ${p.description}`)
-                                setLightboxIndex(0)
-                                setLightboxOpen(true)
-                              }}
-                              disabled={!hasPhoto}
-                              className={`relative group h-10 w-10 rounded-lg bg-[#F3EAD8] overflow-hidden flex items-center justify-center shrink-0 border border-[#E5DFD5] ${
-                                hasPhoto
-                                  ? 'cursor-pointer hover:border-[#C6A664]'
-                                  : 'cursor-default'
-                              }`}
-                              title={hasPhoto ? 'Clique para ampliar foto' : 'Sem foto'}
-                            >
-                              {photo ? (
-                                <>
-                                  <img
-                                    src={photo}
-                                    alt={p.description}
-                                    className="h-full w-full object-cover group-hover:scale-105 transition-transform"
-                                  />
-                                  <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white">
-                                    <ZoomIn className="h-3.5 w-3.5" />
-                                  </div>
-                                </>
-                              ) : (
-                                <PackageCheck className="h-4 w-4 text-[#C6A664]" />
-                              )}
-                            </button>
-                            <div>
-                              <span className="font-mono font-bold text-[#7A5C2E] block">
-                                {p.code}
-                              </span>
-                              <span className="font-medium text-[#2D2A26] line-clamp-1 max-w-[200px]">
-                                {p.description}
-                              </span>
-                            </div>
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!hasPhoto || !p.photos) return
+                              const urls = p.photos.map((ph) => getFileUrl('products', p.id, ph))
+                              setLightboxPhotos(urls)
+                              setLightboxTitle(`${p.code} — ${p.description}`)
+                              setLightboxIndex(0)
+                              setLightboxOpen(true)
+                            }}
+                            disabled={!hasPhoto}
+                            className={`relative group h-10 w-10 rounded-lg bg-[#F3EAD8] overflow-hidden flex items-center justify-center shrink-0 border border-[#E5DFD5] ${
+                              hasPhoto ? 'cursor-pointer hover:border-[#C6A664]' : 'cursor-default'
+                            }`}
+                            title={hasPhoto ? 'Clique para ampliar foto' : 'Sem foto'}
+                          >
+                            {photo ? (
+                              <>
+                                <img
+                                  src={photo}
+                                  alt={p.description}
+                                  className="h-full w-full object-cover group-hover:scale-105 transition-transform"
+                                />
+                                <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white">
+                                  <ZoomIn className="h-3.5 w-3.5" />
+                                </div>
+                              </>
+                            ) : (
+                              <PackageCheck className="h-4 w-4 text-[#C6A664]" />
+                            )}
+                          </button>
                         </td>
 
+                        <td className="py-2.5 px-3 font-mono font-bold text-[#7A5C2E]">{p.code}</td>
+
+                        {/* Ordem: Tipo, Material, Perfil, Tamanho, Descrição Completa */}
                         <td className="py-2.5 px-3 font-medium text-[#2D2A26]">
                           {p.expand?.type?.name || '—'}
+                        </td>
+
+                        <td className="py-2.5 px-3 text-[#6B655E]">
+                          {p.expand?.material?.name || '—'}
+                        </td>
+
+                        <td className="py-2.5 px-3">
+                          <span className="capitalize px-2 py-0.5 rounded-full bg-[#F3EAD8] text-[#7A5C2E] inline-block font-medium">
+                            {p.target_audience || 'Unissex'}
+                          </span>
                         </td>
 
                         <td className="py-2.5 px-3 text-[#6B655E]">
@@ -961,9 +1019,9 @@ export default function VoiceProductEntry() {
                         </td>
 
                         <td className="py-2.5 px-3">
-                          <span className="capitalize px-2 py-0.5 rounded-full bg-[#F3EAD8] text-[#7A5C2E] inline-block font-medium">
-                            {p.target_audience || 'Unissex'}
-                          </span>
+                          <div className="font-medium text-[#2D2A26] whitespace-normal break-words leading-relaxed">
+                            {p.description}
+                          </div>
                         </td>
 
                         <td className="py-2.5 px-3 text-right font-bold text-[#2E7D4F]">

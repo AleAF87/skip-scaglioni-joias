@@ -5,8 +5,14 @@ export const productService = {
   async getProducts(params?: {
     search?: string
     type?: string
+    types?: string[]
     material?: string
+    materials?: string[]
+    size?: string
+    sizes?: string[]
+    targetAudience?: string[]
     status?: string
+    statuses?: string[]
     page?: number
     perPage?: number
     sort?: string
@@ -19,14 +25,44 @@ export const productService = {
       const q = params.search.replace(/'/g, "\\'")
       filters.push(`(code ~ '${q}' || description ~ '${q}')`)
     }
-    if (params?.type) {
-      filters.push(`type = '${params.type}'`)
+    // Single or multi types
+    if (params?.types && params.types.length > 0) {
+      const typeClauses = params.types.map((t) => `type = '${t.replace(/'/g, "\\'")}'`)
+      filters.push(`(${typeClauses.join(' || ')})`)
+    } else if (params?.type) {
+      filters.push(`type = '${params.type.replace(/'/g, "\\'")}'`)
     }
-    if (params?.material) {
-      filters.push(`material = '${params.material}'`)
+
+    // Single or multi materials
+    if (params?.materials && params.materials.length > 0) {
+      const matClauses = params.materials.map((m) => `material = '${m.replace(/'/g, "\\'")}'`)
+      filters.push(`(${matClauses.join(' || ')})`)
+    } else if (params?.material) {
+      filters.push(`material = '${params.material.replace(/'/g, "\\'")}'`)
     }
-    if (params?.status) {
-      filters.push(`status = '${params.status}'`)
+
+    // Single or multi sizes
+    if (params?.sizes && params.sizes.length > 0) {
+      const sizeClauses = params.sizes.map((s) => `size = '${s.replace(/'/g, "\\'")}'`)
+      filters.push(`(${sizeClauses.join(' || ')})`)
+    } else if (params?.size) {
+      filters.push(`size = '${params.size.replace(/'/g, "\\'")}'`)
+    }
+
+    // Target audience (perfil)
+    if (params?.targetAudience && params.targetAudience.length > 0) {
+      const audClauses = params.targetAudience.map(
+        (a) => `target_audience = '${a.replace(/'/g, "\\'")}'`,
+      )
+      filters.push(`(${audClauses.join(' || ')})`)
+    }
+
+    // Single or multi statuses
+    if (params?.statuses && params.statuses.length > 0) {
+      const stClauses = params.statuses.map((s) => `status = '${s.replace(/'/g, "\\'")}'`)
+      filters.push(`(${stClauses.join(' || ')})`)
+    } else if (params?.status) {
+      filters.push(`status = '${params.status.replace(/'/g, "\\'")}'`)
     }
 
     const filterStr = filters.join(' && ')

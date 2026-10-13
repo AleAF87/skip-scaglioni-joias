@@ -551,7 +551,7 @@ export default function ConsignmentsManagement() {
                             </span>
                             <span className="text-xs text-[#6B655E]">({p.quantity} disp.)</span>
                           </div>
-                          <span className="text-sm font-medium text-[#2D2A26] block truncate">
+                          <span className="text-sm font-medium text-[#2D2A26] block whitespace-normal break-words">
                             {p.description}
                           </span>
                           <div className="flex items-center gap-1.5 text-[10px] text-[#6B655E] mt-0.5">
@@ -605,7 +605,9 @@ export default function ConsignmentsManagement() {
                         <span className="font-mono text-xs font-bold text-[#7A5C2E] mr-2">
                           {it.code}
                         </span>
-                        <span className="text-sm font-semibold">{it.description}</span>
+                        <span className="text-sm font-semibold whitespace-normal break-words">
+                          {it.description}
+                        </span>
                       </div>
                       <div className="flex items-center gap-2">
                         <Label className="text-xs">Qtd:</Label>
@@ -691,7 +693,9 @@ export default function ConsignmentsManagement() {
                           <span className="font-mono text-xs font-bold text-[#7A5C2E] mr-2">
                             {it.code}
                           </span>
-                          <span className="text-sm font-semibold">{it.description}</span>
+                          <span className="text-sm font-semibold whitespace-normal break-words">
+                            {it.description}
+                          </span>
                         </div>
                         <Badge variant="outline" className="text-xs font-bold">
                           Consignado: {it.quantity} unid.
@@ -848,7 +852,7 @@ export default function ConsignmentsManagement() {
                   {parseListItems(docList).map((it, idx) => (
                     <tr key={idx}>
                       <td className="py-2 font-mono font-semibold">{it.code}</td>
-                      <td className="py-2">{it.description}</td>
+                      <td className="py-2 whitespace-normal break-words">{it.description}</td>
                       <td className="py-2 text-center font-bold">{it.quantity}</td>
                       {docType === 'report' && (
                         <>

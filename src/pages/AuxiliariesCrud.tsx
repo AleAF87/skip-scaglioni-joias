@@ -98,93 +98,156 @@ export default function AuxiliariesCrud() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      <div className="flex items-center justify-between border-b border-[#E5DFD5] pb-4">
+    <div className="max-w-5xl mx-auto space-y-8">
+      {/* Page Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#E5DFD5] pb-5">
         <div>
-          <div className="flex items-center gap-2">
-            <span className="p-2 rounded-lg bg-[#C6A664]/20 text-[#7A5C2E]">
-              <Tag className="h-5 w-5" />
+          <div className="flex items-center gap-2.5">
+            <span className="p-2.5 rounded-xl bg-gradient-to-tr from-[#7A5C2E]/20 via-[#C6A664]/30 to-[#E8D5A3]/40 text-[#7A5C2E] shadow-xs">
+              <Tag className="h-6 w-6" />
             </span>
-            <h1 className="font-serif text-2xl md:text-3xl font-bold text-[#2D2A26]">
-              Cadastros Auxiliares
-            </h1>
+            <div>
+              <h1 className="font-serif text-2xl md:text-3xl font-bold text-[#2D2A26]">
+                Catálogo de Joias — Cadastros Auxiliares
+              </h1>
+              <p className="text-xs text-[#6B655E] uppercase tracking-wider font-medium">
+                Scaglioni Joias • Alta Joalheria
+              </p>
+            </div>
           </div>
-          <p className="text-sm text-[#6B655E] mt-1">
-            Gerencie os valores de Tipos, Materiais e Tamanhos utilizados nos produtos e filtros.
+          <p className="text-sm text-[#6B655E] mt-2 max-w-2xl">
+            Gerencie de forma organizada os valores de Tipos de Joias, Materiais nobres e Tamanhos
+            utilizados na classificação de todo o acervo.
           </p>
         </div>
       </div>
 
+      {/* Modern spacious auxiliary cards overview */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="p-4 rounded-2xl bg-white border border-[#E5DFD5] shadow-xs flex items-center justify-between">
+          <div>
+            <p className="text-xs text-[#6B655E] font-medium uppercase tracking-wider">
+              Tipos de Joias
+            </p>
+            <p className="font-serif text-2xl font-bold text-[#7A5C2E] mt-1">
+              {types.length} cadastrados
+            </p>
+          </div>
+          <div className="h-10 w-10 rounded-xl bg-[#F3EAD8] flex items-center justify-center text-[#7A5C2E]">
+            <Sparkles className="h-5 w-5" />
+          </div>
+        </div>
+
+        <div className="p-4 rounded-2xl bg-white border border-[#E5DFD5] shadow-xs flex items-center justify-between">
+          <div>
+            <p className="text-xs text-[#6B655E] font-medium uppercase tracking-wider">
+              Materiais Nobres
+            </p>
+            <p className="font-serif text-2xl font-bold text-[#7A5C2E] mt-1">
+              {materials.length} cadastrados
+            </p>
+          </div>
+          <div className="h-10 w-10 rounded-xl bg-[#F3EAD8] flex items-center justify-center text-[#7A5C2E]">
+            <Tag className="h-5 w-5" />
+          </div>
+        </div>
+
+        <div className="p-4 rounded-2xl bg-white border border-[#E5DFD5] shadow-xs flex items-center justify-between">
+          <div>
+            <p className="text-xs text-[#6B655E] font-medium uppercase tracking-wider">Tamanhos</p>
+            <p className="font-serif text-2xl font-bold text-[#7A5C2E] mt-1">
+              {sizes.length} cadastrados
+            </p>
+          </div>
+          <div className="h-10 w-10 rounded-xl bg-[#F3EAD8] flex items-center justify-center text-[#7A5C2E]">
+            <span className="font-serif font-bold text-base text-[#7A5C2E]">#</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Tabs with generous breathing room and clear titles without '/ Medidas' */}
       <Tabs defaultValue="types" className="w-full">
-        <TabsList className="grid w-full grid-cols-3 bg-[#F3EAD8]/50 p-1 rounded-xl">
+        <TabsList className="grid w-full grid-cols-3 bg-[#F3EAD8]/60 p-1.5 rounded-2xl border border-[#E5DFD5] h-14">
           <TabsTrigger
             value="types"
-            className="rounded-lg font-semibold data-[state=active]:bg-white data-[state=active]:text-[#7A5C2E]"
+            className="rounded-xl font-semibold text-sm transition-all data-[state=active]:bg-white data-[state=active]:text-[#7A5C2E] data-[state=active]:shadow-xs"
           >
             Tipos de Joias ({types.length})
           </TabsTrigger>
           <TabsTrigger
             value="materials"
-            className="rounded-lg font-semibold data-[state=active]:bg-white data-[state=active]:text-[#7A5C2E]"
+            className="rounded-xl font-semibold text-sm transition-all data-[state=active]:bg-white data-[state=active]:text-[#7A5C2E] data-[state=active]:shadow-xs"
           >
             Materiais ({materials.length})
           </TabsTrigger>
           <TabsTrigger
             value="sizes"
-            className="rounded-lg font-semibold data-[state=active]:bg-white data-[state=active]:text-[#7A5C2E]"
+            className="rounded-xl font-semibold text-sm transition-all data-[state=active]:bg-white data-[state=active]:text-[#7A5C2E] data-[state=active]:shadow-xs"
           >
-            Tamanhos / Medidas ({sizes.length})
+            Tamanhos ({sizes.length})
           </TabsTrigger>
         </TabsList>
 
         {/* Tab Types */}
-        <TabsContent value="types" className="mt-6 space-y-4">
-          <Card className="border-[#E5DFD5] bg-white">
-            <CardHeader>
-              <CardTitle className="font-serif text-lg text-[#2D2A26]">
-                Tipos de Joias Cadastrados
-              </CardTitle>
-              <CardDescription>
-                Ex: Anel, Brinco, Colar, Pulseira, Gargantilha, Pingente
-              </CardDescription>
+        <TabsContent value="types" className="mt-6 space-y-6">
+          <Card className="border-[#E5DFD5] bg-white shadow-xs rounded-2xl overflow-hidden">
+            <CardHeader className="p-6 border-b border-[#E5DFD5] bg-gradient-to-r from-white via-[#FDFBF7] to-white">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <CardTitle className="font-serif text-xl text-[#2D2A26]">
+                    Tipos de Joias
+                  </CardTitle>
+                  <CardDescription className="text-xs text-[#6B655E] mt-1">
+                    Ex: Anel, Brinco, Colar, Pulseira, Gargantilha, Pingente, Corrente
+                  </CardDescription>
+                </div>
+                <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-[#F3EAD8] text-[#7A5C2E] w-fit">
+                  {types.length} cadastrados
+                </span>
+              </div>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="p-6 space-y-6">
+              {/* Add form */}
               <form
                 onSubmit={(e) => {
                   e.preventDefault()
                   handleCreate('product_types', newTypeName)
                 }}
-                className="flex gap-2"
+                className="flex gap-3 bg-[#FDFBF7] p-3 rounded-xl border border-[#E5DFD5]"
               >
                 <Input
                   value={newTypeName}
                   onChange={(e) => setNewTypeName(e.target.value)}
-                  placeholder="Novo tipo de joia..."
-                  className="border-[#E5DFD5] focus-visible:ring-[#C6A664]"
+                  placeholder="Cadastrar novo tipo de joia (ex: Aliança, Tornozeleira)..."
+                  className="bg-white border-[#E5DFD5] focus-visible:ring-[#C6A664] h-11"
                 />
-                <Button type="submit" className="bg-[#7A5C2E] text-white">
-                  <Plus className="h-4 w-4 mr-1.5" /> Adicionar
+                <Button
+                  type="submit"
+                  className="bg-[#7A5C2E] hover:bg-[#634924] text-white px-5 h-11 shrink-0"
+                >
+                  <Plus className="h-4 w-4 mr-1.5" /> Adicionar Tipo
                 </Button>
               </form>
 
-              <div className="divide-y divide-[#E5DFD5] border border-[#E5DFD5] rounded-xl overflow-hidden">
+              {/* Items List in spaced grid / cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                 {types.map((item) => (
                   <div
                     key={item.id}
-                    className="p-3 flex items-center justify-between hover:bg-[#FDFBF7]"
+                    className="p-3.5 rounded-xl border border-[#E5DFD5] bg-[#FDFBF7]/60 hover:bg-[#FDFBF7] hover:border-[#C6A664]/60 transition-all flex items-center justify-between gap-2 group"
                   >
                     {editingId === item.id ? (
-                      <div className="flex items-center gap-2 flex-1">
+                      <div className="flex items-center gap-1.5 flex-1">
                         <Input
                           value={editingName}
                           onChange={(e) => setEditingName(e.target.value)}
-                          className="h-8"
+                          className="h-8 text-sm bg-white"
                           autoFocus
                         />
                         <Button
                           size="sm"
                           onClick={() => handleUpdate('product_types', item.id)}
-                          className="h-8 bg-[#2E7D4F]"
+                          className="h-8 px-2 bg-[#2E7D4F] hover:bg-[#256640] text-white"
                         >
                           <Check className="h-3.5 w-3.5" />
                         </Button>
@@ -192,31 +255,38 @@ export default function AuxiliariesCrud() {
                           size="sm"
                           variant="ghost"
                           onClick={() => setEditingId(null)}
-                          className="h-8"
+                          className="h-8 px-2"
                         >
                           <X className="h-3.5 w-3.5" />
                         </Button>
                       </div>
                     ) : (
                       <>
-                        <span className="font-medium text-[#2D2A26]">{item.name}</span>
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className="h-2 w-2 rounded-full bg-[#C6A664] shrink-0" />
+                          <span className="font-semibold text-sm text-[#2D2A26] truncate">
+                            {item.name}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0 opacity-80 group-hover:opacity-100">
                           <Button
                             size="icon"
                             variant="ghost"
-                            className="h-8 w-8 text-[#6B655E]"
+                            className="h-7 w-7 text-[#6B655E] hover:text-[#7A5C2E] hover:bg-white"
                             onClick={() => {
                               setEditingId(item.id)
                               setEditingName(item.name)
                             }}
+                            title="Editar"
                           >
                             <Edit2 className="h-3.5 w-3.5" />
                           </Button>
                           <Button
                             size="icon"
                             variant="ghost"
-                            className="h-8 w-8 text-[#B3261E]"
+                            className="h-7 w-7 text-[#B3261E] hover:bg-[#B3261E]/10"
                             onClick={() => handleDelete('product_types', item.id, item.name)}
+                            title="Excluir"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
@@ -231,53 +301,65 @@ export default function AuxiliariesCrud() {
         </TabsContent>
 
         {/* Tab Materials */}
-        <TabsContent value="materials" className="mt-6 space-y-4">
-          <Card className="border-[#E5DFD5] bg-white">
-            <CardHeader>
-              <CardTitle className="font-serif text-lg text-[#2D2A26]">
-                Materiais de Joias
-              </CardTitle>
-              <CardDescription>
-                Ex: Ouro 18k, Prata 925, Folheado a Ouro, Ouro Branco
-              </CardDescription>
+        <TabsContent value="materials" className="mt-6 space-y-6">
+          <Card className="border-[#E5DFD5] bg-white shadow-xs rounded-2xl overflow-hidden">
+            <CardHeader className="p-6 border-b border-[#E5DFD5] bg-gradient-to-r from-white via-[#FDFBF7] to-white">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <CardTitle className="font-serif text-xl text-[#2D2A26]">
+                    Materiais de Joias
+                  </CardTitle>
+                  <CardDescription className="text-xs text-[#6B655E] mt-1">
+                    Ex: Ouro 18k, Prata 925, Folheado a Ouro, Ouro Branco, Aço Inox
+                  </CardDescription>
+                </div>
+                <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-[#F3EAD8] text-[#7A5C2E] w-fit">
+                  {materials.length} cadastrados
+                </span>
+              </div>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="p-6 space-y-6">
+              {/* Add form */}
               <form
                 onSubmit={(e) => {
                   e.preventDefault()
                   handleCreate('product_materials', newMaterialName)
                 }}
-                className="flex gap-2"
+                className="flex gap-3 bg-[#FDFBF7] p-3 rounded-xl border border-[#E5DFD5]"
               >
                 <Input
                   value={newMaterialName}
                   onChange={(e) => setNewMaterialName(e.target.value)}
-                  placeholder="Novo material..."
-                  className="border-[#E5DFD5] focus-visible:ring-[#C6A664]"
+                  placeholder="Cadastrar novo material (ex: Ouro Rosé, Ródio Negro)..."
+                  className="bg-white border-[#E5DFD5] focus-visible:ring-[#C6A664] h-11"
                 />
-                <Button type="submit" className="bg-[#7A5C2E] text-white">
-                  <Plus className="h-4 w-4 mr-1.5" /> Adicionar
+                <Button
+                  type="submit"
+                  className="bg-[#7A5C2E] hover:bg-[#634924] text-white px-5 h-11 shrink-0"
+                >
+                  <Plus className="h-4 w-4 mr-1.5" /> Adicionar Material
                 </Button>
               </form>
 
-              <div className="divide-y divide-[#E5DFD5] border border-[#E5DFD5] rounded-xl overflow-hidden">
+              {/* Items List in spaced grid / cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                 {materials.map((item) => (
                   <div
                     key={item.id}
-                    className="p-3 flex items-center justify-between hover:bg-[#FDFBF7]"
+                    className="p-3.5 rounded-xl border border-[#E5DFD5] bg-[#FDFBF7]/60 hover:bg-[#FDFBF7] hover:border-[#C6A664]/60 transition-all flex items-center justify-between gap-2 group"
                   >
                     {editingId === item.id ? (
-                      <div className="flex items-center gap-2 flex-1">
+                      <div className="flex items-center gap-1.5 flex-1">
                         <Input
                           value={editingName}
                           onChange={(e) => setEditingName(e.target.value)}
-                          className="h-8"
+                          className="h-8 text-sm bg-white"
                           autoFocus
                         />
                         <Button
                           size="sm"
                           onClick={() => handleUpdate('product_materials', item.id)}
-                          className="h-8 bg-[#2E7D4F]"
+                          className="h-8 px-2 bg-[#2E7D4F] hover:bg-[#256640] text-white"
                         >
                           <Check className="h-3.5 w-3.5" />
                         </Button>
@@ -285,31 +367,38 @@ export default function AuxiliariesCrud() {
                           size="sm"
                           variant="ghost"
                           onClick={() => setEditingId(null)}
-                          className="h-8"
+                          className="h-8 px-2"
                         >
                           <X className="h-3.5 w-3.5" />
                         </Button>
                       </div>
                     ) : (
                       <>
-                        <span className="font-medium text-[#2D2A26]">{item.name}</span>
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className="h-2 w-2 rounded-full bg-[#C6A664] shrink-0" />
+                          <span className="font-semibold text-sm text-[#2D2A26] truncate">
+                            {item.name}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0 opacity-80 group-hover:opacity-100">
                           <Button
                             size="icon"
                             variant="ghost"
-                            className="h-8 w-8 text-[#6B655E]"
+                            className="h-7 w-7 text-[#6B655E] hover:text-[#7A5C2E] hover:bg-white"
                             onClick={() => {
                               setEditingId(item.id)
                               setEditingName(item.name)
                             }}
+                            title="Editar"
                           >
                             <Edit2 className="h-3.5 w-3.5" />
                           </Button>
                           <Button
                             size="icon"
                             variant="ghost"
-                            className="h-8 w-8 text-[#B3261E]"
+                            className="h-7 w-7 text-[#B3261E] hover:bg-[#B3261E]/10"
                             onClick={() => handleDelete('product_materials', item.id, item.name)}
+                            title="Excluir"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
@@ -323,52 +412,64 @@ export default function AuxiliariesCrud() {
           </Card>
         </TabsContent>
 
-        {/* Tab Sizes */}
-        <TabsContent value="sizes" className="mt-6 space-y-4">
-          <Card className="border-[#E5DFD5] bg-white">
-            <CardHeader>
-              <CardTitle className="font-serif text-lg text-[#2D2A26]">
-                Tamanhos e Medidas
-              </CardTitle>
-              <CardDescription>Ex: Único, 16, 18, 20, 45cm, 50cm, P, M, G</CardDescription>
+        {/* Tab Sizes without '/ Medidas' */}
+        <TabsContent value="sizes" className="mt-6 space-y-6">
+          <Card className="border-[#E5DFD5] bg-white shadow-xs rounded-2xl overflow-hidden">
+            <CardHeader className="p-6 border-b border-[#E5DFD5] bg-gradient-to-r from-white via-[#FDFBF7] to-white">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <CardTitle className="font-serif text-xl text-[#2D2A26]">Tamanhos</CardTitle>
+                  <CardDescription className="text-xs text-[#6B655E] mt-1">
+                    Ex: Único, 14, 16, 18, 20, 22, 45cm, 50cm, P, M, G
+                  </CardDescription>
+                </div>
+                <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-[#F3EAD8] text-[#7A5C2E] w-fit">
+                  {sizes.length} cadastrados
+                </span>
+              </div>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="p-6 space-y-6">
+              {/* Add form */}
               <form
                 onSubmit={(e) => {
                   e.preventDefault()
                   handleCreate('product_sizes', newSizeName)
                 }}
-                className="flex gap-2"
+                className="flex gap-3 bg-[#FDFBF7] p-3 rounded-xl border border-[#E5DFD5]"
               >
                 <Input
                   value={newSizeName}
                   onChange={(e) => setNewSizeName(e.target.value)}
-                  placeholder="Novo tamanho ou medida..."
-                  className="border-[#E5DFD5] focus-visible:ring-[#C6A664]"
+                  placeholder="Cadastrar novo tamanho (ex: Aro 17, 60cm)..."
+                  className="bg-white border-[#E5DFD5] focus-visible:ring-[#C6A664] h-11"
                 />
-                <Button type="submit" className="bg-[#7A5C2E] text-white">
-                  <Plus className="h-4 w-4 mr-1.5" /> Adicionar
+                <Button
+                  type="submit"
+                  className="bg-[#7A5C2E] hover:bg-[#634924] text-white px-5 h-11 shrink-0"
+                >
+                  <Plus className="h-4 w-4 mr-1.5" /> Adicionar Tamanho
                 </Button>
               </form>
 
-              <div className="divide-y divide-[#E5DFD5] border border-[#E5DFD5] rounded-xl overflow-hidden">
+              {/* Items List in spaced grid / cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                 {sizes.map((item) => (
                   <div
                     key={item.id}
-                    className="p-3 flex items-center justify-between hover:bg-[#FDFBF7]"
+                    className="p-3.5 rounded-xl border border-[#E5DFD5] bg-[#FDFBF7]/60 hover:bg-[#FDFBF7] hover:border-[#C6A664]/60 transition-all flex items-center justify-between gap-2 group"
                   >
                     {editingId === item.id ? (
-                      <div className="flex items-center gap-2 flex-1">
+                      <div className="flex items-center gap-1.5 flex-1">
                         <Input
                           value={editingName}
                           onChange={(e) => setEditingName(e.target.value)}
-                          className="h-8"
+                          className="h-8 text-sm bg-white"
                           autoFocus
                         />
                         <Button
                           size="sm"
                           onClick={() => handleUpdate('product_sizes', item.id)}
-                          className="h-8 bg-[#2E7D4F]"
+                          className="h-8 px-2 bg-[#2E7D4F] hover:bg-[#256640] text-white"
                         >
                           <Check className="h-3.5 w-3.5" />
                         </Button>
@@ -376,31 +477,37 @@ export default function AuxiliariesCrud() {
                           size="sm"
                           variant="ghost"
                           onClick={() => setEditingId(null)}
-                          className="h-8"
+                          className="h-8 px-2"
                         >
                           <X className="h-3.5 w-3.5" />
                         </Button>
                       </div>
                     ) : (
                       <>
-                        <span className="font-medium text-[#2D2A26]">{item.name}</span>
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="font-semibold text-sm text-[#2D2A26] truncate">
+                            {item.name}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0 opacity-80 group-hover:opacity-100">
                           <Button
                             size="icon"
                             variant="ghost"
-                            className="h-8 w-8 text-[#6B655E]"
+                            className="h-7 w-7 text-[#6B655E] hover:text-[#7A5C2E] hover:bg-white"
                             onClick={() => {
                               setEditingId(item.id)
                               setEditingName(item.name)
                             }}
+                            title="Editar"
                           >
                             <Edit2 className="h-3.5 w-3.5" />
                           </Button>
                           <Button
                             size="icon"
                             variant="ghost"
-                            className="h-8 w-8 text-[#B3261E]"
+                            className="h-7 w-7 text-[#B3261E] hover:bg-[#B3261E]/10"
                             onClick={() => handleDelete('product_sizes', item.id, item.name)}
+                            title="Excluir"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>

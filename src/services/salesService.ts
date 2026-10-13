@@ -95,4 +95,19 @@ export const salesService = {
       body: JSON.stringify(payload),
     })
   },
+
+  async sendReceiptEmail(data: {
+    email: string
+    customer_name: string
+    sale_code: string
+    total: number
+    items: any[]
+    payment_method: string
+    date: string
+  }): Promise<{ success: boolean; sent: boolean; message: string; warning?: string }> {
+    return pb.send('/backend/v1/scaglioni/send-receipt', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
 }

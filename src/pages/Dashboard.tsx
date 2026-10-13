@@ -442,7 +442,7 @@ export default function Dashboard() {
                     <span className="font-mono text-xs font-bold text-[#7A5C2E] block">
                       {p.code}
                     </span>
-                    <p className="text-sm font-semibold text-[#2D2A26] line-clamp-1">
+                    <p className="text-sm font-semibold text-[#2D2A26] whitespace-normal break-words">
                       {p.description}
                     </p>
                   </div>

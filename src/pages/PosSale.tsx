@@ -36,6 +36,10 @@ import {
   ArrowRight,
   PackageCheck,
   ZoomIn,
+  Download,
+  Mail,
+  Send,
+  Undo2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -62,9 +66,14 @@ export default function PosSale() {
   const [pendingModalOpen, setPendingModalOpen] = useState(false)
   const [activePendingSaleId, setActivePendingSaleId] = useState<string | null>(null)
 
-  // Success Receipt modal
+  // Single-screen Flip State: 'products' | 'payment'
+  const [activeScreen, setActiveScreen] = useState<'products' | 'payment'>('products')
+
+  // Success Receipt state / modal
   const [completedSale, setCompletedSale] = useState<any | null>(null)
   const [receiptModalOpen, setReceiptModalOpen] = useState(false)
+  const [recipientEmail, setRecipientEmail] = useState('')
+  const [isSendingEmail, setIsSendingEmail] = useState(false)
 
   // New Customer modal
   const [newCustomerModalOpen, setNewCustomerModalOpen] = useState(false)
@@ -300,13 +309,16 @@ export default function PosSale() {
         sale_id: activePendingSaleId || undefined,
       })
 
+      const cust = customers.find((c) => c.id === selectedCustomerId)
       setCompletedSale({
         ...result,
         items: cart,
-        customer: customers.find((c) => c.id === selectedCustomerId),
+        customer: cust,
         date: new Date().toISOString(),
       })
+      setRecipientEmail(cust?.email || '')
       setReceiptModalOpen(true)
+      setActiveScreen('products')
       toast.success('Venda concluída com sucesso! Estoque atualizado.')
 
       resetSaleForm()
@@ -329,6 +341,83 @@ export default function PosSale() {
     setPaymentMethod('pix')
     setActivePendingSaleId(null)
     setBarcodeOrSearch('')
+    setActiveScreen('products')
+  }
+
+  // Handle Save / Download Receipt as text/file
+  const handleDownloadReceipt = () => {
+    if (!completedSale) return
+    const textLines = [
+      '========================================',
+      '           SCAGLIONI JOIAS              ',
+      '      ALTA JOALHERIA & CONIGNAÇÃO       ',
+      '========================================',
+      `Venda: ${completedSale.code}`,
+      `Data: ${formatDateTime(completedSale.date)}`,
+      completedSale.customer
+        ? `Cliente: ${completedSale.customer.name}`
+        : 'Cliente: Consumidor Final',
+      '----------------------------------------',
+      'ITENS:',
+      ...completedSale.items.map(
+        (it: any) =>
+          `${it.quantity}x ${it.description} - R$ ${Number(it.total || it.unit_price * it.quantity).toFixed(2)}`,
+      ),
+      '----------------------------------------',
+      `Subtotal: R$ ${Number(completedSale.subtotal || 0).toFixed(2)}`,
+      completedSale.discount > 0
+        ? `Desconto: - R$ ${Number(completedSale.discount).toFixed(2)}`
+        : null,
+      `TOTAL PAGO: R$ ${Number(completedSale.total || 0).toFixed(2)}`,
+      `Forma: ${completedSale.payment_method.toUpperCase()}${completedSale.installments > 1 ? ` (${completedSale.installments}x)` : ''}`,
+      '========================================',
+      '    Obrigado pela preferência!          ',
+      '========================================',
+    ].filter(Boolean)
+
+    const blob = new Blob([textLines.join('\n')], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `comprovante-${completedSale.code}.txt`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+    toast.success('Comprovante salvo com sucesso!')
+  }
+
+  // Handle Send Receipt by Email
+  const handleSendEmailReceipt = async () => {
+    if (!completedSale) return
+    if (!recipientEmail || !recipientEmail.includes('@')) {
+      toast.warning('Informe um e-mail válido para enviar o comprovante.')
+      return
+    }
+
+    setIsSendingEmail(true)
+    try {
+      const res = await salesService.sendReceiptEmail({
+        email: recipientEmail.trim(),
+        customer_name: completedSale.customer?.name || 'Cliente',
+        sale_code: completedSale.code,
+        total: completedSale.total,
+        items: completedSale.items,
+        payment_method: completedSale.payment_method,
+        date: completedSale.date,
+      })
+
+      if (res.warning) {
+        toast.info(res.warning)
+      } else {
+        toast.success(res.message || 'Comprovante enviado com sucesso!')
+      }
+    } catch (err: any) {
+      console.error(err)
+      toast.error('Erro ao enviar comprovante: ' + (err.message || 'Falha de rede.'))
+    } finally {
+      setIsSendingEmail(false)
+    }
   }
 
   // Quick Customer Creation
@@ -355,22 +444,23 @@ export default function PosSale() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Title Bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#E5DFD5] pb-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="p-2 rounded-lg bg-[#C6A664]/20 text-[#7A5C2E]">
-              <ShoppingCart className="h-5 w-5" />
-            </span>
-            <h1 className="font-serif text-2xl md:text-3xl font-bold text-[#2D2A26]">
+    <div className="space-y-4 max-w-7xl mx-auto">
+      {/* Title Bar compacta para tela única */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#E5DFD5] pb-3">
+        <div className="flex items-center gap-2.5">
+          <span className="p-2 rounded-xl bg-gradient-to-tr from-[#7A5C2E]/20 to-[#C6A664]/30 text-[#7A5C2E] shadow-xs">
+            <ShoppingCart className="h-5 w-5" />
+          </span>
+          <div>
+            <h1 className="font-serif text-xl md:text-2xl font-bold text-[#2D2A26]">
               Ponto de Venda (PDV)
             </h1>
+            <p className="text-xs text-[#6B655E]">
+              {activeScreen === 'products'
+                ? 'Selecione produtos ou escaneie o código de barras'
+                : 'Conclua o pagamento e confirme a venda'}
+            </p>
           </div>
-          <p className="text-sm text-[#6B655E] mt-1">
-            Leitura de código de barras ou busca rápida, checkout com baixa de estoque consistente e
-            recibo imprimível.
-          </p>
         </div>
 
         <div className="flex items-center gap-2">
@@ -379,281 +469,433 @@ export default function PosSale() {
               variant="outline"
               size="sm"
               onClick={() => setPendingModalOpen(true)}
-              className="border-[#B26A00] text-[#B26A00] hover:bg-[#B26A00]/10 font-semibold"
+              className="border-[#B26A00] text-[#B26A00] hover:bg-[#B26A00]/10 font-semibold text-xs h-9"
             >
-              <Clock className="h-4 w-4 mr-1.5" />
-              Vendas Pendentes ({pendingSales.length})
+              <Clock className="h-3.5 w-3.5 mr-1" />
+              Pendentes ({pendingSales.length})
             </Button>
           )}
 
           {activePendingSaleId && (
-            <Badge className="bg-[#B26A00] text-white">Retomando Venda</Badge>
+            <Badge className="bg-[#B26A00] text-white text-xs">Retomando Venda</Badge>
           )}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column (Products Search + Cart Items) - 7 cols */}
-        <div className="lg:col-span-7 space-y-4">
-          {/* Barcode / Search Box */}
-          <Card className="border-[#E5DFD5] bg-white shadow-xs">
-            <CardContent className="p-4 space-y-3">
-              <div className="relative">
-                <Barcode className="absolute left-3.5 top-3 h-5 w-5 text-[#7A5C2E]" />
-                <Input
-                  ref={barcodeInputRef}
-                  value={barcodeOrSearch}
-                  onChange={(e) => setBarcodeOrSearch(e.target.value)}
-                  onKeyDown={handleBarcodeKeyDown}
-                  placeholder="Escaneie o código de barras ou busque pelo nome/código (Pressione Enter)..."
-                  className="pl-11 h-11 border-[#C6A664] focus-visible:ring-[#C6A664] text-base font-medium"
-                />
-              </div>
+      {/* Main Single-Screen PDV Container com efeito suave de virar página / flip container */}
+      <div className="relative overflow-hidden min-h-[560px] rounded-2xl">
+        {/* LADO A: Produtos & Carrinho */}
+        <div
+          className={`transition-all duration-500 ease-in-out ${
+            activeScreen === 'products'
+              ? 'opacity-100 scale-100 translate-x-0 relative z-10 pointer-events-auto'
+              : 'opacity-0 scale-95 -translate-x-full absolute inset-0 z-0 pointer-events-none'
+          }`}
+        >
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+            {/* Coluna Esquerda: Busca/Scanner + Tabela de Itens (8 colunas) */}
+            <div className="lg:col-span-8 space-y-3">
+              {/* Barcode / Search Box */}
+              <Card className="border-[#E5DFD5] bg-white shadow-xs">
+                <CardContent className="p-3 space-y-2">
+                  <div className="relative">
+                    <Barcode className="absolute left-3.5 top-2.5 h-5 w-5 text-[#7A5C2E]" />
+                    <Input
+                      ref={barcodeInputRef}
+                      value={barcodeOrSearch}
+                      onChange={(e) => setBarcodeOrSearch(e.target.value)}
+                      onKeyDown={handleBarcodeKeyDown}
+                      placeholder="Escaneie o código de barras ou busque por código / descrição... (Enter para adicionar)"
+                      className="pl-11 h-10 border-[#C6A664] focus-visible:ring-[#C6A664] text-sm font-medium bg-white"
+                    />
+                  </div>
 
-              {/* Autocomplete Dropdown preview com miniatura amplificável e colunas/badges separadas */}
-              {filteredProducts.length > 0 && (
-                <div className="divide-y divide-[#E5DFD5] border border-[#E5DFD5] rounded-xl bg-[#FDFBF7] overflow-hidden shadow-sm max-h-80 overflow-y-auto">
-                  {filteredProducts.map((p) => {
-                    const photo =
-                      p.photos && p.photos.length > 0
-                        ? getFileUrl('products', p.id, p.photos[0])
-                        : null
-                    const hasPhoto = Boolean(photo)
+                  {/* Autocomplete Dropdown preview com foto e badges */}
+                  {filteredProducts.length > 0 && (
+                    <div className="divide-y divide-[#E5DFD5] border border-[#E5DFD5] rounded-xl bg-[#FDFBF7] overflow-hidden shadow-sm max-h-60 overflow-y-auto">
+                      {filteredProducts.map((p) => {
+                        const photo =
+                          p.photos && p.photos.length > 0
+                            ? getFileUrl('products', p.id, p.photos[0])
+                            : null
+                        const hasPhoto = Boolean(photo)
 
-                    return (
-                      <div
-                        key={p.id}
-                        onClick={() => addToCart(p)}
-                        className="p-2.5 flex items-center justify-between hover:bg-[#F3EAD8] cursor-pointer transition-colors gap-3"
-                      >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              if (hasPhoto) handleOpenLightbox(p)
-                            }}
-                            disabled={!hasPhoto}
-                            className={`relative group h-10 w-10 rounded-lg bg-white border border-[#E5DFD5] shrink-0 overflow-hidden flex items-center justify-center ${
-                              hasPhoto ? 'hover:border-[#C6A664]' : ''
-                            }`}
-                            title={hasPhoto ? 'Ampliar foto' : 'Sem foto'}
+                        return (
+                          <div
+                            key={p.id}
+                            onClick={() => addToCart(p)}
+                            className="p-2 flex items-center justify-between hover:bg-[#F3EAD8] cursor-pointer transition-colors gap-3"
                           >
-                            {photo ? (
-                              <>
-                                <img
-                                  src={photo}
-                                  alt={p.description}
-                                  className="h-full w-full object-cover group-hover:scale-105 transition-transform"
-                                />
-                                <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white">
-                                  <ZoomIn className="h-3 w-3" />
+                            <div className="flex items-center gap-2 min-w-0">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  if (hasPhoto) handleOpenLightbox(p)
+                                }}
+                                disabled={!hasPhoto}
+                                className={`relative group h-9 w-9 rounded-lg bg-white border border-[#E5DFD5] shrink-0 overflow-hidden flex items-center justify-center ${
+                                  hasPhoto ? 'hover:border-[#C6A664]' : ''
+                                }`}
+                                title={hasPhoto ? 'Ampliar foto' : 'Sem foto'}
+                              >
+                                {photo ? (
+                                  <>
+                                    <img
+                                      src={photo}
+                                      alt={p.description}
+                                      className="h-full w-full object-cover group-hover:scale-105 transition-transform"
+                                    />
+                                    <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white">
+                                      <ZoomIn className="h-3 w-3" />
+                                    </div>
+                                  </>
+                                ) : (
+                                  <PackageCheck className="h-4 w-4 text-[#C6A664]" />
+                                )}
+                              </button>
+
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-mono text-xs font-bold text-[#7A5C2E]">
+                                    {p.code}
+                                  </span>
+                                  <span className="text-[11px] text-[#6B655E]">
+                                    ({p.quantity} disp.)
+                                  </span>
+                                  <span className="px-1.5 py-0.2 rounded bg-[#E5DFD5]/60 text-[10px] text-[#2D2A26]">
+                                    {p.expand?.type?.name || 'Joia'}
+                                  </span>
+                                  <span className="px-1.5 py-0.2 rounded bg-[#E5DFD5]/60 text-[10px] text-[#2D2A26]">
+                                    {p.expand?.material?.name || '—'}
+                                  </span>
                                 </div>
-                              </>
-                            ) : (
-                              <PackageCheck className="h-4 w-4 text-[#C6A664]" />
-                            )}
-                          </button>
-
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono text-xs font-bold text-[#7A5C2E]">
-                                {p.code}
-                              </span>
-                              <span className="text-xs text-[#6B655E] font-light">
-                                ({p.quantity} em estoque)
-                              </span>
+                                <span className="text-xs font-medium text-[#2D2A26] block whitespace-normal break-words mt-0.5">
+                                  {p.description}
+                                </span>
+                              </div>
                             </div>
-                            <span className="text-sm font-medium text-[#2D2A26] block truncate">
-                              {p.description}
-                            </span>
-                            <div className="flex items-center gap-1.5 text-[10px] text-[#6B655E] mt-0.5">
-                              <span className="px-1 py-0.2 rounded bg-[#E5DFD5]/60 text-[#2D2A26]">
-                                {p.expand?.type?.name || 'Joia'}
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className="font-bold text-sm text-[#2E7D4F]">
+                                {formatCurrency(p.selling_price)}
                               </span>
-                              <span className="px-1 py-0.2 rounded bg-[#E5DFD5]/60 text-[#2D2A26]">
-                                Tam: {p.expand?.size?.name || 'Único'}
-                              </span>
-                              <span className="px-1 py-0.2 rounded bg-[#E5DFD5]/60 text-[#2D2A26] capitalize">
-                                Perfil: {p.target_audience || 'Unissex'}
-                              </span>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 w-7 p-0 text-[#7A5C2E]"
+                              >
+                                <Plus className="h-4 w-4" />
+                              </Button>
                             </div>
                           </div>
-                        </div>
-
-                        <div className="flex items-center gap-3 shrink-0">
-                          <span className="font-bold text-sm text-[#2E7D4F]">
-                            {formatCurrency(p.selling_price)}
-                          </span>
-                          <Button size="sm" variant="ghost" className="h-7 text-[#7A5C2E]">
-                            <Plus className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Cart Table */}
-          <Card className="border-[#E5DFD5] bg-white shadow-xs overflow-hidden">
-            <CardHeader className="p-4 border-b border-[#E5DFD5] flex flex-row items-center justify-between">
-              <div>
-                <CardTitle className="font-serif text-lg text-[#2D2A26] flex items-center gap-2">
-                  <ShoppingCart className="h-4 w-4 text-[#7A5C2E]" /> Itens no Carrinho (
-                  {cart.length})
-                </CardTitle>
-              </div>
-              {cart.length > 0 && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setCart([])}
-                  className="text-xs text-[#B3261E] hover:bg-[#B3261E]/10"
-                >
-                  <Trash2 className="h-3.5 w-3.5 mr-1" /> Limpar Carrinho
-                </Button>
-              )}
-            </CardHeader>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-[#F3EAD8] text-[#2D2A26] border-b border-[#E5DFD5] text-xs font-semibold">
-                    <th className="py-2.5 px-4">Joia</th>
-                    <th className="py-2.5 px-4 text-center">Qtd</th>
-                    <th className="py-2.5 px-4 text-right">Unitário</th>
-                    <th className="py-2.5 px-4 text-right">Subtotal</th>
-                    <th className="py-2.5 px-2 w-10"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#E5DFD5] text-sm">
-                  {cart.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="py-12 text-center text-[#6B655E]">
-                        <ShoppingCart className="h-10 w-10 mx-auto text-[#C6A664] opacity-40 mb-2" />
-                        <p className="font-medium text-[#2D2A26]">Carrinho vazio</p>
-                        <p className="text-xs text-[#6B655E] mt-0.5">
-                          Escaneie etiquetas ou busque joias pelo campo acima.
-                        </p>
-                      </td>
-                    </tr>
-                  ) : (
-                    cart.map((item) => (
-                      <tr key={item.product_id} className="hover:bg-[#FDFBF7]">
-                        <td className="py-3 px-4">
-                          <span className="font-mono text-xs font-bold text-[#7A5C2E] block">
-                            {item.code}
-                          </span>
-                          <span className="font-medium text-[#2D2A26] line-clamp-1">
-                            {item.description}
-                          </span>
-                        </td>
-
-                        <td className="py-3 px-4 text-center">
-                          <div className="inline-flex items-center gap-1">
-                            <button
-                              onClick={() => updateCartQty(item.product_id, item.quantity - 1)}
-                              className="h-7 w-7 rounded-md bg-[#F3EAD8] hover:bg-[#E5DFD5] flex items-center justify-center text-[#2D2A26]"
-                            >
-                              <Minus className="h-3 w-3" />
-                            </button>
-                            <span className="w-8 text-center font-bold text-[#2D2A26]">
-                              {item.quantity}
-                            </span>
-                            <button
-                              onClick={() => updateCartQty(item.product_id, item.quantity + 1)}
-                              className="h-7 w-7 rounded-md bg-[#F3EAD8] hover:bg-[#E5DFD5] flex items-center justify-center text-[#2D2A26]"
-                            >
-                              <Plus className="h-3 w-3" />
-                            </button>
-                          </div>
-                        </td>
-
-                        <td className="py-3 px-4 text-right text-[#6B655E]">
-                          {formatCurrency(item.unit_price)}
-                        </td>
-
-                        <td className="py-3 px-4 text-right font-bold text-[#2D2A26]">
-                          {formatCurrency(item.total)}
-                        </td>
-
-                        <td className="py-3 px-2 text-right">
-                          <button
-                            onClick={() => removeFromCart(item.product_id)}
-                            className="p-1 rounded-md text-[#B3261E] hover:bg-[#B3261E]/10"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))
+                        )
+                      })}
+                    </div>
                   )}
-                </tbody>
-              </table>
+                </CardContent>
+              </Card>
+
+              {/* Cart Table com descrição completa sem truncar */}
+              <Card className="border-[#E5DFD5] bg-white shadow-xs overflow-hidden">
+                <CardHeader className="p-3 border-b border-[#E5DFD5] flex flex-row items-center justify-between">
+                  <CardTitle className="font-serif text-base text-[#2D2A26] flex items-center gap-2">
+                    <ShoppingCart className="h-4 w-4 text-[#7A5C2E]" />
+                    <span>Itens no Carrinho</span>
+                    <Badge variant="secondary" className="bg-[#F3EAD8] text-[#7A5C2E] ml-1">
+                      {cart.length}
+                    </Badge>
+                  </CardTitle>
+
+                  {cart.length > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setCart([])}
+                      className="text-xs text-[#B3261E] hover:bg-[#B3261E]/10 h-7 px-2"
+                    >
+                      <Trash2 className="h-3 w-3 mr-1" /> Limpar Carrinho
+                    </Button>
+                  )}
+                </CardHeader>
+
+                <div className="overflow-x-auto max-h-[360px] overflow-y-auto">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead className="sticky top-0 bg-[#F3EAD8] text-[#2D2A26] border-b border-[#E5DFD5] font-semibold z-10">
+                      <tr>
+                        <th className="py-2.5 px-3">Código</th>
+                        <th className="py-2.5 px-3 min-w-[200px]">Descrição Completa</th>
+                        <th className="py-2.5 px-3 text-center">Qtd</th>
+                        <th className="py-2.5 px-3 text-right">Unitário</th>
+                        <th className="py-2.5 px-3 text-right">Subtotal</th>
+                        <th className="py-2.5 px-2 w-8 text-center"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#E5DFD5]">
+                      {cart.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="py-12 text-center text-[#6B655E]">
+                            <ShoppingCart className="h-8 w-8 mx-auto text-[#C6A664] opacity-40 mb-2" />
+                            <p className="font-medium text-[#2D2A26] text-sm">Carrinho vazio</p>
+                            <p className="text-xs text-[#6B655E] mt-0.5">
+                              Busque joias ou escaneie o código de barras acima.
+                            </p>
+                          </td>
+                        </tr>
+                      ) : (
+                        cart.map((item) => (
+                          <tr key={item.product_id} className="hover:bg-[#FDFBF7]">
+                            <td className="py-2 px-3 font-mono font-bold text-[#7A5C2E]">
+                              {item.code}
+                            </td>
+
+                            {/* Descrição completa sem truncamento */}
+                            <td className="py-2 px-3">
+                              <span className="font-medium text-[#2D2A26] whitespace-normal break-words block leading-relaxed">
+                                {item.description}
+                              </span>
+                            </td>
+
+                            <td className="py-2 px-3 text-center">
+                              <div className="inline-flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => updateCartQty(item.product_id, item.quantity - 1)}
+                                  className="h-6 w-6 rounded bg-[#F3EAD8] hover:bg-[#E5DFD5] flex items-center justify-center text-[#2D2A26]"
+                                >
+                                  <Minus className="h-3 w-3" />
+                                </button>
+                                <span className="w-6 text-center font-bold text-[#2D2A26]">
+                                  {item.quantity}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => updateCartQty(item.product_id, item.quantity + 1)}
+                                  className="h-6 w-6 rounded bg-[#F3EAD8] hover:bg-[#E5DFD5] flex items-center justify-center text-[#2D2A26]"
+                                >
+                                  <Plus className="h-3 w-3" />
+                                </button>
+                              </div>
+                            </td>
+
+                            <td className="py-2 px-3 text-right text-[#6B655E]">
+                              {formatCurrency(item.unit_price)}
+                            </td>
+
+                            <td className="py-2 px-3 text-right font-bold text-[#2D2A26]">
+                              {formatCurrency(item.total)}
+                            </td>
+
+                            <td className="py-2 px-2 text-right">
+                              <button
+                                type="button"
+                                onClick={() => removeFromCart(item.product_id)}
+                                className="p-1 rounded text-[#B3261E] hover:bg-[#B3261E]/10"
+                                title="Remover item"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
             </div>
-          </Card>
+
+            {/* Coluna Direita: Resumo Rápido da Venda + Botões só com ícone (4 colunas) */}
+            <div className="lg:col-span-4 space-y-3">
+              {/* Cliente Rápido */}
+              <Card className="border-[#E5DFD5] bg-white shadow-xs">
+                <CardHeader className="p-3 pb-1">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-[11px] font-semibold text-[#6B655E] uppercase tracking-wider">
+                      Cliente
+                    </Label>
+                    <button
+                      type="button"
+                      onClick={() => setNewCustomerModalOpen(true)}
+                      className="text-xs font-semibold text-[#7A5C2E] hover:underline flex items-center gap-1"
+                    >
+                      <UserPlus className="h-3 w-3" /> Novo
+                    </button>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-3 pt-1">
+                  <select
+                    value={selectedCustomerId}
+                    onChange={(e) => setSelectedCustomerId(e.target.value)}
+                    className="w-full h-9 rounded-md border border-[#E5DFD5] bg-white px-2.5 text-xs text-[#2D2A26] focus:outline-none focus:ring-2 focus:ring-[#C6A664]"
+                  >
+                    <option value="">Consumidor Final (Sem cadastro)</option>
+                    {customers.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} {c.phone ? `(${c.phone})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </CardContent>
+              </Card>
+
+              {/* Resumo Financeiro */}
+              <Card className="border-[#C6A664] bg-gradient-to-br from-[#FFFFFF] to-[#FDFBF7] shadow-sm">
+                <CardContent className="p-4 space-y-3">
+                  <div className="space-y-1.5 border-b border-[#E5DFD5] pb-3 text-xs">
+                    <div className="flex justify-between text-[#6B655E]">
+                      <span>
+                        Subtotal ({cart.reduce((sum, it) => sum + it.quantity, 0)} itens):
+                      </span>
+                      <span>{formatCurrency(subtotal)}</span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 pt-1">
+                      <Label htmlFor="disc" className="text-xs text-[#6B655E]">
+                        Desconto (R$):
+                      </Label>
+                      <Input
+                        id="disc"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={discount}
+                        onChange={(e) => setDiscount(e.target.value)}
+                        className="w-24 h-8 text-right font-semibold text-xs border-[#E5DFD5]"
+                      />
+                    </div>
+
+                    <div className="flex justify-between items-baseline pt-2">
+                      <span className="font-serif text-base font-bold text-[#2D2A26]">
+                        Total a Pagar:
+                      </span>
+                      <span className="font-serif text-2xl font-bold text-[#7A5C2E]">
+                        {formatCurrency(total)}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Botões do Checkout: Apenas ícones lado a lado para Pagamento e Fiado (salvar pendente) */}
+                  <div className="space-y-2 pt-1">
+                    <p className="text-[11px] font-semibold text-[#6B655E] uppercase tracking-wider text-center">
+                      Ações de Checkout
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      {/* Botão com ÍCONE DE PAGAMENTO (sem texto) */}
+                      <Button
+                        type="button"
+                        onClick={() => {
+                          if (cart.length === 0) {
+                            toast.warning('Adicione produtos antes de prosseguir para o pagamento.')
+                            return
+                          }
+                          setActiveScreen('payment')
+                        }}
+                        disabled={cart.length === 0}
+                        title="Prosseguir para Pagamento (Cartão / Pix / Dinheiro)"
+                        className="h-14 bg-[#2E7D4F] hover:bg-[#256640] text-white flex items-center justify-center rounded-xl shadow-md transition-all hover:scale-[1.02] active:scale-[0.98]"
+                      >
+                        <CreditCard className="h-7 w-7" />
+                      </Button>
+
+                      {/* Botão com ÍCONE DE FIADO / PENDENTE (sem texto) */}
+                      <Button
+                        type="button"
+                        onClick={handleSavePending}
+                        disabled={cart.length === 0}
+                        title="Venda a Prazo / Fiado (Salvar como Pendente sem baixar estoque)"
+                        variant="outline"
+                        className="h-14 border-2 border-[#B26A00] text-[#B26A00] hover:bg-[#B26A00]/10 flex items-center justify-center rounded-xl transition-all hover:scale-[1.02] active:scale-[0.98]"
+                      >
+                        <Clock className="h-7 w-7" />
+                      </Button>
+                    </div>
+
+                    <p className="text-[10px] text-[#6B655E] text-center pt-0.5">
+                      <span className="font-medium text-[#2E7D4F]">Pagamento</span> ou{' '}
+                      <span className="font-medium text-[#B26A00]">Venda a Prazo / Fiado</span>
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
         </div>
 
-        {/* Right Column (Customer, Payment & Summary Checkout) - 5 cols */}
-        <div className="lg:col-span-5 space-y-4">
-          {/* Customer Selection */}
-          <Card className="border-[#E5DFD5] bg-white shadow-xs">
-            <CardHeader className="p-4 pb-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs font-semibold text-[#6B655E] uppercase tracking-wider">
-                  Cliente (Opcional)
-                </Label>
-                <button
+        {/* LADO B: Tela de Pagamento com efeito 'virar página' no mesmo container */}
+        <div
+          className={`transition-all duration-500 ease-in-out ${
+            activeScreen === 'payment'
+              ? 'opacity-100 scale-100 translate-x-0 relative z-10 pointer-events-auto'
+              : 'opacity-0 scale-95 translate-x-full absolute inset-0 z-0 pointer-events-none'
+          }`}
+        >
+          <div className="max-w-3xl mx-auto space-y-4 bg-white p-5 rounded-2xl border border-[#E5DFD5] shadow-sm">
+            {/* Cabeçalho da tela de pagamento com botão para VOLTAR À LISTA DOS PRODUTOS */}
+            <div className="flex items-center justify-between border-b border-[#E5DFD5] pb-3">
+              <div className="flex items-center gap-2">
+                <Button
                   type="button"
-                  onClick={() => setNewCustomerModalOpen(true)}
-                  className="text-xs font-semibold text-[#7A5C2E] hover:underline flex items-center gap-1"
+                  variant="outline"
+                  onClick={() => setActiveScreen('products')}
+                  className="border-[#7A5C2E] text-[#7A5C2E] hover:bg-[#F3EAD8] flex items-center gap-1.5 text-xs font-semibold h-9"
                 >
-                  <UserPlus className="h-3.5 w-3.5" /> Novo Cliente
-                </button>
+                  <Undo2 className="h-4 w-4" />
+                  <span>Voltar aos Produtos (Editar Carrinho)</span>
+                </Button>
               </div>
-            </CardHeader>
-            <CardContent className="p-4 pt-1">
-              <select
-                value={selectedCustomerId}
-                onChange={(e) => setSelectedCustomerId(e.target.value)}
-                className="w-full h-10 rounded-md border border-[#E5DFD5] bg-white px-3 py-2 text-sm text-[#2D2A26] focus:outline-none focus:ring-2 focus:ring-[#C6A664]"
+
+              <div className="text-right">
+                <span className="text-xs text-[#6B655E]">Total a Pagar:</span>
+                <span className="font-serif text-xl font-bold text-[#7A5C2E] block">
+                  {formatCurrency(total)}
+                </span>
+              </div>
+            </div>
+
+            {/* Resumo dos Itens editáveis se desejar voltar */}
+            <div className="p-3 rounded-xl bg-[#FDFBF7] border border-[#E5DFD5] flex items-center justify-between text-xs">
+              <div>
+                <span className="font-semibold text-[#2D2A26] block">
+                  {cart.length} itens no carrinho ({cart.reduce((acc, it) => acc + it.quantity, 0)}{' '}
+                  unidades)
+                </span>
+                <span className="text-[#6B655E]">
+                  Cliente:{' '}
+                  {customers.find((c) => c.id === selectedCustomerId)?.name || 'Consumidor Final'}
+                </span>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setActiveScreen('products')}
+                className="text-xs text-[#7A5C2E] hover:underline"
               >
-                <option value="">Consumidor Final (Sem cadastro)</option>
-                {customers.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} {c.phone ? `(${c.phone})` : ''}
-                  </option>
-                ))}
-              </select>
-            </CardContent>
-          </Card>
+                Alterar itens / quantidades
+              </Button>
+            </div>
 
-          {/* Payment Method & Installments */}
-          <Card className="border-[#E5DFD5] bg-white shadow-xs">
-            <CardHeader className="p-4 pb-2">
-              <Label className="text-xs font-semibold text-[#6B655E] uppercase tracking-wider">
-                Forma de Pagamento *
+            {/* Forma de Pagamento */}
+            <div className="space-y-3">
+              <Label className="text-xs font-semibold text-[#6B655E] uppercase tracking-wider block">
+                Escolha a Forma de Pagamento *
               </Label>
-            </CardHeader>
 
-            <CardContent className="p-4 pt-1 space-y-4">
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                 <button
                   type="button"
                   onClick={() => {
                     setPaymentMethod('pix')
                     setInstallments(1)
                   }}
-                  className={`p-3 rounded-xl border flex flex-col items-center gap-1.5 transition-all text-sm font-semibold ${
+                  className={`p-3.5 rounded-xl border flex flex-col items-center gap-2 transition-all text-xs font-semibold ${
                     paymentMethod === 'pix'
-                      ? 'border-[#7A5C2E] bg-[#C6A664]/10 text-[#7A5C2E] shadow-xs'
+                      ? 'border-[#7A5C2E] bg-[#C6A664]/15 text-[#7A5C2E] shadow-xs'
                       : 'border-[#E5DFD5] hover:bg-[#FDFBF7] text-[#6B655E]'
                   }`}
                 >
-                  <QrCode className="h-5 w-5" />
+                  <QrCode className="h-6 w-6" />
                   <span>Pix</span>
                 </button>
 
@@ -662,14 +904,14 @@ export default function PosSale() {
                   onClick={() => {
                     setPaymentMethod('credit_card')
                   }}
-                  className={`p-3 rounded-xl border flex flex-col items-center gap-1.5 transition-all text-sm font-semibold ${
+                  className={`p-3.5 rounded-xl border flex flex-col items-center gap-2 transition-all text-xs font-semibold ${
                     paymentMethod === 'credit_card'
-                      ? 'border-[#7A5C2E] bg-[#C6A664]/10 text-[#7A5C2E] shadow-xs'
+                      ? 'border-[#7A5C2E] bg-[#C6A664]/15 text-[#7A5C2E] shadow-xs'
                       : 'border-[#E5DFD5] hover:bg-[#FDFBF7] text-[#6B655E]'
                   }`}
                 >
-                  <CreditCard className="h-5 w-5" />
-                  <span>Cartão de Crédito</span>
+                  <CreditCard className="h-6 w-6" />
+                  <span>Cartão Crédito</span>
                 </button>
 
                 <button
@@ -678,14 +920,14 @@ export default function PosSale() {
                     setPaymentMethod('debit_card')
                     setInstallments(1)
                   }}
-                  className={`p-3 rounded-xl border flex flex-col items-center gap-1.5 transition-all text-sm font-semibold ${
+                  className={`p-3.5 rounded-xl border flex flex-col items-center gap-2 transition-all text-xs font-semibold ${
                     paymentMethod === 'debit_card'
-                      ? 'border-[#7A5C2E] bg-[#C6A664]/10 text-[#7A5C2E] shadow-xs'
+                      ? 'border-[#7A5C2E] bg-[#C6A664]/15 text-[#7A5C2E] shadow-xs'
                       : 'border-[#E5DFD5] hover:bg-[#FDFBF7] text-[#6B655E]'
                   }`}
                 >
-                  <CreditCard className="h-5 w-5" />
-                  <span>Cartão de Débito</span>
+                  <CreditCard className="h-6 w-6" />
+                  <span>Cartão Débito</span>
                 </button>
 
                 <button
@@ -694,20 +936,20 @@ export default function PosSale() {
                     setPaymentMethod('cash')
                     setInstallments(1)
                   }}
-                  className={`p-3 rounded-xl border flex flex-col items-center gap-1.5 transition-all text-sm font-semibold ${
+                  className={`p-3.5 rounded-xl border flex flex-col items-center gap-2 transition-all text-xs font-semibold ${
                     paymentMethod === 'cash'
-                      ? 'border-[#7A5C2E] bg-[#C6A664]/10 text-[#7A5C2E] shadow-xs'
+                      ? 'border-[#7A5C2E] bg-[#C6A664]/15 text-[#7A5C2E] shadow-xs'
                       : 'border-[#E5DFD5] hover:bg-[#FDFBF7] text-[#6B655E]'
                   }`}
                 >
-                  <Banknote className="h-5 w-5" />
+                  <Banknote className="h-6 w-6" />
                   <span>Dinheiro</span>
                 </button>
               </div>
 
-              {/* Installments Selector (Up to 12x with parcel values) */}
+              {/* Opções de Parcelamento no Cartão */}
               {paymentMethod === 'credit_card' && (
-                <div className="p-3.5 rounded-xl bg-[#FDFBF7] border border-[#E5DFD5] space-y-2">
+                <div className="p-3.5 rounded-xl bg-[#FDFBF7] border border-[#E5DFD5] space-y-2 mt-2">
                   <Label className="text-xs font-semibold text-[#2D2A26] flex items-center justify-between">
                     <span>Parcelamento no Cartão de Crédito:</span>
                     <span className="text-[#7A5C2E] font-bold">
@@ -730,88 +972,33 @@ export default function PosSale() {
                   </select>
                 </div>
               )}
+            </div>
 
-              {/* Discount Input */}
-              <div className="flex items-center justify-between gap-3 pt-2">
-                <Label htmlFor="disc" className="text-xs font-semibold text-[#6B655E]">
-                  Desconto Opcional (R$):
-                </Label>
-                <Input
-                  id="disc"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={discount}
-                  onChange={(e) => setDiscount(e.target.value)}
-                  className="w-28 text-right font-semibold border-[#E5DFD5]"
-                />
-              </div>
-            </CardContent>
-          </Card>
+            {/* Ações Finais na tela de pagamento */}
+            <div className="pt-4 border-t border-[#E5DFD5] flex flex-col sm:flex-row items-center justify-between gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setActiveScreen('products')}
+                className="w-full sm:w-auto border-[#E5DFD5] text-[#6B655E] text-xs h-11"
+              >
+                <Undo2 className="h-4 w-4 mr-1.5" />
+                Voltar e Modificar Produtos
+              </Button>
 
-          {/* Checkout Totals & Final Buttons */}
-          <Card className="border-[#C6A664] bg-gradient-to-br from-[#FFFFFF] to-[#FDFBF7] shadow-md">
-            <CardContent className="p-5 space-y-4">
-              <div className="space-y-2 border-b border-[#E5DFD5] pb-3 text-sm">
-                <div className="flex justify-between text-[#6B655E]">
-                  <span>Subtotal:</span>
-                  <span>{formatCurrency(subtotal)}</span>
-                </div>
-                {discountVal > 0 && (
-                  <div className="flex justify-between text-[#B3261E]">
-                    <span>Desconto:</span>
-                    <span>- {formatCurrency(discountVal)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between items-baseline pt-1">
-                  <span className="font-serif text-lg font-bold text-[#2D2A26]">
-                    Total a Pagar:
-                  </span>
-                  <span className="font-serif text-2xl font-bold text-[#7A5C2E]">
-                    {formatCurrency(total)}
-                  </span>
-                </div>
-                {paymentMethod === 'credit_card' && installments > 1 && (
-                  <p className="text-right text-xs text-[#6B655E]">
-                    Em {installments}x de {formatCurrency(installmentValue)}
-                  </p>
-                )}
-              </div>
-
-              {/* Action Buttons */}
-              <div className="space-y-2">
-                <Button
-                  onClick={handleCompleteSale}
-                  disabled={isProcessing || cart.length === 0}
-                  className="w-full h-12 bg-[#2E7D4F] hover:bg-[#256640] text-white font-bold text-base shadow-md"
-                >
-                  <CheckCircle2 className="h-5 w-5 mr-2" />
-                  {isProcessing ? 'Finalizando...' : 'Concluir Venda'}
-                </Button>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={handleSavePending}
-                    disabled={cart.length === 0}
-                    className="border-[#B26A00] text-[#B26A00] hover:bg-[#B26A00]/10 text-xs font-semibold"
-                  >
-                    <Clock className="h-3.5 w-3.5 mr-1" /> Salvar Pendente
-                  </Button>
-
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={resetSaleForm}
-                    className="text-xs text-[#6B655E] hover:bg-[#E5DFD5]"
-                  >
-                    <RotateCcw className="h-3.5 w-3.5 mr-1" /> Cancelar
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              <Button
+                type="button"
+                onClick={handleCompleteSale}
+                disabled={isProcessing || cart.length === 0}
+                className="w-full sm:w-auto px-8 h-12 bg-[#2E7D4F] hover:bg-[#256640] text-white font-bold text-base shadow-md"
+              >
+                <CheckCircle2 className="h-5 w-5 mr-2" />
+                {isProcessing
+                  ? 'Concluindo Venda...'
+                  : `Confirmar Pagamento (${formatCurrency(total)})`}
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -909,14 +1096,14 @@ export default function PosSale() {
                 </div>
               )}
 
-              {/* Items List */}
+              {/* Items List sem truncamento, descrição completa */}
               <div className="space-y-1 pb-2 border-b border-[#2D2A26]/20">
                 {completedSale.items.map((item: any, i: number) => (
-                  <div key={i} className="flex justify-between">
-                    <span className="truncate max-w-[180px]">
+                  <div key={i} className="flex justify-between gap-2">
+                    <span className="whitespace-normal break-words flex-1">
                       {item.quantity}x {item.description}
                     </span>
-                    <span>{formatCurrency(item.total)}</span>
+                    <span className="shrink-0">{formatCurrency(item.total)}</span>
                   </div>
                 ))}
               </div>
@@ -953,18 +1140,59 @@ export default function PosSale() {
             </div>
           )}
 
-          <DialogFooter className="print:hidden mt-3 flex items-center justify-between sm:justify-between">
+          {/* Tela de pós-venda: imprimir, salvar (download) e enviar comprovante por e-mail */}
+          <div className="print:hidden space-y-3 mt-2">
+            {/* Campo de e-mail do cliente + botão de envio */}
+            <div className="flex items-center gap-2">
+              <Mail className="h-4 w-4 text-[#7A5C2E] shrink-0" />
+              <Input
+                type="email"
+                value={recipientEmail}
+                onChange={(e) => setRecipientEmail(e.target.value)}
+                placeholder="E-mail do cliente para enviar o comprovante..."
+                className="text-xs border-[#E5DFD5] flex-1"
+              />
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              {/* Imprimir Comprovante */}
+              <Button
+                variant="outline"
+                onClick={() => window.print()}
+                className="border-[#2D2A26] text-[#2D2A26] text-xs h-10"
+              >
+                <Printer className="h-4 w-4 mr-1.5" /> Imprimir
+              </Button>
+
+              {/* Salvar / Download Comprovante */}
+              <Button
+                variant="outline"
+                onClick={handleDownloadReceipt}
+                className="border-[#7A5C2E] text-[#7A5C2E] text-xs h-10"
+              >
+                <Download className="h-4 w-4 mr-1.5" /> Salvar
+              </Button>
+
+              {/* Enviar Comprovante por e-mail */}
+              <Button
+                onClick={handleSendEmailReceipt}
+                disabled={isSendingEmail}
+                className="bg-[#2E7D4F] hover:bg-[#256640] text-white text-xs h-10"
+              >
+                <Send className="h-4 w-4 mr-1.5" /> {isSendingEmail ? 'Enviando...' : 'Enviar'}
+              </Button>
+            </div>
+
             <Button
-              variant="outline"
-              onClick={() => window.print()}
-              className="border-[#2D2A26] text-[#2D2A26]"
+              onClick={() => {
+                setReceiptModalOpen(false)
+                setCompletedSale(null)
+              }}
+              className="w-full bg-[#2D2A26] hover:bg-[#1F1D1A] text-white text-xs h-10"
             >
-              <Printer className="h-4 w-4 mr-2" /> Imprimir Recibo
+              Concluir e Iniciar Nova Venda
             </Button>
-            <Button onClick={() => setReceiptModalOpen(false)} className="bg-[#2E7D4F] text-white">
-              Nova Venda
-            </Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 
