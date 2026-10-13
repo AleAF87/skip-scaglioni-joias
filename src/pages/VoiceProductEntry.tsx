@@ -1431,46 +1431,21 @@ export default function VoiceProductEntry() {
             </CardHeader>
 
             <CardContent className="pt-6 space-y-5">
-              {/* Row 1: Code & Description */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="code" className="text-xs font-semibold text-[#2D2A26]">
-                      Código do Produto
-                    </Label>
-                    <span className="text-[10px] text-[#7A5C2E] font-medium">Automático</span>
-                  </div>
-                  <Input
-                    id="code"
-                    value={code}
-                    readOnly
-                    disabled
-                    placeholder="Gerado ao salvar..."
-                    className="mt-1 border-[#E5DFD5] bg-[#FDFBF7] text-[#7A5C2E] cursor-not-allowed uppercase font-mono font-bold select-none"
-                  />
-                  <p className="text-[11px] text-[#6B655E] mt-1 flex items-center gap-1">
-                    <Sparkles className="h-3 w-3 text-[#C6A664] shrink-0" />
-                    Gerado automaticamente ao salvar (prévia acima).
-                  </p>
+              {/* Código Automático do Produto (compacto / informativo) */}
+              <div className="flex items-center justify-between p-3 rounded-lg bg-[#FDFBF7] border border-[#E5DFD5]">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-[#C6A664] shrink-0" />
+                  <span className="text-xs font-semibold text-[#2D2A26]">Código do Produto:</span>
+                  <span className="font-mono font-bold text-xs text-[#7A5C2E]">
+                    {code ? `${code} (automático)` : 'Gerado automaticamente ao salvar'}
+                  </span>
                 </div>
-
-                <div className="md:col-span-2">
-                  <Label htmlFor="desc" className="text-xs font-semibold text-[#2D2A26]">
-                    Descrição da Joia *
-                  </Label>
-                  <Input
-                    ref={descriptionInputRef}
-                    id="desc"
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Ex: Brinco folheado a ouro com zircônia redonda"
-                    required
-                    className="mt-1 border-[#E5DFD5] focus-visible:ring-[#C6A664]"
-                  />
-                </div>
+                <span className="text-[10px] text-[#8C8275] hidden sm:inline">
+                  Sequencial único oficial
+                </span>
               </div>
 
-              {/* Ordem: Tipo, Material, Perfil, Tamanho */}
+              {/* Ordem solicitada: Tipo, Material, Perfil, Tamanho */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
                   <Label className="text-xs font-semibold text-[#2D2A26]">Tipo</Label>
@@ -1535,8 +1510,24 @@ export default function VoiceProductEntry() {
                 </div>
               </div>
 
-              {/* Row 3: Invested value, Selling price, Quantity, Min stock */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 rounded-xl bg-[#FDFBF7] border border-[#E5DFD5]">
+              {/* Descrição da Joia */}
+              <div>
+                <Label htmlFor="desc" className="text-xs font-semibold text-[#2D2A26]">
+                  Descrição da Joia *
+                </Label>
+                <Input
+                  ref={descriptionInputRef}
+                  id="desc"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Ex: Brinco folheado a ouro com zircônia redonda"
+                  required
+                  className="mt-1 border-[#E5DFD5] focus-visible:ring-[#C6A664]"
+                />
+              </div>
+
+              {/* Ordem: Valor Investido (R$), Preço de Venda (R$), Quantidade em Estoque */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-4 gap-4 p-4 rounded-xl bg-[#FDFBF7] border border-[#E5DFD5]">
                 <div>
                   <Label htmlFor="invested" className="text-xs font-semibold text-[#6B655E]">
                     Valor Investido (R$)
@@ -1871,6 +1862,10 @@ export default function VoiceProductEntry() {
         materials={materials}
         sizes={sizes}
         onApplyToForm={handleApplyGuidedData}
+        onAuxiliaryCreated={() => {
+          // Atualiza lista do formulário pai em background para ficar disponível nos selects
+          loadAuxiliaries()
+        }}
       />
     </div>
   )

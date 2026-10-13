@@ -25,23 +25,99 @@ export interface MatchResult<T> {
   ambiguous: boolean
   candidates: T[]
   originalInput: string
+  score?: number
+}
+
+/**
+ * Calcula a distância de Levenshtein entre duas strings
+ */
+export function levenshteinDistance(a: string, b: string): number {
+  const matrix: number[][] = []
+  const aLen = a.length
+  const bLen = b.length
+
+  if (aLen === 0) return bLen
+  if (bLen === 0) return aLen
+
+  for (let i = 0; i <= aLen; i++) {
+    matrix[i] = [i]
+  }
+  for (let j = 0; j <= bLen; j++) {
+    matrix[0][j] = j
+  }
+
+  for (let i = 1; i <= aLen; i++) {
+    for (let j = 1; j <= bLen; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1, // deletion
+        matrix[i][j - 1] + 1, // insertion
+        matrix[i - 1][j - 1] + cost, // substitution
+      )
+    }
+  }
+
+  return matrix[aLen][bLen]
+}
+
+/**
+ * Retorna similaridade normalizada entre 0 e 1 (1 = idêntico)
+ */
+export function stringSimilarity(str1: string, str2: string): number {
+  const s1 = normalizeForMatch(str1)
+  const s2 = normalizeForMatch(str2)
+  if (!s1 && !s2) return 1
+  if (!s1 || !s2) return 0
+  if (s1 === s2) return 1
+
+  const maxLen = Math.max(s1.length, s2.length)
+  const dist = levenshteinDistance(s1, s2)
+  return 1 - dist / maxLen
+}
+
+/**
+ * Remove palavras de preenchimento comuns da fala para comparar cadastros
+ */
+function cleanQuerySpeech(raw: string): string {
+  let clean = normalizeForMatch(raw)
+  // Remove termos como "tamanho", "tam", "aro", "numero", "material", "tipo", "de", "do", "da", "em", "um", "uma"
+  clean = clean.replace(/^(?:tamanho|tam|aro|numero|material|tipo|peca|joia)\s+/gi, '')
+  clean = clean.replace(/\b(?:de|do|da|em|com)\b/gi, ' ')
+  return clean.replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * Extrai números explícitos de uma string
+ */
+function extractNumbers(str: string): string[] {
+  const matches = str.match(/\d+/g)
+  return matches ? matches : []
 }
 
 /**
  * Casa uma query falada com uma lista de cadastros auxiliares (tipos, materiais, tamanhos).
+ * Suporta:
+ * 1. Match exato normalizado
+ * 2. Proteção estrita para números em tamanhos: se a fala tem número (ex: "tamanho 25"),
+ *    nunca casa com letras (ex: "M", "P", "G")
+ * 3. Busca por contenção e prefixo de palavras
+ * 4. Correspondência fuzzy/similaridade de Levenshtein (tolerante a grafias cortadas como "folhado" -> "folheado a ouro")
+ * 5. Tratamento de ambiguidade (se houver mais de uma sugestão plausível, retorna candidatos para escolha do usuário)
  */
 export function matchAuxiliaryItem<T extends { id: string; name: string }>(
   query: string,
   list: T[],
+  options?: { category?: 'type' | 'material' | 'size' | 'audience' },
 ): MatchResult<T> {
+  const originalInput = query || ''
   const qClean = normalizeForMatch(query)
-  if (!qClean) {
+  if (!qClean || list.length === 0) {
     return {
       matched: null,
       exact: false,
       ambiguous: false,
       candidates: [],
-      originalInput: query,
+      originalInput,
     }
   }
 
@@ -53,45 +129,234 @@ export function matchAuxiliaryItem<T extends { id: string; name: string }>(
       exact: true,
       ambiguous: false,
       candidates: [exact],
-      originalInput: query,
+      originalInput,
+      score: 1,
     }
   }
 
-  // 2. Busca por contenção (a query contém o item ou o item contém a query)
-  const candidates = list.filter((item) => {
-    const itemClean = normalizeForMatch(item.name)
-    return itemClean.includes(qClean) || qClean.includes(itemClean)
-  })
-
-  if (candidates.length === 1) {
-    return {
-      matched: candidates[0],
-      exact: false,
-      ambiguous: false,
-      candidates,
-      originalInput: query,
-    }
-  }
-
-  if (candidates.length > 1) {
-    // Tenta desempate por quem começa com a query
-    const prefixMatch = candidates.filter((item) => normalizeForMatch(item.name).startsWith(qClean))
-    if (prefixMatch.length === 1) {
+  // Limpeza de prefixos como "tamanho 25" -> "25", "material ouro" -> "ouro"
+  const qSpeechClean = cleanQuerySpeech(query)
+  if (qSpeechClean) {
+    const exactClean = list.find((item) => normalizeForMatch(item.name) === qSpeechClean)
+    if (exactClean) {
       return {
-        matched: prefixMatch[0],
+        matched: exactClean,
+        exact: true,
+        ambiguous: false,
+        candidates: [exactClean],
+        originalInput,
+        score: 1,
+      }
+    }
+  }
+
+  // PROTEÇÃO CONTRA O BUG RELATADO: "tamanho 25" casar com "M"
+  // Se a query contém dígitos numéricos (ex: 25, 18, 45), candidatos NÃO NUMÉRICOS de tamanho
+  // com apenas letras (ex: P, M, G, GG, PP, Unico) JAMAIS podem ser casados por contenção acidental.
+  const queryNumbers = extractNumbers(qClean)
+  const hasQueryNumbers = queryNumbers.length > 0
+
+  // Se o usuário falou um número (ex: "25", "tamanho 25", "aro 20"):
+  if (hasQueryNumbers) {
+    const primaryNum = queryNumbers[0]
+    // Procura por tamanho numérico exato na lista (ex: "25" ou "25cm" ou "aro 25")
+    const numCandidates = list.filter((item) => {
+      const itemNumbers = extractNumbers(item.name)
+      if (itemNumbers.includes(primaryNum)) return true
+      const itemClean = normalizeForMatch(item.name)
+      return itemClean === primaryNum || itemClean === `${primaryNum}cm`
+    })
+
+    if (numCandidates.length === 1) {
+      return {
+        matched: numCandidates[0],
         exact: false,
         ambiguous: false,
-        candidates: prefixMatch,
-        originalInput: query,
+        candidates: numCandidates,
+        originalInput,
+        score: 0.95,
       }
     }
 
+    if (numCandidates.length > 1) {
+      return {
+        matched: null,
+        exact: false,
+        ambiguous: true,
+        candidates: numCandidates,
+        originalInput,
+      }
+    }
+
+    // Se a query tem número e não existe nenhum item numérico correspondente na lista (ex: "25"),
+    // NÃO podemos casar com nada existente (evita "25" -> "M"). Retorna null direto!
+    return {
+      matched: null,
+      exact: false,
+      ambiguous: false,
+      candidates: [],
+      originalInput,
+    }
+  }
+
+  // PROTEÇÃO INVERSA: Se a query é uma letra única de tamanho (ex: "P", "M", "G"),
+  // só casar com letras únicas idênticas
+  if (qSpeechClean.length === 1 && /[pmg]/i.test(qSpeechClean)) {
+    const letterMatch = list.find((item) => normalizeForMatch(item.name) === qSpeechClean)
+    if (letterMatch) {
+      return {
+        matched: letterMatch,
+        exact: true,
+        ambiguous: false,
+        candidates: [letterMatch],
+        originalInput,
+        score: 1,
+      }
+    }
+    return {
+      matched: null,
+      exact: false,
+      ambiguous: false,
+      candidates: [],
+      originalInput,
+    }
+  }
+
+  // 2. Pontuação de similaridade e fuzzy matching para cada item
+  // Suporta palavras cortadas e variações fonéticas (ex: "folhado" -> "folheado a ouro", "ouro rose" -> "ouro rosê")
+  interface ScoredCandidate {
+    item: T
+    score: number
+  }
+
+  const scored: ScoredCandidate[] = []
+
+  // Normalização fonética leve para português (folhado ~ folheado, etc.)
+  const phoneticPtBr = (str: string) => {
+    return normalizeForMatch(str)
+      .replace(/lh/g, 'l')
+      .replace(/ea/g, 'a')
+      .replace(/ia/g, 'a')
+      .replace(/ss/g, 's')
+      .replace(/ç/g, 'c')
+      .replace(/z/g, 's')
+      .replace(/ch/g, 'x')
+      .replace(/k/g, 'c')
+  }
+
+  const qPhonetic = phoneticPtBr(qSpeechClean || qClean)
+
+  for (const item of list) {
+    const itemClean = normalizeForMatch(item.name)
+    const itemSpeechClean = cleanQuerySpeech(item.name)
+    const itemPhonetic = phoneticPtBr(itemSpeechClean || itemClean)
+
+    // Se o item for apenas letra única e a query tiver mais de 1 caractere, descarta
+    if (itemClean.length === 1 && (qSpeechClean.length > 1 || qClean.length > 1)) {
+      continue
+    }
+
+    let itemScore = 0
+
+    // Caso A: igualdade exata na versão sem stopwords
+    if (itemClean === qSpeechClean || itemSpeechClean === qSpeechClean) {
+      itemScore = 0.98
+    }
+    // Caso B: o item começa com a query ou a query começa com o item
+    else if (itemClean.startsWith(qClean) || itemSpeechClean.startsWith(qSpeechClean)) {
+      itemScore = 0.9
+    }
+    // Caso C: contenção de palavra inteira (ex: "folheado" em "folheado a ouro")
+    else if (
+      itemClean.includes(qSpeechClean) ||
+      (qSpeechClean && qSpeechClean.includes(itemClean))
+    ) {
+      // Razão de tamanho para ponderar
+      const ratio =
+        Math.min(itemClean.length, qSpeechClean.length) /
+        Math.max(itemClean.length, qSpeechClean.length)
+      itemScore = 0.8 + ratio * 0.15
+    }
+    // Caso D: Similaridade fonética / fuzzy Levenshtein
+    else {
+      const simDirect = stringSimilarity(qSpeechClean || qClean, itemSpeechClean || itemClean)
+      const simPhonetic = stringSimilarity(qPhonetic, itemPhonetic)
+
+      // Também testa substrings/palavras (ex: "folhado" contra "folheado" na frase "folheado a ouro")
+      const itemWords = itemClean.split(' ')
+      let maxWordSim = 0
+      for (const w of itemWords) {
+        if (w.length <= 2) continue
+        const wSim = stringSimilarity(qSpeechClean, w)
+        const wPhon = stringSimilarity(qPhonetic, phoneticPtBr(w))
+        if (wSim > maxWordSim) maxWordSim = wSim
+        if (wPhon > maxWordSim) maxWordSim = wPhon
+      }
+
+      const bestSim = Math.max(simDirect, simPhonetic, maxWordSim * 0.9)
+      if (bestSim >= 0.6) {
+        itemScore = bestSim
+      }
+    }
+
+    if (itemScore >= 0.6) {
+      scored.push({ item, score: itemScore })
+    }
+  }
+
+  // Ordena por maior pontuação
+  scored.sort((a, b) => b.score - a.score)
+
+  if (scored.length === 0) {
+    return {
+      matched: null,
+      exact: false,
+      ambiguous: false,
+      candidates: [],
+      originalInput,
+      score: 0,
+    }
+  }
+
+  const topMatch = scored[0]
+
+  // Se houver apenas 1 candidato e pontuação confiável (>= 0.65), é match direto
+  if (scored.length === 1 && topMatch.score >= 0.65) {
+    return {
+      matched: topMatch.item,
+      exact: topMatch.score >= 0.95,
+      ambiguous: false,
+      candidates: [topMatch.item],
+      originalInput,
+      score: topMatch.score,
+    }
+  }
+
+  // Se houver 2+ candidatos plausíveis
+  if (scored.length > 1) {
+    const secondMatch = scored[1]
+
+    // Se o primeiro estiver muito acima do segundo (diferença >= 0.20 e score >= 0.82), não é ambíguo
+    if (topMatch.score >= 0.82 && topMatch.score - secondMatch.score >= 0.2) {
+      return {
+        matched: topMatch.item,
+        exact: topMatch.score >= 0.95,
+        ambiguous: false,
+        candidates: [topMatch.item],
+        originalInput,
+        score: topMatch.score,
+      }
+    }
+
+    // Caso contrário: ambíguo! Pega todos com score acima de 0.60 (até 5 itens)
+    const plausibleCandidates = scored.filter((s) => s.score >= 0.6).map((s) => s.item)
     return {
       matched: null,
       exact: false,
       ambiguous: true,
-      candidates,
-      originalInput: query,
+      candidates: plausibleCandidates,
+      originalInput,
+      score: topMatch.score,
     }
   }
 
@@ -100,7 +365,8 @@ export function matchAuxiliaryItem<T extends { id: string; name: string }>(
     exact: false,
     ambiguous: false,
     candidates: [],
-    originalInput: query,
+    originalInput,
+    score: 0,
   }
 }
 

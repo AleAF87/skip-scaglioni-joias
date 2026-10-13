@@ -37,8 +37,10 @@ import {
   Volume2,
   Pencil,
   FileCheck,
+  Plus,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import pb from '@/lib/pocketbase/client'
 
 export interface GuidedProductData {
   typeId: string
@@ -63,6 +65,10 @@ interface VoiceGuidedModalProps {
   materials: ProductMaterial[]
   sizes: ProductSize[]
   onApplyToForm: (data: GuidedProductData) => void
+  onAuxiliaryCreated?: (
+    collection: 'product_types' | 'product_materials' | 'product_sizes',
+    item: { id: string; name: string },
+  ) => void
 }
 
 type StepKey =
@@ -169,7 +175,24 @@ export function VoiceGuidedModal({
   materials,
   sizes,
   onApplyToForm,
+  onAuxiliaryCreated,
 }: VoiceGuidedModalProps) {
+  // Local lists to reflect immediately newly added items
+  const [localTypes, setLocalTypes] = useState<ProductType[]>(types)
+  const [localMaterials, setLocalMaterials] = useState<ProductMaterial[]>(materials)
+  const [localSizes, setLocalSizes] = useState<ProductSize[]>(sizes)
+
+  // Keep synced if parent props change
+  useEffect(() => {
+    setLocalTypes(types)
+  }, [types])
+  useEffect(() => {
+    setLocalMaterials(materials)
+  }, [materials])
+  useEffect(() => {
+    setLocalSizes(sizes)
+  }, [sizes])
+
   // Navigation
   const [currentStepIndex, setCurrentStepIndex] = useState<number>(0)
   const isReview = currentStepIndex >= STEPS.length
@@ -200,6 +223,13 @@ export function VoiceGuidedModal({
   const [ambiguousCandidates, setAmbiguousCandidates] = useState<
     Array<{ id: string; name: string }>
   >([])
+
+  // State when no match was found: lets user pick from existing list or add new item
+  const [unmatchedState, setUnmatchedState] = useState<{
+    key: 'type' | 'material' | 'size'
+    spokenTerm: string
+  } | null>(null)
+  const [isCreatingAuxiliary, setIsCreatingAuxiliary] = useState(false)
 
   // Manual editing inline for current step
   const [manualInput, setManualInput] = useState('')
@@ -357,6 +387,7 @@ export function VoiceGuidedModal({
     setLiveTranscript('')
     setStepError(null)
     setAmbiguousCandidates([])
+    setUnmatchedState(null)
 
     if (!isReview) {
       // Pré-preenche o input manual com o valor já salvo caso esteja voltando
@@ -415,6 +446,92 @@ export function VoiceGuidedModal({
     setManualInput('')
     setStepError(null)
     setAmbiguousCandidates([])
+    setUnmatchedState(null)
+  }
+
+  // Create new auxiliary item in PocketBase and register on the fly
+  const handleCreateNewAuxiliary = async (
+    collection: 'product_types' | 'product_materials' | 'product_sizes',
+    name: string,
+  ) => {
+    const trimmed = name.trim()
+    if (!trimmed) return
+
+    setIsCreatingAuxiliary(true)
+    try {
+      const created = await pb.collection(collection).create<{ id: string; name: string }>({
+        name: trimmed,
+      })
+
+      if (collection === 'product_types') {
+        setLocalTypes((prev) =>
+          [...prev, created as ProductType].sort((a, b) => a.name.localeCompare(b.name)),
+        )
+        setData((prev) => ({
+          ...prev,
+          typeId: created.id,
+          typeName: created.name,
+        }))
+        toast.success(`Tipo "${created.name}" cadastrado e selecionado!`)
+      } else if (collection === 'product_materials') {
+        setLocalMaterials((prev) =>
+          [...prev, created as ProductMaterial].sort((a, b) => a.name.localeCompare(b.name)),
+        )
+        setData((prev) => ({
+          ...prev,
+          materialId: created.id,
+          materialName: created.name,
+        }))
+        toast.success(`Material "${created.name}" cadastrado e selecionado!`)
+      } else if (collection === 'product_sizes') {
+        setLocalSizes((prev) =>
+          [...prev, created as ProductSize].sort((a, b) => a.name.localeCompare(b.name)),
+        )
+        setData((prev) => ({
+          ...prev,
+          sizeId: created.id,
+          sizeName: created.name,
+        }))
+        toast.success(`Tamanho "${created.name}" cadastrado e selecionado!`)
+      }
+
+      if (onAuxiliaryCreated) {
+        onAuxiliaryCreated(collection, created)
+      }
+
+      setUnmatchedState(null)
+      setCurrentStepIndex((prev) => prev + 1)
+    } catch (err: any) {
+      console.error('Erro ao criar item auxiliar:', err)
+      // Se já existe com mesmo nome (índice único)
+      const errDetail = err?.data?.data?.name?.message || err?.message || ''
+      if (errDetail.includes('unique') || errDetail.includes('exist')) {
+        toast.info(`"${trimmed}" já existe no cadastro. Selecionando...`)
+        // Tenta achar na lista
+        let existing: { id: string; name: string } | undefined
+        if (collection === 'product_types')
+          existing = localTypes.find((t) => t.name.toLowerCase() === trimmed.toLowerCase())
+        if (collection === 'product_materials')
+          existing = localMaterials.find((m) => m.name.toLowerCase() === trimmed.toLowerCase())
+        if (collection === 'product_sizes')
+          existing = localSizes.find((s) => s.name.toLowerCase() === trimmed.toLowerCase())
+
+        if (existing) {
+          if (collection === 'product_types')
+            setData((prev) => ({ ...prev, typeId: existing!.id, typeName: existing!.name }))
+          if (collection === 'product_materials')
+            setData((prev) => ({ ...prev, materialId: existing!.id, materialName: existing!.name }))
+          if (collection === 'product_sizes')
+            setData((prev) => ({ ...prev, sizeId: existing!.id, sizeName: existing!.name }))
+          setUnmatchedState(null)
+          setCurrentStepIndex((prev) => prev + 1)
+          return
+        }
+      }
+      toast.error(`Não foi possível salvar "${trimmed}": ${err.message || 'tente novamente.'}`)
+    } finally {
+      setIsCreatingAuxiliary(false)
+    }
   }
 
   // Confirm current step answer
@@ -424,6 +541,7 @@ export function VoiceGuidedModal({
     const raw = (forcedText !== undefined ? forcedText : manualInput || liveTranscript).trim()
     setStepError(null)
     setAmbiguousCandidates([])
+    setUnmatchedState(null)
 
     const { key, required } = currentStep
 
@@ -442,7 +560,7 @@ export function VoiceGuidedModal({
     // Processamento específico por tipo de pergunta
     switch (key) {
       case 'type': {
-        const match = matchAuxiliaryItem(raw, types)
+        const match = matchAuxiliaryItem(raw, localTypes, { category: 'type' })
         if (match.matched) {
           setData((prev) => ({
             ...prev,
@@ -457,20 +575,17 @@ export function VoiceGuidedModal({
             `Encontrei mais de uma opção para "${raw}". Clique na opção desejada abaixo:`,
           )
         } else {
-          // Nenhum match exato/parcial no banco. Permite usar o texto livre ou escolher
-          setData((prev) => ({
-            ...prev,
-            typeId: '',
-            typeName: raw,
-          }))
-          toast.info(`Tipo registrado como "${raw}" (revise na etapa final).`)
-          setCurrentStepIndex((prev) => prev + 1)
+          // Sem match próximo no banco: exibe candidatos da lista e botão para adicionar novo
+          setUnmatchedState({ key: 'type', spokenTerm: raw })
+          setStepError(
+            `Nenhum tipo cadastrado corresponde a "${raw}". Escolha uma opção existente ou adicione "${raw}" ao cadastro geral.`,
+          )
         }
         break
       }
 
       case 'material': {
-        const match = matchAuxiliaryItem(raw, materials)
+        const match = matchAuxiliaryItem(raw, localMaterials, { category: 'material' })
         if (match.matched) {
           setData((prev) => ({
             ...prev,
@@ -485,13 +600,10 @@ export function VoiceGuidedModal({
             `Encontrei mais de uma opção para "${raw}". Clique na opção desejada abaixo:`,
           )
         } else {
-          setData((prev) => ({
-            ...prev,
-            materialId: '',
-            materialName: raw,
-          }))
-          toast.info(`Material registrado como "${raw}".`)
-          setCurrentStepIndex((prev) => prev + 1)
+          setUnmatchedState({ key: 'material', spokenTerm: raw })
+          setStepError(
+            `Nenhum material cadastrado corresponde a "${raw}". Escolha uma opção existente ou adicione "${raw}" ao cadastro geral.`,
+          )
         }
         break
       }
@@ -506,19 +618,14 @@ export function VoiceGuidedModal({
           toast.success(`Perfil definido: ${parsed.value}`)
           setCurrentStepIndex((prev) => prev + 1)
         } else {
-          // Deixa em aberto ou tenta atribuir se for texto válido
-          setData((prev) => ({
-            ...prev,
-            targetAudience: '',
-          }))
-          toast.info('Perfil não identificado com clareza. Você poderá definir na revisão.')
-          setCurrentStepIndex((prev) => prev + 1)
+          // Deixa em aberto para escolher entre os 3 botões fixos
+          setStepError('Perfil não identificado com clareza. Selecione uma das opções abaixo:')
         }
         break
       }
 
       case 'size': {
-        const match = matchAuxiliaryItem(raw, sizes)
+        const match = matchAuxiliaryItem(raw, localSizes, { category: 'size' })
         if (match.matched) {
           setData((prev) => ({
             ...prev,
@@ -531,13 +638,10 @@ export function VoiceGuidedModal({
           setAmbiguousCandidates(match.candidates)
           setStepError(`Mais de um tamanho encontrado para "${raw}". Selecione uma opção:`)
         } else {
-          // Se falou algo como "20" ou "único"
-          setData((prev) => ({
-            ...prev,
-            sizeId: '',
-            sizeName: raw,
-          }))
-          setCurrentStepIndex((prev) => prev + 1)
+          setUnmatchedState({ key: 'size', spokenTerm: raw })
+          setStepError(
+            `Nenhum tamanho cadastrado corresponde a "${raw}". Escolha uma opção existente ou adicione "${raw}" como novo tamanho na lista geral.`,
+          )
         }
         break
       }
@@ -655,6 +759,7 @@ export function VoiceGuidedModal({
     }
     setStepError(null)
     setAmbiguousCandidates([])
+    setUnmatchedState(null)
     setCurrentStepIndex((prev) => prev + 1)
   }
 
@@ -739,7 +844,10 @@ export function VoiceGuidedModal({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[92vh] flex flex-col p-0 overflow-hidden bg-[#FDFBF7] border-[#C6A664]/40 shadow-2xl">
+      <DialogContent
+        style={{ height: 'min(760px, 94vh)' }}
+        className="max-w-2xl w-[95vw] h-[min(760px,94vh)] flex flex-col p-0 overflow-hidden bg-[#FDFBF7] border-[#C6A664]/40 shadow-2xl"
+      >
         {/* Header nobre Scaglioni */}
         <DialogHeader className="px-6 py-4 bg-gradient-to-r from-[#2D2A26] via-[#3D3730] to-[#2D2A26] text-white border-b border-[#C6A664]/30 shrink-0">
           <div className="flex items-center justify-between">
@@ -873,43 +981,105 @@ export function VoiceGuidedModal({
                 </div>
               </div>
 
-              {/* Step Error Notice / Ambiguous Options */}
+              {/* Step Error Notice / Ambiguous Options / Unmatched State */}
               {stepError && (
-                <div className="p-3.5 rounded-xl bg-[#B26A00]/10 border border-[#B26A00]/30 text-xs text-[#B26A00] space-y-2">
+                <div className="p-3.5 rounded-xl bg-[#B26A00]/10 border border-[#B26A00]/30 text-xs text-[#B26A00] space-y-3">
                   <div className="flex items-start gap-2">
-                    <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                    <span className="font-semibold">{stepError}</span>
+                    <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-[#B26A00]" />
+                    <span className="font-semibold text-[#7A5C2E]">{stepError}</span>
                   </div>
 
-                  {/* Multiple candidates buttons */}
+                  {/* Multiple candidates buttons (Ambiguidade plausível) */}
                   {ambiguousCandidates.length > 0 && (
-                    <div className="flex flex-wrap gap-2 pt-1 pl-6">
-                      {ambiguousCandidates.map((cand) => (
+                    <div className="pt-1">
+                      <p className="text-[11px] text-[#6B655E] mb-1.5 font-medium">
+                        Toque em uma das opções sugeridas:
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {ambiguousCandidates.map((cand) => (
+                          <Button
+                            key={cand.id}
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleConfirmStep(cand.name)}
+                            className="bg-white border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] text-xs h-8 shadow-xs"
+                          >
+                            <Check className="h-3 w-3 mr-1 text-[#2E7D4F]" />
+                            {cand.name}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Unmatched State: Opção de Adicionar Novo + Escolher da lista existente */}
+                  {unmatchedState && (
+                    <div className="pt-1 space-y-2.5 border-t border-[#B26A00]/20">
+                      <div className="flex items-center gap-2">
                         <Button
-                          key={cand.id}
                           type="button"
                           size="sm"
-                          variant="outline"
-                          onClick={() => handleConfirmStep(cand.name)}
-                          className="bg-white border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] text-xs h-8"
+                          disabled={isCreatingAuxiliary}
+                          onClick={() => {
+                            const coll =
+                              unmatchedState.key === 'type'
+                                ? 'product_types'
+                                : unmatchedState.key === 'material'
+                                  ? 'product_materials'
+                                  : 'product_sizes'
+                            handleCreateNewAuxiliary(coll, unmatchedState.spokenTerm)
+                          }}
+                          className="bg-[#2E7D4F] hover:bg-[#256640] text-white font-semibold text-xs h-8 shadow-xs"
                         >
-                          <Check className="h-3 w-3 mr-1" />
-                          {cand.name}
+                          {isCreatingAuxiliary ? (
+                            <>
+                              <Loader2 className="h-3 w-3 mr-1 animate-spin" /> Adicionando...
+                            </>
+                          ) : (
+                            <>
+                              <Plus className="h-3 w-3 mr-1" /> Adicionar "
+                              {unmatchedState.spokenTerm}" como novo
+                            </>
+                          )}
                         </Button>
-                      ))}
+                      </div>
+
+                      <div className="pt-1">
+                        <p className="text-[11px] text-[#6B655E] mb-1 font-medium">
+                          Ou escolha uma das opções já existentes:
+                        </p>
+                        <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-1 bg-white/70 rounded-lg border border-[#E5DFD5]">
+                          {(unmatchedState.key === 'type'
+                            ? localTypes
+                            : unmatchedState.key === 'material'
+                              ? localMaterials
+                              : localSizes
+                          ).map((item) => (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => handleConfirmStep(item.name)}
+                              className="text-xs px-2.5 py-1 rounded-full border border-[#E5DFD5] bg-white text-[#2D2A26] hover:border-[#C6A664] hover:bg-[#FDFBF7] transition-colors"
+                            >
+                              {item.name}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>
               )}
 
               {/* Direct Choice Pills for standard options (Tipo, Material, Perfil) */}
-              {currentStep.key === 'type' && types.length > 0 && (
+              {currentStep.key === 'type' && localTypes.length > 0 && (
                 <div className="space-y-1.5">
                   <Label className="text-[11px] font-semibold text-[#8C8275] uppercase tracking-wider">
                     Ou selecione um tipo cadastrado:
                   </Label>
                   <div className="flex flex-wrap gap-1.5">
-                    {types.map((t) => (
+                    {localTypes.map((t) => (
                       <button
                         key={t.id}
                         type="button"
@@ -927,13 +1097,13 @@ export function VoiceGuidedModal({
                 </div>
               )}
 
-              {currentStep.key === 'material' && materials.length > 0 && (
+              {currentStep.key === 'material' && localMaterials.length > 0 && (
                 <div className="space-y-1.5">
                   <Label className="text-[11px] font-semibold text-[#8C8275] uppercase tracking-wider">
                     Ou selecione um material cadastrado:
                   </Label>
                   <div className="flex flex-wrap gap-1.5">
-                    {materials.map((m) => (
+                    {localMaterials.map((m) => (
                       <button
                         key={m.id}
                         type="button"
@@ -980,13 +1150,13 @@ export function VoiceGuidedModal({
                 </div>
               )}
 
-              {currentStep.key === 'size' && sizes.length > 0 && (
+              {currentStep.key === 'size' && localSizes.length > 0 && (
                 <div className="space-y-1.5">
                   <Label className="text-[11px] font-semibold text-[#8C8275] uppercase tracking-wider">
                     Tamanhos mais comuns:
                   </Label>
                   <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-1">
-                    {sizes.map((s) => (
+                    {localSizes.map((s) => (
                       <button
                         key={s.id}
                         type="button"
@@ -1104,7 +1274,7 @@ export function VoiceGuidedModal({
                     <select
                       value={data.typeId}
                       onChange={(e) => {
-                        const sel = types.find((t) => t.id === e.target.value)
+                        const sel = localTypes.find((t) => t.id === e.target.value)
                         setData((prev) => ({
                           ...prev,
                           typeId: e.target.value,
@@ -1114,7 +1284,7 @@ export function VoiceGuidedModal({
                       className="mt-1 w-full rounded-md border border-[#E5DFD5] bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C6A664]"
                     >
                       <option value="">Selecione ou confirme...</option>
-                      {types.map((t) => (
+                      {localTypes.map((t) => (
                         <option key={t.id} value={t.id}>
                           {t.name}
                         </option>
@@ -1132,7 +1302,7 @@ export function VoiceGuidedModal({
                     <select
                       value={data.materialId}
                       onChange={(e) => {
-                        const sel = materials.find((m) => m.id === e.target.value)
+                        const sel = localMaterials.find((m) => m.id === e.target.value)
                         setData((prev) => ({
                           ...prev,
                           materialId: e.target.value,
@@ -1142,7 +1312,7 @@ export function VoiceGuidedModal({
                       className="mt-1 w-full rounded-md border border-[#E5DFD5] bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C6A664]"
                     >
                       <option value="">Selecione ou confirme...</option>
-                      {materials.map((m) => (
+                      {localMaterials.map((m) => (
                         <option key={m.id} value={m.id}>
                           {m.name}
                         </option>
@@ -1182,7 +1352,7 @@ export function VoiceGuidedModal({
                     <select
                       value={data.sizeId}
                       onChange={(e) => {
-                        const sel = sizes.find((s) => s.id === e.target.value)
+                        const sel = localSizes.find((s) => s.id === e.target.value)
                         setData((prev) => ({
                           ...prev,
                           sizeId: e.target.value,
@@ -1192,7 +1362,7 @@ export function VoiceGuidedModal({
                       className="mt-1 w-full rounded-md border border-[#E5DFD5] bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C6A664]"
                     >
                       <option value="">Selecione...</option>
-                      {sizes.map((s) => (
+                      {localSizes.map((s) => (
                         <option key={s.id} value={s.id}>
                           {s.name}
                         </option>

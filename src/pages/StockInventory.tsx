@@ -1144,32 +1144,18 @@ export default function StockInventory() {
           </DialogHeader>
 
           <form onSubmit={handleSaveFullEdit} className="space-y-4 py-2">
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <div className="flex items-center justify-between">
-                  <Label className="text-xs font-semibold">Código</Label>
-                  <span className="text-[10px] text-[#7A5C2E] font-medium">Bloqueado</span>
-                </div>
-                <Input
-                  value={editForm.code}
-                  readOnly
-                  disabled
-                  className="font-mono uppercase font-bold bg-[#FDFBF7] cursor-not-allowed text-[#7A5C2E] select-none"
-                />
-                <p className="text-[10px] text-[#6B655E] mt-0.5">Identificador único da joia.</p>
+            {/* Código do produto */}
+            <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#FDFBF7] border border-[#E5DFD5]">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-[#2D2A26]">Código da Joia:</span>
+                <span className="font-mono font-bold text-xs text-[#7A5C2E] uppercase">
+                  {editForm.code}
+                </span>
               </div>
-
-              <div className="col-span-2">
-                <Label className="text-xs font-semibold">Descrição *</Label>
-                <Input
-                  value={editForm.description}
-                  onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
-                  required
-                />
-              </div>
+              <span className="text-[10px] text-[#7A5C2E] font-medium">Bloqueado para edição</span>
             </div>
 
-            {/* Ordem obrigatória: Tipo, Material, Perfil, Tamanho */}
+            {/* Ordem exata: Tipo, Material, Perfil, Tamanho */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div>
                 <Label className="text-xs font-semibold">Tipo</Label>
@@ -1234,7 +1220,19 @@ export default function StockInventory() {
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
+            {/* Descrição da Joia */}
+            <div>
+              <Label className="text-xs font-semibold">Descrição da Joia *</Label>
+              <Input
+                value={editForm.description}
+                onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                required
+                className="mt-1"
+              />
+            </div>
+
+            {/* Ordem: Valor Investido (R$), Preço de Venda (R$), Quantidade em Estoque */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
               <div>
                 <Label className="text-xs font-semibold">Valor Investido (R$)</Label>
                 <Input
@@ -1259,7 +1257,7 @@ export default function StockInventory() {
               </div>
 
               <div>
-                <Label className="text-xs font-semibold">Quantidade *</Label>
+                <Label className="text-xs font-semibold">Quantidade em Estoque *</Label>
                 <Input
                   type="number"
                   min="0"
