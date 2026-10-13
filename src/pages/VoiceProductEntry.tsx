@@ -33,7 +33,6 @@ export default function VoiceProductEntry() {
   const [transcribedText, setTranscribedText] = useState('')
   const [speechSupported, setSpeechSupported] = useState(true)
   const [isAiProcessing, setIsAiProcessing] = useState(false)
-  const [recognitionInstance, setRecognitionInstance] = useState<any>(null)
 
   // Observations specific speech dictation
   const [isDictatingNotes, setIsDictatingNotes] = useState(false)
@@ -64,7 +63,14 @@ export default function VoiceProductEntry() {
   const [recentProducts, setRecentProducts] = useState<Product[]>([])
   const formReviewRef = useRef<HTMLDivElement>(null)
   const descriptionInputRef = useRef<HTMLInputElement>(null)
+
+  // Speech Recognition state refs to avoid closure stale state & duplicate loops
+  const recognitionRef = useRef<any>(null)
+  const isListeningRef = useRef(false)
   const manualStopRequestedRef = useRef(false)
+  const finalTranscriptRef = useRef('')
+  const restartTimeoutRef = useRef<any>(null)
+  const notesRecRef = useRef<any>(null)
 
   // Lightbox
   const [lightboxOpen, setLightboxOpen] = useState(false)
@@ -80,65 +86,29 @@ export default function VoiceProductEntry() {
     loadRecentProducts()
     generateSuggestedCode()
 
-    // Setup Web Speech API com modo contínuo garantido até o usuário parar manualmente
+    // Check Speech Recognition support
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    if (SpeechRecognition) {
-      const recognition = new SpeechRecognition()
-      // continuous = true para manter gravando continuamente até que o usuário clique para parar
-      recognition.continuous = true
-      recognition.interimResults = true
-      recognition.lang = 'pt-BR'
-
-      recognition.onstart = () => {
-        setIsListening(true)
-        manualStopRequestedRef.current = false
-      }
-
-      recognition.onresult = (event: any) => {
-        let fullTranscript = ''
-        for (let i = 0; i < event.results.length; ++i) {
-          fullTranscript += event.results[i][0].transcript + ' '
-        }
-        setTranscribedText(fullTranscript.trim())
-      }
-
-      recognition.onerror = (event: any) => {
-        console.error('Speech recognition error:', event.error)
-        if (event.error === 'not-allowed') {
-          setIsListening(false)
-          manualStopRequestedRef.current = true
-          toast.error(
-            'Permissão de microfone negada. Habilite o microfone nas permissões do navegador para usar o comando por voz.',
-          )
-        } else if (event.error === 'no-speech') {
-          // Se for silêncio, NÃO para se o usuário não pediu para parar manualmente
-          if (!manualStopRequestedRef.current) {
-            try {
-              recognition.start()
-            } catch {
-              // ignore restart collision
-            }
-          }
-        }
-      }
-
-      recognition.onend = () => {
-        // Se a gravação parou por timeout automático da engine do navegador, mas o usuário NÃO pediu para parar, reinicia!
-        if (!manualStopRequestedRef.current) {
-          try {
-            recognition.start()
-          } catch {
-            setIsListening(false)
-          }
-        } else {
-          setIsListening(false)
-        }
-      }
-
-      setRecognitionInstance(recognition)
-    } else {
+    if (!SpeechRecognition) {
       setSpeechSupported(false)
+    }
+
+    return () => {
+      manualStopRequestedRef.current = true
+      isListeningRef.current = false
+      if (restartTimeoutRef.current) {
+        clearTimeout(restartTimeoutRef.current)
+      }
+      try {
+        recognitionRef.current?.abort?.()
+      } catch {
+        // ignore
+      }
+      try {
+        notesRecRef.current?.abort?.()
+      } catch {
+        // ignore
+      }
     }
   }, [])
 
@@ -172,28 +142,186 @@ export default function VoiceProductEntry() {
     }
   }
 
-  // Toggle main speech recognition - microfone fica ativado até que o usuário clique para parar
+  // Helper to deduplicate consecutive words or chunks in text
+  const cleanDuplicateWords = (text: string): string => {
+    if (!text) return ''
+    const words = text.trim().split(/\s+/)
+    if (words.length <= 1) return text.trim()
+
+    const cleaned: string[] = []
+    for (let i = 0; i < words.length; i++) {
+      const current = words[i]
+      const prev = cleaned[cleaned.length - 1]
+      // Skip consecutive identical word (case-insensitive)
+      if (prev && current.toLowerCase() === prev.toLowerCase()) {
+        continue
+      }
+      cleaned.push(current)
+    }
+    return cleaned.join(' ')
+  }
+
+  // Create and initialize recognition instance safely
+  const createRecognition = () => {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    if (!SpeechRecognition) return null
+
+    const recognition = new SpeechRecognition()
+    recognition.continuous = true
+    recognition.interimResults = true
+    recognition.lang = 'pt-BR'
+    recognition.maxAlternatives = 1
+
+    recognition.onstart = () => {
+      isListeningRef.current = true
+      setIsListening(true)
+    }
+
+    recognition.onresult = (event: any) => {
+      let interim = ''
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        const item = event.results[i]
+        const transcriptChunk = item[0]?.transcript || ''
+        if (item.isFinal) {
+          const trimmed = transcriptChunk.trim()
+          if (trimmed) {
+            // Append with space, ensuring we don't duplicate
+            if (finalTranscriptRef.current) {
+              finalTranscriptRef.current = cleanDuplicateWords(
+                `${finalTranscriptRef.current} ${trimmed}`,
+              )
+            } else {
+              finalTranscriptRef.current = trimmed
+            }
+          }
+        } else {
+          interim += transcriptChunk
+        }
+      }
+
+      // Display accumulated final transcript plus current interim draft
+      const displayText = finalTranscriptRef.current
+        ? `${finalTranscriptRef.current} ${interim.trim()}`.trim()
+        : interim.trim()
+
+      setTranscribedText(displayText)
+    }
+
+    recognition.onerror = (event: any) => {
+      console.warn('Speech recognition warning/error:', event.error)
+
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        manualStopRequestedRef.current = true
+        isListeningRef.current = false
+        setIsListening(false)
+        toast.error(
+          'Permissão de microfone negada. Habilite o microfone nas permissões do navegador para usar o comando por voz.',
+        )
+        return
+      }
+
+      // For no-speech or network hiccups, Web Speech API will trigger onend.
+      // We will restart silently from onend as long as manualStopRequestedRef is false.
+    }
+
+    recognition.onend = () => {
+      // If the user requested manual stop, close it down cleanly
+      if (manualStopRequestedRef.current) {
+        isListeningRef.current = false
+        setIsListening(false)
+        // Clean final output
+        setTranscribedText((prev) => cleanDuplicateWords(prev || finalTranscriptRef.current))
+        return
+      }
+
+      // If user did NOT stop, browser speech engine timed out or finished an utterance chunk.
+      // Keep UI visually active (isListening stays true) and immediately restart recognition.
+      if (restartTimeoutRef.current) {
+        clearTimeout(restartTimeoutRef.current)
+      }
+
+      restartTimeoutRef.current = setTimeout(() => {
+        if (!manualStopRequestedRef.current) {
+          try {
+            recognition.start()
+          } catch {
+            // If starting the same instance fails, recreate instance
+            try {
+              const freshRec = createRecognition()
+              recognitionRef.current = freshRec
+              freshRec?.start()
+            } catch (err) {
+              console.error('Erro ao reiniciar microfone:', err)
+              // Only toggle listening off if it truly cannot restart
+              if (manualStopRequestedRef.current) {
+                isListeningRef.current = false
+                setIsListening(false)
+              }
+            }
+          }
+        }
+      }, 100)
+    }
+
+    return recognition
+  }
+
+  // Toggle main speech recognition - microfone fica ativado continuamente até o clique para parar
   const toggleListening = () => {
     if (!speechSupported) {
       toast.warning('Seu navegador não suporta reconhecimento de voz. Por favor, digite o texto.')
       return
     }
 
-    if (isListening) {
+    if (isListeningRef.current || isListening) {
+      // User requested stop
       manualStopRequestedRef.current = true
-      recognitionInstance?.stop()
+      isListeningRef.current = false
       setIsListening(false)
+      if (restartTimeoutRef.current) {
+        clearTimeout(restartTimeoutRef.current)
+      }
+      try {
+        recognitionRef.current?.stop()
+      } catch {
+        // ignore
+      }
+      // Ensure text is clean and trimmed
+      const finalText = cleanDuplicateWords(finalTranscriptRef.current || transcribedText)
+      setTranscribedText(finalText)
       toast.info('Gravação de voz finalizada pelo usuário.')
     } else {
+      // User requested start
       manualStopRequestedRef.current = false
+      isListeningRef.current = true
+      setIsListening(true)
+      finalTranscriptRef.current = ''
       setTranscribedText('')
+
+      if (restartTimeoutRef.current) {
+        clearTimeout(restartTimeoutRef.current)
+      }
+
       try {
-        recognitionInstance?.start()
+        if (recognitionRef.current) {
+          try {
+            recognitionRef.current.abort()
+          } catch {
+            // ignore
+          }
+        }
+        const rec = createRecognition()
+        recognitionRef.current = rec
+        rec?.start()
         toast.info(
-          'Microfone ativo. Fale livremente; a gravação continuará até você clicar para parar.',
+          'Microfone ativo. Fale livremente; a gravação continuará até você clicar no botão vermelho para parar.',
         )
       } catch (err) {
-        console.error('Start recognition failed:', err)
+        console.error('Falha ao iniciar reconhecimento:', err)
+        isListeningRef.current = false
+        setIsListening(false)
+        toast.error('Não foi possível ativar o microfone. Verifique as permissões.')
       }
     }
   }
@@ -344,18 +472,42 @@ export default function VoiceProductEntry() {
     if (!SpeechRecognition) return
 
     if (isDictatingNotes) {
+      try {
+        notesRecRef.current?.stop()
+      } catch {
+        // ignore
+      }
       setIsDictatingNotes(false)
     } else {
-      const notesRec = new SpeechRecognition()
-      notesRec.lang = 'pt-BR'
-      notesRec.onstart = () => setIsDictatingNotes(true)
-      notesRec.onresult = (ev: any) => {
-        const transcript = ev.results[0][0].transcript
-        setObservations((prev) => (prev ? `${prev} ${transcript}` : transcript))
+      try {
+        const notesRec = new SpeechRecognition()
+        notesRecRef.current = notesRec
+        notesRec.lang = 'pt-BR'
+        notesRec.continuous = false
+        notesRec.interimResults = false
+        notesRec.onstart = () => setIsDictatingNotes(true)
+        notesRec.onresult = (ev: any) => {
+          let chunk = ''
+          for (let i = 0; i < ev.results.length; ++i) {
+            if (ev.results[i].isFinal) {
+              chunk += (ev.results[i][0]?.transcript || '') + ' '
+            }
+          }
+          const cleanChunk = cleanDuplicateWords(chunk.trim())
+          if (cleanChunk) {
+            setObservations((prev) => (prev ? `${prev} ${cleanChunk}` : cleanChunk))
+          }
+        }
+        notesRec.onerror = (err: any) => {
+          console.warn('Erro ao ditar observações:', err)
+          setIsDictatingNotes(false)
+        }
+        notesRec.onend = () => setIsDictatingNotes(false)
+        notesRec.start()
+      } catch (err) {
+        console.error('Falha ao iniciar ditado de notas:', err)
+        setIsDictatingNotes(false)
       }
-      notesRec.onerror = () => setIsDictatingNotes(false)
-      notesRec.onend = () => setIsDictatingNotes(false)
-      notesRec.start()
     }
   }
 
