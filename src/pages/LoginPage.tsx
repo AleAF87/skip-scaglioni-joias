@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Sparkles, Lock, Mail, ArrowRight, AlertCircle, CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { APP_VERSION } from '@/version'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -144,6 +145,11 @@ export default function LoginPage() {
           <p>
             • <strong>Revendedora:</strong> revendedora@scaglionijoias.com.br / Skip@Pass
           </p>
+        </div>
+
+        {/* Version indicator */}
+        <div className="text-center">
+          <span className="text-xs text-[#8C8275] font-mono">Scaglioni Joias • v{APP_VERSION}</span>
         </div>
       </div>
     </div>

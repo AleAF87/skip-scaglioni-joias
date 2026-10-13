@@ -20,6 +20,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { APP_VERSION } from '@/version'
 
 export default function Layout() {
   const { user, isAdmin, isOperator, isReseller, canManageInternal, logout } = useAuth()
@@ -147,7 +148,7 @@ export default function Layout() {
         </nav>
 
         {/* Sidebar Footer */}
-        <div className="p-4 border-t border-[#E5DFD5]">
+        <div className="p-4 border-t border-[#E5DFD5] space-y-2">
           <button
             onClick={handleLogout}
             className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium text-[#B3261E] hover:bg-[#B3261E]/10 transition-colors"
@@ -155,6 +156,9 @@ export default function Layout() {
             <LogOut className="h-4 w-4" />
             <span>Encerrar Sessão</span>
           </button>
+          <div className="text-center pt-1">
+            <span className="text-[11px] text-[#8C8275] font-mono">v{APP_VERSION}</span>
+          </div>
         </div>
       </aside>
 
@@ -233,7 +237,7 @@ export default function Layout() {
                 })}
               </nav>
 
-              <div className="pt-4 border-t border-[#E5DFD5]">
+              <div className="pt-4 border-t border-[#E5DFD5] space-y-2">
                 <button
                   onClick={handleLogout}
                   className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium text-[#B3261E] hover:bg-[#B3261E]/10 rounded-xl"
@@ -241,6 +245,9 @@ export default function Layout() {
                   <LogOut className="h-4 w-4" />
                   <span>Sair da conta</span>
                 </button>
+                <div className="text-center">
+                  <span className="text-[10px] text-[#8C8275] font-mono">v{APP_VERSION}</span>
+                </div>
               </div>
             </div>
             <div className="flex-1" onClick={() => setMobileMenuOpen(false)} />
