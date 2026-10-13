@@ -38,6 +38,8 @@ import {
   Pencil,
   FileCheck,
   Plus,
+  X,
+  XCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import pb from '@/lib/pocketbase/client'
@@ -231,15 +233,37 @@ export function VoiceGuidedModal({
   } | null>(null)
   const [isCreatingAuxiliary, setIsCreatingAuxiliary] = useState(false)
 
+  // Feedback visual de pré-seleção identificado automaticamente
+  const [preSelectionFeedback, setPreSelectionFeedback] = useState<{
+    label: string
+    value: string
+  } | null>(null)
+
+  // Mensagem breve de auto-limpeza (ex: "Não entendi. Fale de novo…")
+  const [clearingNotice, setClearingNotice] = useState<string | null>(null)
+
   // Manual editing inline for current step
   const [manualInput, setManualInput] = useState('')
+  // Rastreador se o usuário está digitando ativamente no input
+  const isManuallyTypingRef = useRef<boolean>(false)
 
   // Refs
   const recognitionRef = useRef<any>(null)
   const activeStreamRef = useRef<MediaStream | null>(null)
   const restartTimerRef = useRef<any>(null)
+  const autoClearTimerRef = useRef<any>(null)
   const currentStepIndexRef = useRef(currentStepIndex)
   currentStepIndexRef.current = currentStepIndex
+
+  // Keep a ref to latest state/data
+  const dataRef = useRef(data)
+  dataRef.current = data
+  const localTypesRef = useRef(localTypes)
+  localTypesRef.current = localTypes
+  const localMaterialsRef = useRef(localMaterials)
+  localMaterialsRef.current = localMaterials
+  const localSizesRef = useRef(localSizes)
+  localSizesRef.current = localSizes
 
   // Keep a ref to latest live transcript to avoid stale closures
   const liveTranscriptRef = useRef(liveTranscript)
@@ -322,10 +346,12 @@ export function VoiceGuidedModal({
 
       recognition.onresult = (event: any) => {
         let currentTranscript = ''
+        let hasFinalResult = false
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const t = event.results[i][0].transcript
           if (event.results[i].isFinal) {
             accumulated += (accumulated ? ' ' : '') + t
+            hasFinalResult = true
           } else {
             currentTranscript += t
           }
@@ -333,7 +359,15 @@ export function VoiceGuidedModal({
         const full = (accumulated + ' ' + currentTranscript).trim()
         if (full) {
           setLiveTranscript(full)
-          setManualInput(full)
+          if (!isManuallyTypingRef.current) {
+            setManualInput(full)
+          }
+
+          // Quando uma frase final for reconhecida (ou conforme a fala avança),
+          // roda o processamento de pré-seleção / detecção para listas
+          if (hasFinalResult || full.length > 2) {
+            processSpokenInput(full)
+          }
         }
       }
 
@@ -380,14 +414,19 @@ export function VoiceGuidedModal({
   useEffect(() => {
     if (!open) {
       stopListening()
+      clearAutoClearTimer()
       return
     }
 
-    // Limpa transcrição temporária e erro da etapa ao mudar de pergunta
+    clearAutoClearTimer()
+    // Limpa transcrição temporária, feedback e erro da etapa ao mudar de pergunta
     setLiveTranscript('')
     setStepError(null)
     setAmbiguousCandidates([])
     setUnmatchedState(null)
+    setPreSelectionFeedback(null)
+    setClearingNotice(null)
+    isManuallyTypingRef.current = false
 
     if (!isReview) {
       // Pré-preenche o input manual com o valor já salvo caso esteja voltando
@@ -420,12 +459,14 @@ export function VoiceGuidedModal({
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen) {
       stopListening()
+      clearAutoClearTimer()
     }
     onOpenChange(nextOpen)
   }
 
   // Restart modal completely
   const handleRestart = () => {
+    clearAutoClearTimer()
     setCurrentStepIndex(0)
     setData({
       typeId: '',
@@ -447,6 +488,9 @@ export function VoiceGuidedModal({
     setStepError(null)
     setAmbiguousCandidates([])
     setUnmatchedState(null)
+    setPreSelectionFeedback(null)
+    setClearingNotice(null)
+    isManuallyTypingRef.current = false
   }
 
   // Create new auxiliary item in PocketBase and register on the fly
@@ -534,14 +578,249 @@ export function VoiceGuidedModal({
     }
   }
 
+  // Limpar timer de auto-limpeza ativo
+  const clearAutoClearTimer = useCallback(() => {
+    if (autoClearTimerRef.current) {
+      clearTimeout(autoClearTimerRef.current)
+      autoClearTimerRef.current = null
+    }
+  }, [])
+
+  // Limpa resposta da etapa atual (e a transcrição), para gravação e volta a aguardar fala (Botão "Cancelar")
+  const handleCancelCurrentStep = useCallback(() => {
+    clearAutoClearTimer()
+    setLiveTranscript('')
+    setManualInput('')
+    setStepError(null)
+    setAmbiguousCandidates([])
+    setUnmatchedState(null)
+    setPreSelectionFeedback(null)
+    setClearingNotice(null)
+    isManuallyTypingRef.current = false
+
+    if (!currentStep) return
+
+    // Limpa a resposta selecionada desta etapa no objeto data
+    const k = currentStep.key
+    setData((prev) => {
+      const next = { ...prev }
+      if (k === 'type') {
+        next.typeId = ''
+        next.typeName = ''
+      } else if (k === 'material') {
+        next.materialId = ''
+        next.materialName = ''
+      } else if (k === 'audience') {
+        next.targetAudience = ''
+      } else if (k === 'size') {
+        next.sizeId = ''
+        next.sizeName = ''
+      } else if (k === 'description') {
+        next.description = ''
+      } else if (k === 'invested') {
+        next.investedValue = ''
+      } else if (k === 'selling') {
+        next.sellingPrice = ''
+      } else if (k === 'quantity') {
+        next.quantity = ''
+      } else if (k === 'observations') {
+        next.observations = ''
+      }
+      return next
+    })
+
+    // Para a gravação da etapa e volta a aguardar a fala para essa mesma pergunta
+    stopListening()
+    setTimeout(() => {
+      startListening()
+    }, 150)
+  }, [clearAutoClearTimer, currentStep, startListening, stopListening])
+
+  // Avalia o texto transcrito em tempo real para auto-seleção ou agendamento de auto-limpeza
+  const processSpokenInput = useCallback(
+    (spokenText: string) => {
+      if (!currentStep) return
+      const trimmed = spokenText.trim()
+      if (!trimmed) return
+
+      // Não processar se o usuário estiver digitando manualmente no input
+      if (isManuallyTypingRef.current) return
+
+      const key = currentStep.key
+      clearAutoClearTimer()
+
+      // Apenas para as etapas com lista de opções fechada (Tipo, Material, Perfil, Tamanho)
+      const isListStep =
+        key === 'type' || key === 'material' || key === 'audience' || key === 'size'
+
+      if (key === 'type') {
+        const match = matchAuxiliaryItem(trimmed, localTypesRef.current, { category: 'type' })
+        if (match.matched) {
+          setData((prev) => ({
+            ...prev,
+            typeId: match.matched!.id,
+            typeName: match.matched!.name,
+          }))
+          setPreSelectionFeedback({
+            label: 'Tipo',
+            value: match.matched.name,
+          })
+          setStepError(null)
+          setAmbiguousCandidates([])
+          setUnmatchedState(null)
+          setClearingNotice(null)
+        } else if (match.ambiguous) {
+          setAmbiguousCandidates(match.candidates)
+          setPreSelectionFeedback(null)
+          setUnmatchedState(null)
+          setClearingNotice(null)
+          setStepError(
+            `Encontrei mais de uma opção para "${trimmed}". Clique na opção desejada abaixo:`,
+          )
+        } else {
+          // Sem match e sem sugestão por similaridade
+          setPreSelectionFeedback(null)
+          // Se o usuário não está interagindo com a lista nem selecionou nada:
+          // Agenda limpeza automática em 2.5s com aviso amigável
+          setClearingNotice('Não entendi. Fale de novo…')
+          autoClearTimerRef.current = setTimeout(() => {
+            // Verifica se o usuário não começou a digitar ou selecionou algo
+            if (!isManuallyTypingRef.current && !dataRef.current.typeId) {
+              setLiveTranscript('')
+              setManualInput('')
+              setClearingNotice(null)
+              setStepError(null)
+            } else {
+              setClearingNotice(null)
+            }
+          }, 2500)
+        }
+      } else if (key === 'material') {
+        const match = matchAuxiliaryItem(trimmed, localMaterialsRef.current, {
+          category: 'material',
+        })
+        if (match.matched) {
+          setData((prev) => ({
+            ...prev,
+            materialId: match.matched!.id,
+            materialName: match.matched!.name,
+          }))
+          setPreSelectionFeedback({
+            label: 'Material',
+            value: match.matched.name,
+          })
+          setStepError(null)
+          setAmbiguousCandidates([])
+          setUnmatchedState(null)
+          setClearingNotice(null)
+        } else if (match.ambiguous) {
+          setAmbiguousCandidates(match.candidates)
+          setPreSelectionFeedback(null)
+          setUnmatchedState(null)
+          setClearingNotice(null)
+          setStepError(
+            `Encontrei mais de uma opção para "${trimmed}". Clique na opção desejada abaixo:`,
+          )
+        } else {
+          setPreSelectionFeedback(null)
+          setClearingNotice('Não entendi. Fale de novo…')
+          autoClearTimerRef.current = setTimeout(() => {
+            if (!isManuallyTypingRef.current && !dataRef.current.materialId) {
+              setLiveTranscript('')
+              setManualInput('')
+              setClearingNotice(null)
+              setStepError(null)
+            } else {
+              setClearingNotice(null)
+            }
+          }, 2500)
+        }
+      } else if (key === 'audience') {
+        const parsed = parseTargetAudience(trimmed)
+        if (parsed.recognized) {
+          const audienceLabels: Record<string, string> = {
+            feminino: 'Feminino',
+            masculino: 'Masculino',
+            unissex: 'Unissex',
+          }
+          setData((prev) => ({
+            ...prev,
+            targetAudience: parsed.value,
+          }))
+          setPreSelectionFeedback({
+            label: 'Perfil',
+            value: audienceLabels[parsed.value] || parsed.value,
+          })
+          setStepError(null)
+          setAmbiguousCandidates([])
+          setClearingNotice(null)
+        } else {
+          setPreSelectionFeedback(null)
+          setClearingNotice('Não entendi. Fale de novo…')
+          autoClearTimerRef.current = setTimeout(() => {
+            if (!isManuallyTypingRef.current && !dataRef.current.targetAudience) {
+              setLiveTranscript('')
+              setManualInput('')
+              setClearingNotice(null)
+            } else {
+              setClearingNotice(null)
+            }
+          }, 2500)
+        }
+      } else if (key === 'size') {
+        const match = matchAuxiliaryItem(trimmed, localSizesRef.current, { category: 'size' })
+        if (match.matched) {
+          setData((prev) => ({
+            ...prev,
+            sizeId: match.matched!.id,
+            sizeName: match.matched!.name,
+          }))
+          setPreSelectionFeedback({
+            label: 'Tamanho',
+            value: match.matched.name,
+          })
+          setStepError(null)
+          setAmbiguousCandidates([])
+          setUnmatchedState(null)
+          setClearingNotice(null)
+        } else if (match.ambiguous) {
+          setAmbiguousCandidates(match.candidates)
+          setPreSelectionFeedback(null)
+          setUnmatchedState(null)
+          setClearingNotice(null)
+          setStepError(`Mais de um tamanho encontrado para "${trimmed}". Selecione uma opção:`)
+        } else {
+          setPreSelectionFeedback(null)
+          setClearingNotice('Não entendi. Fale de novo…')
+          autoClearTimerRef.current = setTimeout(() => {
+            if (!isManuallyTypingRef.current && !dataRef.current.sizeId) {
+              setLiveTranscript('')
+              setManualInput('')
+              setClearingNotice(null)
+              setStepError(null)
+            } else {
+              setClearingNotice(null)
+            }
+          }, 2500)
+        }
+      } else {
+        // NÃO vale para etapas de texto livre (descrição, observações, valores)
+        setClearingNotice(null)
+      }
+    },
+    [currentStep, clearAutoClearTimer],
+  )
+
   // Confirm current step answer
   const handleConfirmStep = (forcedText?: string) => {
     if (!currentStep) return
+    clearAutoClearTimer()
 
     const raw = (forcedText !== undefined ? forcedText : manualInput || liveTranscript).trim()
     setStepError(null)
     setAmbiguousCandidates([])
     setUnmatchedState(null)
+    setClearingNotice(null)
 
     const { key, required } = currentStep
 
@@ -978,6 +1257,27 @@ export function VoiceGuidedModal({
                       "{liveTranscript}"
                     </p>
                   )}
+
+                  {/* Feedback visual de auto-limpeza em andamento */}
+                  {clearingNotice && (
+                    <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#B26A00]/15 text-[#B26A00] text-xs font-medium animate-pulse">
+                      <RotateCcw className="h-3.5 w-3.5 shrink-0" />
+                      <span>{clearingNotice}</span>
+                    </div>
+                  )}
+
+                  {/* Feedback visual óbvio de pré-seleção automática */}
+                  {preSelectionFeedback && (
+                    <div className="mt-2.5 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#2E7D4F]/15 border border-[#2E7D4F]/40 text-[#2E7D4F] text-xs md:text-sm font-semibold shadow-xs animate-in fade-in zoom-in duration-200">
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-[#2E7D4F]" />
+                      <span>
+                        Entendi: <strong>{preSelectionFeedback.value}</strong>
+                      </span>
+                      <span className="text-[11px] font-normal text-[#2E7D4F]/80 ml-1">
+                        (pré-selecionado)
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1002,7 +1302,34 @@ export function VoiceGuidedModal({
                             type="button"
                             size="sm"
                             variant="outline"
-                            onClick={() => handleConfirmStep(cand.name)}
+                            onClick={() => {
+                              clearAutoClearTimer()
+                              setClearingNotice(null)
+                              setManualInput(cand.name)
+                              if (currentStep.key === 'type') {
+                                setData((prev) => ({
+                                  ...prev,
+                                  typeId: cand.id,
+                                  typeName: cand.name,
+                                }))
+                                setPreSelectionFeedback({ label: 'Tipo', value: cand.name })
+                              } else if (currentStep.key === 'material') {
+                                setData((prev) => ({
+                                  ...prev,
+                                  materialId: cand.id,
+                                  materialName: cand.name,
+                                }))
+                                setPreSelectionFeedback({ label: 'Material', value: cand.name })
+                              } else if (currentStep.key === 'size') {
+                                setData((prev) => ({
+                                  ...prev,
+                                  sizeId: cand.id,
+                                  sizeName: cand.name,
+                                }))
+                                setPreSelectionFeedback({ label: 'Tamanho', value: cand.name })
+                              }
+                              setStepError(null)
+                            }}
                             className="bg-white border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] text-xs h-8 shadow-xs"
                           >
                             <Check className="h-3 w-3 mr-1 text-[#2E7D4F]" />
@@ -1059,7 +1386,34 @@ export function VoiceGuidedModal({
                             <button
                               key={item.id}
                               type="button"
-                              onClick={() => handleConfirmStep(item.name)}
+                              onClick={() => {
+                                clearAutoClearTimer()
+                                setClearingNotice(null)
+                                setManualInput(item.name)
+                                if (unmatchedState.key === 'type') {
+                                  setData((prev) => ({
+                                    ...prev,
+                                    typeId: item.id,
+                                    typeName: item.name,
+                                  }))
+                                  setPreSelectionFeedback({ label: 'Tipo', value: item.name })
+                                } else if (unmatchedState.key === 'material') {
+                                  setData((prev) => ({
+                                    ...prev,
+                                    materialId: item.id,
+                                    materialName: item.name,
+                                  }))
+                                  setPreSelectionFeedback({ label: 'Material', value: item.name })
+                                } else if (unmatchedState.key === 'size') {
+                                  setData((prev) => ({
+                                    ...prev,
+                                    sizeId: item.id,
+                                    sizeName: item.name,
+                                  }))
+                                  setPreSelectionFeedback({ label: 'Tamanho', value: item.name })
+                                }
+                                setStepError(null)
+                              }}
                               className="text-xs px-2.5 py-1 rounded-full border border-[#E5DFD5] bg-white text-[#2D2A26] hover:border-[#C6A664] hover:bg-[#FDFBF7] transition-colors"
                             >
                               {item.name}
@@ -1072,27 +1426,45 @@ export function VoiceGuidedModal({
                 </div>
               )}
 
-              {/* Direct Choice Pills for standard options (Tipo, Material, Perfil) */}
+              {/* Direct Choice Pills for standard options (Tipo, Material, Perfil) com destaque visual da pré-seleção */}
               {currentStep.key === 'type' && localTypes.length > 0 && (
                 <div className="space-y-1.5">
                   <Label className="text-[11px] font-semibold text-[#8C8275] uppercase tracking-wider">
                     Ou selecione um tipo cadastrado:
                   </Label>
                   <div className="flex flex-wrap gap-1.5">
-                    {localTypes.map((t) => (
-                      <button
-                        key={t.id}
-                        type="button"
-                        onClick={() => handleConfirmStep(t.name)}
-                        className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
-                          data.typeId === t.id
-                            ? 'bg-[#C6A664] text-white border-[#C6A664]'
-                            : 'bg-white text-[#2D2A26] border-[#E5DFD5] hover:border-[#C6A664] hover:bg-[#FDFBF7]'
-                        }`}
-                      >
-                        {t.name}
-                      </button>
-                    ))}
+                    {localTypes.map((t) => {
+                      const isSelected = data.typeId === t.id
+                      return (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => {
+                            clearAutoClearTimer()
+                            setClearingNotice(null)
+                            setData((prev) => ({
+                              ...prev,
+                              typeId: t.id,
+                              typeName: t.name,
+                            }))
+                            setManualInput(t.name)
+                            setPreSelectionFeedback({
+                              label: 'Tipo',
+                              value: t.name,
+                            })
+                            setStepError(null)
+                          }}
+                          className={`text-xs px-3 py-1.5 rounded-full border font-medium transition-all duration-200 inline-flex items-center gap-1.5 ${
+                            isSelected
+                              ? 'bg-[#2E7D4F] text-white border-[#2E7D4F] shadow-sm ring-2 ring-[#2E7D4F]/30 scale-[1.02]'
+                              : 'bg-white text-[#2D2A26] border-[#E5DFD5] hover:border-[#C6A664] hover:bg-[#FDFBF7]'
+                          }`}
+                        >
+                          {isSelected && <Check className="h-3 w-3 text-white" />}
+                          {t.name}
+                        </button>
+                      )
+                    })}
                   </div>
                 </div>
               )}
@@ -1103,20 +1475,38 @@ export function VoiceGuidedModal({
                     Ou selecione um material cadastrado:
                   </Label>
                   <div className="flex flex-wrap gap-1.5">
-                    {localMaterials.map((m) => (
-                      <button
-                        key={m.id}
-                        type="button"
-                        onClick={() => handleConfirmStep(m.name)}
-                        className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
-                          data.materialId === m.id
-                            ? 'bg-[#C6A664] text-white border-[#C6A664]'
-                            : 'bg-white text-[#2D2A26] border-[#E5DFD5] hover:border-[#C6A664] hover:bg-[#FDFBF7]'
-                        }`}
-                      >
-                        {m.name}
-                      </button>
-                    ))}
+                    {localMaterials.map((m) => {
+                      const isSelected = data.materialId === m.id
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => {
+                            clearAutoClearTimer()
+                            setClearingNotice(null)
+                            setData((prev) => ({
+                              ...prev,
+                              materialId: m.id,
+                              materialName: m.name,
+                            }))
+                            setManualInput(m.name)
+                            setPreSelectionFeedback({
+                              label: 'Material',
+                              value: m.name,
+                            })
+                            setStepError(null)
+                          }}
+                          className={`text-xs px-3 py-1.5 rounded-full border font-medium transition-all duration-200 inline-flex items-center gap-1.5 ${
+                            isSelected
+                              ? 'bg-[#2E7D4F] text-white border-[#2E7D4F] shadow-sm ring-2 ring-[#2E7D4F]/30 scale-[1.02]'
+                              : 'bg-white text-[#2D2A26] border-[#E5DFD5] hover:border-[#C6A664] hover:bg-[#FDFBF7]'
+                          }`}
+                        >
+                          {isSelected && <Check className="h-3 w-3 text-white" />}
+                          {m.name}
+                        </button>
+                      )
+                    })}
                   </div>
                 </div>
               )}
@@ -1131,21 +1521,38 @@ export function VoiceGuidedModal({
                       { key: 'feminino', label: 'Feminino' },
                       { key: 'masculino', label: 'Masculino' },
                       { key: 'unissex', label: 'Unissex' },
-                    ].map((aud) => (
-                      <Button
-                        key={aud.key}
-                        type="button"
-                        variant="outline"
-                        onClick={() => handleConfirmStep(aud.label)}
-                        className={`h-9 text-xs border ${
-                          data.targetAudience === aud.key
-                            ? 'bg-[#C6A664] text-white border-[#C6A664]'
-                            : 'bg-white text-[#2D2A26] border-[#E5DFD5] hover:bg-[#FDFBF7]'
-                        }`}
-                      >
-                        {aud.label}
-                      </Button>
-                    ))}
+                    ].map((aud) => {
+                      const isSelected = data.targetAudience === aud.key
+                      return (
+                        <Button
+                          key={aud.key}
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            clearAutoClearTimer()
+                            setClearingNotice(null)
+                            setData((prev) => ({
+                              ...prev,
+                              targetAudience: aud.key as any,
+                            }))
+                            setManualInput(aud.label)
+                            setPreSelectionFeedback({
+                              label: 'Perfil',
+                              value: aud.label,
+                            })
+                            setStepError(null)
+                          }}
+                          className={`h-9 text-xs border font-medium transition-all duration-200 ${
+                            isSelected
+                              ? 'bg-[#2E7D4F] text-white border-[#2E7D4F] shadow-sm ring-2 ring-[#2E7D4F]/30 hover:bg-[#256640] hover:text-white'
+                              : 'bg-white text-[#2D2A26] border-[#E5DFD5] hover:bg-[#FDFBF7]'
+                          }`}
+                        >
+                          {isSelected && <Check className="h-3 w-3 mr-1 text-white" />}
+                          {aud.label}
+                        </Button>
+                      )
+                    })}
                   </div>
                 </div>
               )}
@@ -1156,20 +1563,38 @@ export function VoiceGuidedModal({
                     Tamanhos mais comuns:
                   </Label>
                   <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-1">
-                    {localSizes.map((s) => (
-                      <button
-                        key={s.id}
-                        type="button"
-                        onClick={() => handleConfirmStep(s.name)}
-                        className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
-                          data.sizeId === s.id
-                            ? 'bg-[#C6A664] text-white border-[#C6A664]'
-                            : 'bg-white text-[#2D2A26] border-[#E5DFD5] hover:border-[#C6A664]'
-                        }`}
-                      >
-                        {s.name}
-                      </button>
-                    ))}
+                    {localSizes.map((s) => {
+                      const isSelected = data.sizeId === s.id
+                      return (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => {
+                            clearAutoClearTimer()
+                            setClearingNotice(null)
+                            setData((prev) => ({
+                              ...prev,
+                              sizeId: s.id,
+                              sizeName: s.name,
+                            }))
+                            setManualInput(s.name)
+                            setPreSelectionFeedback({
+                              label: 'Tamanho',
+                              value: s.name,
+                            })
+                            setStepError(null)
+                          }}
+                          className={`text-xs px-3 py-1.5 rounded-full border font-medium transition-all duration-200 inline-flex items-center gap-1.5 ${
+                            isSelected
+                              ? 'bg-[#2E7D4F] text-white border-[#2E7D4F] shadow-sm ring-2 ring-[#2E7D4F]/30 scale-[1.02]'
+                              : 'bg-white text-[#2D2A26] border-[#E5DFD5] hover:border-[#C6A664]'
+                          }`}
+                        >
+                          {isSelected && <Check className="h-3 w-3 text-white" />}
+                          {s.name}
+                        </button>
+                      )
+                    })}
                   </div>
                 </div>
               )}
@@ -1190,7 +1615,23 @@ export function VoiceGuidedModal({
                   <Textarea
                     id="guidedInput"
                     value={manualInput}
-                    onChange={(e) => setManualInput(e.target.value)}
+                    onFocus={() => {
+                      isManuallyTypingRef.current = true
+                      clearAutoClearTimer()
+                      setClearingNotice(null)
+                    }}
+                    onChange={(e) => {
+                      isManuallyTypingRef.current = true
+                      clearAutoClearTimer()
+                      setClearingNotice(null)
+                      setManualInput(e.target.value)
+                    }}
+                    onBlur={() => {
+                      // Usuário saiu do campo
+                      setTimeout(() => {
+                        isManuallyTypingRef.current = false
+                      }, 400)
+                    }}
                     onKeyDown={handleKeyDown}
                     placeholder="Sua fala aparecerá aqui ou digite diretamente..."
                     rows={2}
@@ -1200,7 +1641,22 @@ export function VoiceGuidedModal({
                   <Input
                     id="guidedInput"
                     value={manualInput}
-                    onChange={(e) => setManualInput(e.target.value)}
+                    onFocus={() => {
+                      isManuallyTypingRef.current = true
+                      clearAutoClearTimer()
+                      setClearingNotice(null)
+                    }}
+                    onChange={(e) => {
+                      isManuallyTypingRef.current = true
+                      clearAutoClearTimer()
+                      setClearingNotice(null)
+                      setManualInput(e.target.value)
+                    }}
+                    onBlur={() => {
+                      setTimeout(() => {
+                        isManuallyTypingRef.current = false
+                      }, 400)
+                    }}
                     onKeyDown={handleKeyDown}
                     placeholder="Aguardando fala ou digitação..."
                     className="bg-white border-[#E5DFD5] focus-visible:ring-[#C6A664] text-sm"
@@ -1477,6 +1933,18 @@ export function VoiceGuidedModal({
           <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
             {!isReview && currentStep && (
               <>
+                {/* Botão Cancelar solicitado pelo usuário: limpa resposta/transcrição da etapa e volta a ouvir a mesma pergunta */}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCancelCurrentStep}
+                  title="Limpar esta resposta e falar de novo"
+                  className="border-[#E5DFD5] text-[#8C8275] hover:text-[#B3261E] hover:border-[#B3261E]/40 hover:bg-[#B3261E]/5 transition-colors"
+                >
+                  <XCircle className="h-4 w-4 mr-1 text-[#8C8275]" /> Cancelar
+                </Button>
+
                 {!currentStep.required && (
                   <Button
                     type="button"
