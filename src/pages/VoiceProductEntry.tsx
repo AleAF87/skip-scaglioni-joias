@@ -14,6 +14,7 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { ImageLightbox } from '@/components/ImageLightbox'
+import { VoiceGuidedModal, GuidedProductData } from '@/components/VoiceGuidedModal'
 import {
   Mic,
   MicOff,
@@ -33,6 +34,7 @@ import {
   AlertCircle,
   Key,
   RefreshCw,
+  ListOrdered,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { APP_VERSION } from '@/version'
@@ -129,6 +131,9 @@ export default function VoiceProductEntry() {
   const notesMediaRecorderRef = useRef<MediaRecorder | null>(null)
   const notesAudioStreamRef = useRef<MediaStream | null>(null)
   const notesAudioChunksRef = useRef<Blob[]>([])
+
+  // Guided Voice Modal State
+  const [guidedModalOpen, setGuidedModalOpen] = useState(false)
 
   // Lightbox
   const [lightboxOpen, setLightboxOpen] = useState(false)
@@ -677,6 +682,77 @@ export default function VoiceProductEntry() {
     }
   }
 
+  // Apply data returned from Guided Voice Modal
+  const handleApplyGuidedData = (guidedData: GuidedProductData) => {
+    // 1. Description
+    if (guidedData.description) {
+      setDescription(guidedData.description)
+    }
+
+    // 2. Auxiliaries
+    if (guidedData.typeId) {
+      setSelectedType(guidedData.typeId)
+    } else if (guidedData.typeName) {
+      const matchT = types.find((t) => t.name.toLowerCase() === guidedData.typeName.toLowerCase())
+      if (matchT) setSelectedType(matchT.id)
+    }
+
+    if (guidedData.materialId) {
+      setSelectedMaterial(guidedData.materialId)
+    } else if (guidedData.materialName) {
+      const matchM = materials.find(
+        (m) => m.name.toLowerCase() === guidedData.materialName.toLowerCase(),
+      )
+      if (matchM) setSelectedMaterial(matchM.id)
+    }
+
+    if (guidedData.sizeId) {
+      setSelectedSize(guidedData.sizeId)
+    } else if (guidedData.sizeName) {
+      const matchS = sizes.find((s) => s.name.toLowerCase() === guidedData.sizeName.toLowerCase())
+      if (matchS) setSelectedSize(matchS.id)
+    }
+
+    // 3. Target Audience
+    if (guidedData.targetAudience) {
+      setTargetAudience(guidedData.targetAudience)
+    }
+
+    // 4. Financials
+    if (guidedData.investedValue) {
+      const norm = normalizeCurrencyValue(guidedData.investedValue)
+      setInvestedValue(norm !== null ? norm.toFixed(2) : '')
+    }
+
+    if (guidedData.sellingPrice) {
+      const norm = normalizeCurrencyValue(guidedData.sellingPrice)
+      setSellingPrice(norm !== null ? norm.toFixed(2) : '')
+    }
+
+    // 5. Quantity & min stock
+    if (guidedData.quantity) {
+      setQuantity(guidedData.quantity)
+      const num = parseInt(guidedData.quantity, 10)
+      if (!isNaN(num) && num > 0) {
+        const thirtyPercent = Math.max(1, Math.round(num * 0.3))
+        setMinimumQuantity(thirtyPercent.toString())
+      }
+    }
+
+    // 6. Observations
+    if (guidedData.observations) {
+      setObservations((prev) =>
+        prev ? `${prev} | ${guidedData.observations}` : guidedData.observations,
+      )
+    }
+
+    // 7. Scroll and focus form for review
+    setTimeout(() => {
+      formReviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      descriptionInputRef.current?.focus()
+    }, 150)
+  }
+
   // Format seconds to mm:ss
   const formatTimer = (totalSeconds: number) => {
     const mins = Math.floor(totalSeconds / 60)
@@ -1124,33 +1200,68 @@ export default function VoiceProductEntry() {
         </CardHeader>
 
         <CardContent className="space-y-6 pt-2">
-          {/* Giant Microphone Recording Button — MediaRecorder real com gravação estável */}
-          <div className="flex flex-col items-center justify-center py-4">
-            <button
-              type="button"
-              onClick={toggleRecording}
-              disabled={isTranscribing}
-              aria-label={isRecording ? 'Parar gravação' : 'Iniciar gravação'}
-              className={`relative h-24 w-24 md:h-28 md:w-28 rounded-full flex items-center justify-center text-white transition-all duration-300 shadow-xl cursor-pointer ${
-                isRecording
-                  ? 'bg-[#B3261E] ring-8 ring-[#B3261E]/30 scale-105 animate-pulse'
-                  : isTranscribing
-                    ? 'bg-[#8C8275] cursor-not-allowed opacity-80'
-                    : 'bg-gradient-to-tr from-[#7A5C2E] via-[#C6A664] to-[#E8D5A3] hover:scale-105 hover:shadow-2xl'
-              }`}
-            >
-              {isTranscribing ? (
-                <Loader2 className="h-10 w-10 md:h-12 md:w-12 animate-spin" />
-              ) : isRecording ? (
-                <MicOff className="h-10 w-10 md:h-12 md:w-12" />
-              ) : (
-                <Mic className="h-10 w-10 md:h-12 md:w-12" />
-              )}
-            </button>
+          {/* Dual Action Recording Zone: Gravação Contínua + Cadastro Guiado */}
+          <div className="flex flex-col items-center justify-center py-4 space-y-4">
+            <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6">
+              {/* Giant Microphone Recording Button — Gravação Livre existente (MediaRecorder real) */}
+              <div className="flex flex-col items-center">
+                <button
+                  type="button"
+                  onClick={toggleRecording}
+                  disabled={isTranscribing}
+                  aria-label={isRecording ? 'Parar gravação' : 'Iniciar gravação livre'}
+                  title={isRecording ? 'Parar gravação' : 'Gravação livre contínua'}
+                  className={`relative h-24 w-24 md:h-28 md:w-28 rounded-full flex items-center justify-center text-white transition-all duration-300 shadow-xl cursor-pointer ${
+                    isRecording
+                      ? 'bg-[#B3261E] ring-8 ring-[#B3261E]/30 scale-105 animate-pulse'
+                      : isTranscribing
+                        ? 'bg-[#8C8275] cursor-not-allowed opacity-80'
+                        : 'bg-gradient-to-tr from-[#7A5C2E] via-[#C6A664] to-[#E8D5A3] hover:scale-105 hover:shadow-2xl'
+                  }`}
+                >
+                  {isTranscribing ? (
+                    <Loader2 className="h-10 w-10 md:h-12 md:w-12 animate-spin" />
+                  ) : isRecording ? (
+                    <MicOff className="h-10 w-10 md:h-12 md:w-12" />
+                  ) : (
+                    <Mic className="h-10 w-10 md:h-12 md:w-12" />
+                  )}
+                </button>
+                <span className="text-xs font-semibold text-[#2D2A26] mt-2">Gravação Livre</span>
+              </div>
 
-            {/* Status indicators */}
+              {/* Botão Novo: Cadastro Guiado campo por campo (convive com o livre) */}
+              <div className="flex flex-col items-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Se a gravação livre estiver rodando, para antes de abrir o modal guiado
+                    if (isRecording) {
+                      stopRecording()
+                    }
+                    setGuidedModalOpen(true)
+                  }}
+                  disabled={isTranscribing}
+                  aria-label="Abrir cadastro guiado campo por campo"
+                  title="Abrir assistente guiado campo por campo"
+                  className="relative h-24 w-24 md:h-28 md:w-28 rounded-full flex flex-col items-center justify-center text-[#2D2A26] bg-gradient-to-tr from-[#FDFBF7] via-[#FFFFFF] to-[#F3EAD8] border-2 border-[#C6A664] hover:border-[#7A5C2E] hover:bg-[#F3EAD8]/60 transition-all duration-300 shadow-xl cursor-pointer hover:scale-105 hover:shadow-2xl group"
+                >
+                  <div className="p-2.5 rounded-full bg-[#C6A664]/15 text-[#7A5C2E] group-hover:bg-[#C6A664]/25 transition-colors">
+                    <ListOrdered className="h-7 w-7 md:h-8 md:w-8" />
+                  </div>
+                  <span className="text-[10px] font-bold text-[#7A5C2E] uppercase tracking-wider mt-1">
+                    Passo a Passo
+                  </span>
+                </button>
+                <span className="text-xs font-semibold text-[#7A5C2E] mt-2 flex items-center gap-1">
+                  <Sparkles className="h-3 w-3 text-[#C6A664]" /> Cadastro Guiado
+                </span>
+              </div>
+            </div>
+
+            {/* Status indicators for continuous recording */}
             {isRecording ? (
-              <div className="mt-3 flex flex-col items-center gap-1">
+              <div className="mt-1 flex flex-col items-center gap-1">
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#B3261E]/10 border border-[#B3261E]/30 text-[#B3261E] text-xs font-semibold">
                   <span className="relative flex h-2.5 w-2.5">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#B3261E] opacity-75" />
@@ -1166,7 +1277,7 @@ export default function VoiceProductEntry() {
                 </p>
               </div>
             ) : isTranscribing ? (
-              <div className="mt-3 flex flex-col items-center gap-1">
+              <div className="mt-1 flex flex-col items-center gap-1">
                 <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#C6A664]/20 border border-[#C6A664]/50 text-[#7A5C2E] text-xs font-semibold">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   <span>TRANSCREVENDO NO SERVIDOR POR IA...</span>
@@ -1176,9 +1287,16 @@ export default function VoiceProductEntry() {
                 </p>
               </div>
             ) : (
-              <p className="mt-3 text-sm font-semibold text-[#2D2A26]">
-                Clique no microfone para gravar o áudio (estável, sem repetição de palavras)
-              </p>
+              <div className="text-center space-y-1">
+                <p className="text-xs sm:text-sm font-semibold text-[#2D2A26]">
+                  Escolha como prefere cadastrar:
+                </p>
+                <p className="text-xs text-[#6B655E]">
+                  <strong>Gravação Livre:</strong> fale tudo de uma vez e a IA preenche o
+                  formulário. <span className="hidden sm:inline">|</span>{' '}
+                  <strong>Cadastro Guiado:</strong> o sistema pergunta campo por campo no microfone.
+                </p>
+              </div>
             )}
 
             {/* Transcription notice / error box */}
@@ -1743,6 +1861,16 @@ export default function VoiceProductEntry() {
         photos={lightboxPhotos}
         initialIndex={lightboxIndex}
         title={lightboxTitle}
+      />
+
+      {/* Modal de Cadastro Guiado por Voz */}
+      <VoiceGuidedModal
+        open={guidedModalOpen}
+        onOpenChange={setGuidedModalOpen}
+        types={types}
+        materials={materials}
+        sizes={sizes}
+        onApplyToForm={handleApplyGuidedData}
       />
     </div>
   )
