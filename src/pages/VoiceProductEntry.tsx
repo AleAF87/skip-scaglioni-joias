@@ -684,9 +684,10 @@ export default function VoiceProductEntry() {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
   }
 
-  // Helper to sanitize description: remove repeated type, size and audience if present
+  // Helper to sanitize description: remove repeated material, type, size and audience if present
   const sanitizeDescription = (
     desc: string,
+    materialName?: string,
     typeName?: string,
     sizeName?: string,
     audience?: string,
@@ -694,7 +695,73 @@ export default function VoiceProductEntry() {
     if (!desc) return ''
     let cleaned = desc
 
-    // Remove audience references
+    // 1. Remove material references (ex: "Ouro branco com ...", "Ouro Branco 18k", "em ouro branco", etc.)
+    const matTerms: string[] = []
+    if (materialName) {
+      matTerms.push(materialName)
+      matTerms.push(materialName.replace(/\s*18k\b/gi, '').trim())
+    }
+    matTerms.push(
+      'ouro branco',
+      'ouro amarelo',
+      'ouro rose',
+      'ouro rosê',
+      'ouro 18k',
+      'ouro',
+      'prata 925',
+      'prata',
+      'folheado a ouro',
+      'folheado',
+      'aço cirúrgico',
+      'aço',
+    )
+
+    for (const term of matTerms) {
+      if (!term || term.length < 3) continue
+      const esc = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      // Se a descrição começar com o material (ex.: "Ouro branco com ...", "Ouro branco de ...", etc.)
+      cleaned = cleaned.replace(
+        new RegExp(
+          `^(?:peça\\s+)?(?:em\\s+|de\\s+)?${esc}(?:\\s+(?:com|de|em|e|para)\\s+|[,;:\\-—\\s]+)*`,
+          'gi',
+        ),
+        '',
+      )
+      // Se contiver a menção ao material em qualquer lugar
+      cleaned = cleaned.replace(
+        new RegExp(`(?:\\s*(?:,|\\be\\b|com|em|de)\\s+)?\\b${esc}\\b`, 'gi'),
+        '',
+      )
+    }
+
+    // 2. Remove type references (ex: "brinco", "anel", etc.)
+    const typeTerms: string[] = []
+    if (typeName) typeTerms.push(typeName)
+    typeTerms.push(
+      'brinco',
+      'anel',
+      'colar',
+      'pulseira',
+      'pingente',
+      'gargantilha',
+      'choker',
+      'joia',
+      'peça',
+    )
+    for (const term of typeTerms) {
+      if (!term || term.length < 3) continue
+      const esc = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      cleaned = cleaned.replace(
+        new RegExp(`^${esc}(?:\\s+(?:com|de|em|e)\\s+|[,;:\\-—\\s]+)*`, 'gi'),
+        '',
+      )
+      cleaned = cleaned.replace(
+        new RegExp(`(?:\\s*(?:,|\\be\\b|com|em|de)\\s+)?\\b${esc}\\b`, 'gi'),
+        '',
+      )
+    }
+
+    // 3. Remove audience references
     if (audience) {
       const audRegex = new RegExp(`\\b(${audience}|feminino|masculino|unissex)\\b`, 'gi')
       cleaned = cleaned.replace(audRegex, '')
@@ -702,21 +769,21 @@ export default function VoiceProductEntry() {
       cleaned = cleaned.replace(/\b(feminino|masculino|unissex)\b/gi, '')
     }
 
-    // Remove size references if size was detected
+    // 4. Remove size references if size was detected
     if (sizeName) {
       const esc = sizeName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
       const sizeRegex = new RegExp(`\\b(tamanho\\s+)?${esc}\\b`, 'gi')
       cleaned = cleaned.replace(sizeRegex, '')
     }
-    // Also remove generic "tamanho único"
-    cleaned = cleaned.replace(/\btamanho\s+(único|unico)\b/gi, '')
+    // Also remove generic "tamanho único" or "tamanho 20"
+    cleaned = cleaned.replace(/\btamanho\s+(único|unico|\d+)\b/gi, '')
 
-    // Clean up trailing/leading commas, dots, extra spaces
+    // 5. Clean up dangling prepositions, commas, dots, extra spaces
     cleaned = cleaned
       .replace(/,\s*,/g, ',')
       .replace(/,\s*\./g, '.')
       .replace(/\s+/g, ' ')
-      .replace(/^\s*[,.\-—]\s*/, '')
+      .replace(/^\s*(?:com|de|em|e|para|—|-|,|\.)\s+/i, '')
       .replace(/\s*[,.\-—]\s*$/, '')
       .trim()
 
@@ -743,6 +810,7 @@ export default function VoiceProductEntry() {
       // Apply interpreted values to state without overwriting non-empty fields arbitrarily
       const cleanDesc = sanitizeDescription(
         result.description,
+        result.material_name,
         result.type_name,
         result.size_name,
         result.target_audience || '',
@@ -847,11 +915,7 @@ export default function VoiceProductEntry() {
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    // Validations
-    if (!code.trim()) {
-      toast.error('O código do produto é obrigatório.')
-      return
-    }
+    // Validations (O código é gerado de forma atômica no servidor ao salvar)
     if (!description.trim()) {
       toast.error('A descrição do produto é obrigatória.')
       return
@@ -872,7 +936,9 @@ export default function VoiceProductEntry() {
     setIsSaving(true)
     try {
       const formData = new FormData()
-      formData.append('code', code.trim().toUpperCase())
+      // Enviamos o campo code vazio para que o hook PocketBase no servidor gere o próximo número sequencial
+      // atômico sem conflito entre múltiplos usuários simultâneos
+      formData.append('code', '')
       formData.append('description', description.trim())
       if (selectedType) formData.append('type', selectedType)
       if (selectedMaterial) formData.append('material', selectedMaterial)
@@ -1250,17 +1316,24 @@ export default function VoiceProductEntry() {
               {/* Row 1: Code & Description */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <Label htmlFor="code" className="text-xs font-semibold text-[#2D2A26]">
-                    Código do Produto *
-                  </Label>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="code" className="text-xs font-semibold text-[#2D2A26]">
+                      Código do Produto
+                    </Label>
+                    <span className="text-[10px] text-[#7A5C2E] font-medium">Automático</span>
+                  </div>
                   <Input
                     id="code"
                     value={code}
-                    onChange={(e) => setCode(e.target.value.toUpperCase())}
-                    placeholder="Ex: 100001"
-                    required
-                    className="mt-1 border-[#E5DFD5] focus-visible:ring-[#C6A664] uppercase font-mono font-bold"
+                    readOnly
+                    disabled
+                    placeholder="Gerado ao salvar..."
+                    className="mt-1 border-[#E5DFD5] bg-[#FDFBF7] text-[#7A5C2E] cursor-not-allowed uppercase font-mono font-bold select-none"
                   />
+                  <p className="text-[11px] text-[#6B655E] mt-1 flex items-center gap-1">
+                    <Sparkles className="h-3 w-3 text-[#C6A664] shrink-0" />
+                    Gerado automaticamente ao salvar (prévia acima).
+                  </p>
                 </div>
 
                 <div className="md:col-span-2">

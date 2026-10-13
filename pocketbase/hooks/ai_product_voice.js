@@ -48,13 +48,25 @@ REGRAS CRÍTICAS INVIOLÁVEIS:
    - Tente interpretar correspondências mesmo que parciais (ex: se o usuário disser "ouro branco" e a única opção correspondente for "Ouro Branco 18k", use "Ouro Branco 18k"). Se houver dúvida ou mais de uma correspondência possível, retorne o texto falado (ex: "ouro branco") para revisão.
 6. Tamanho (size_name): dentre [${sizeNames}] se identificável, senão null.
 7. Perfil (target_audience): apenas "feminino", "masculino" ou "unissex" se mencionado ou inferido com alta confiança (ex: "brinco feminino" -> "feminino", "pulseira masculina" -> "masculino"), senão null.
-8. REGRA CRUCIAL DO CAMPO "description": O campo "description" deve conter SOMENTE a descrição real/estética da peça (ex: "Brinco folheado a ouro com cristais" ou "Anel solitário com zircônia redonda").
-   NUNCA inclua o tipo ("brinco", "anel"), o tamanho ("tamanho único", "18cm", "aro 16") nem o perfil ("feminino", "masculino", "unissex") repetidos dentro de "description", pois já existem campos próprios para cada um deles. Se o usuário disser "brinco folheado a ouro, feminino, tamanho único", a "description" deve ser apenas "Folheado a ouro" ou "Brinco folheado a ouro" (sem as palavras ", feminino, tamanho único").
+8. REGRA ABSOLUTA DO CAMPO "description" (NUNCA POLUIR COM MATERIAL, TIPO, PERFIL OU TAMANHO):
+   - O campo "description" deve conter APENAS E EXCLUSIVAMENTE a descrição estética/detalhes da peça (ex: pedras, detalhes, formato, textura).
+   - O MATERIAL (ex: "ouro branco", "ouro 18k", "prata 925", "folheado a ouro", "aço cirúrgico") NUNCA DEVE APARECER na "description", pois já tem o campo próprio "material_name".
+   - O TIPO (ex: "brinco", "anel", "colar", "pulseira", "pingente", "gargantilha") NUNCA DEVE APARECER na "description".
+   - O PERFIL/SEXO (ex: "feminino", "masculino", "unissex") NUNCA DEVE APARECER na "description".
+   - O TAMANHO (ex: "tamanho 20", "tamanho único", "aro 16", "45cm") NUNCA DEVE APARECER na "description".
+   - EXEMPLO REAL OBRIGATÓRIO:
+     Se o usuário disser: "brinco ouro branco feminino tamanho 20 paguei 51 e 95 vou vender por 138 e 42 comprei 22 unidades ele é de pedras prateadas"
+     -> type_name: "Brinco"
+     -> material_name: "Ouro Branco 18k"
+     -> target_audience: "feminino"
+     -> size_name: "20" (ou correspondente)
+     -> description: "pedras prateadas" (NUNCA "Ouro branco com pedras prateadas" nem "Brinco de pedras prateadas")
+   - Se o usuário disser apenas características do material e tipo sem nenhuma descrição estética adicional (ex: "anel ouro 18k tamanho 16"), a "description" pode ser string vazia ("") ou apenas detalhes se houver (ex: "solitário").
 9. Retorne SEMPRE E APENAS um objeto JSON válido, sem texto antes ou depois, sem markdown, sem blocos \`\`\`json.
 
 Formato JSON esperado:
 {
-  "description": "Texto limpo da peça SEM tipo, tamanho ou perfil (ex: Brinco folheado a ouro com pedras de rubi)",
+  "description": "Apenas detalhes estéticos da peça SEM material, tipo, tamanho ou perfil (ex: pedras prateadas)",
   "type_name": "Nome do tipo ou null",
   "material_name": "Nome do material ou null",
   "size_name": "Nome do tamanho ou null",
@@ -160,6 +172,113 @@ Formato JSON esperado:
       const matchedSizeId = sizeResult.id
       const resolvedSizeName = sizeResult.name || parsed.size_name || ''
 
+      // Sanitização de segurança no backend do campo description:
+      // Remove menções ao material, tipo, perfil e tamanho que tenham vazado para a descrição
+      function cleanBackendDescription(desc, matName, tName, sName, aud) {
+        if (!desc || typeof desc !== 'string') return ''
+        let clean = desc
+
+        // Lista de termos do material para remover
+        const matTerms = []
+        if (matName) {
+          matTerms.push(matName)
+          // Se tiver "18k", adiciona sem "18k" (ex: "Ouro Branco")
+          matTerms.push(matName.replace(/\s*18k\b/gi, '').trim())
+        }
+        if (parsed.material_name && parsed.material_name !== matName) {
+          matTerms.push(parsed.material_name)
+        }
+        // Materiais comuns genéricos
+        matTerms.push(
+          'ouro branco',
+          'ouro amarelo',
+          'ouro rose',
+          'ouro rosê',
+          'ouro 18k',
+          'ouro',
+          'prata 925',
+          'prata',
+          'folheado a ouro',
+          'folheado',
+          'aço cirúrgico',
+          'aço',
+        )
+
+        for (const term of matTerms) {
+          if (!term || term.length < 3) continue
+          const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          // "ouro branco com ...", "ouro branco de ...", "em ouro branco", "de ouro branco", etc.
+          clean = clean.replace(
+            new RegExp(
+              `^(?:peça\\s+)?(?:em\\s+|de\\s+)?${escaped}(?:\\s+(?:com|de|em|e|para)\\s+|[,;:\\-—\\s]+)*`,
+              'gi',
+            ),
+            '',
+          )
+          clean = clean.replace(
+            new RegExp(`(?:\\s*(?:,|\\be\\b|com|em|de)\\s+)?\\b${escaped}\\b`, 'gi'),
+            '',
+          )
+        }
+
+        // Remover tipo (ex: "brinco", "anel", etc.)
+        const typeTerms = []
+        if (tName) typeTerms.push(tName)
+        if (parsed.type_name && parsed.type_name !== tName) typeTerms.push(parsed.type_name)
+        typeTerms.push(
+          'brinco',
+          'anel',
+          'colar',
+          'pulseira',
+          'pingente',
+          'gargantilha',
+          'choker',
+          'joia',
+          'peça',
+        )
+        for (const term of typeTerms) {
+          if (!term || term.length < 3) continue
+          const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          clean = clean.replace(
+            new RegExp(`^${escaped}(?:\\s+(?:com|de|em|e)\\s+|[,;:\\-—\\s]+)*`, 'gi'),
+            '',
+          )
+          clean = clean.replace(
+            new RegExp(`(?:\\s*(?:,|\\be\\b|com|em|de)\\s+)?\\b${escaped}\\b`, 'gi'),
+            '',
+          )
+        }
+
+        // Remover perfil (feminino, masculino, unissex)
+        clean = clean.replace(/\b(feminino|masculino|unissex)\b/gi, '')
+
+        // Remover tamanho (tamanho 20, tamanho único, etc.)
+        if (sName) {
+          const escSize = sName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          clean = clean.replace(new RegExp(`\\b(?:tamanho\\s+)?${escSize}\\b`, 'gi'), '')
+        }
+        clean = clean.replace(/\btamanho\s+(único|unico|\d+)\b/gi, '')
+
+        // Limpeza de conectivos e pontuação sobrando no início ou fim
+        clean = clean
+          .replace(/,\s*,/g, ',')
+          .replace(/,\s*\./g, '.')
+          .replace(/\s+/g, ' ')
+          .replace(/^\s*(?:com|de|em|e|para|—|-|,|\.)\s+/i, '')
+          .replace(/\s*[,.\-—]\s*$/, '')
+          .trim()
+
+        return clean
+      }
+
+      const backendSanitizedDesc = cleanBackendDescription(
+        parsed.description || '',
+        resolvedMaterialName,
+        resolvedTypeName,
+        resolvedSizeName,
+        parsed.target_audience,
+      )
+
       // Função de normalização numérica centralizada no servidor para valores monetários
       function normalizeServerCurrency(val) {
         if (val === null || val === undefined) return null
@@ -192,7 +311,7 @@ Formato JSON esperado:
 
       return e.json(200, {
         raw_text: description,
-        description: parsed.description || description,
+        description: backendSanitizedDesc || parsed.description || description,
         type_id: matchedTypeId,
         type_name: resolvedTypeName,
         material_id: matchedMaterialId,

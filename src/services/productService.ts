@@ -190,7 +190,18 @@ export const productService = {
 
   async getNextProductCode(): Promise<string> {
     try {
-      // Find highest numerical code or fallback starting from 100001
+      // Prioritize backend endpoint for atomic code preview
+      const res = await pb.send<{ next_code: string }>('/backend/v1/products/next-code', {
+        method: 'GET',
+      })
+      if (res?.next_code) {
+        return res.next_code
+      }
+    } catch {
+      // Fallback: query highest numerical code from collection
+    }
+
+    try {
       const list = await pb.collection('products').getFullList<Product>({
         fields: 'code',
       })
@@ -207,23 +218,10 @@ export const productService = {
         }
       }
 
-      const nextCode = (maxNum + 1).toString()
-
-      // Validate uniqueness just in case
-      try {
-        const existing = await pb.collection('products').getFirstListItem(`code = '${nextCode}'`)
-        if (existing) {
-          return (maxNum + 2).toString()
-        }
-      } catch {
-        // Not found means it's available
-      }
-
-      return nextCode
+      return (maxNum + 1).toString()
     } catch (err) {
-      console.error('Erro ao gerar código numérico sequencial:', err)
-      // Fallback: 6-digit random number starting at 100000+
-      return (100000 + Math.floor(Math.random() * 899999)).toString()
+      console.error('Erro ao consultar próximo código numérico sequencial:', err)
+      return '100001'
     }
   },
 }

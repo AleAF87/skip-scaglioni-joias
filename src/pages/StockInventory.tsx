@@ -220,6 +220,7 @@ export default function StockInventory() {
   // Bulk update
   const handleApplyBulkUpdate = async () => {
     if (selectedIds.length === 0) return
+    // Note: Nunca alteramos nem enviamos o campo `code` na atualização em massa
     const updates: Partial<Product> = {}
 
     if (bulkPrice) {
@@ -337,8 +338,9 @@ export default function StockInventory() {
       const normInvested = normalizeCurrencyValue(editForm.invested_value)
       const normSelling = normalizeCurrencyValue(editForm.selling_price)
 
+      // Código é imutável / bloqueado — preserva o código original da peça
       const fields = {
-        code: editForm.code.trim().toUpperCase(),
+        code: editingProduct.code,
         description: editForm.description.trim(),
         type: editForm.type || '',
         material: editForm.material || '',
@@ -1144,13 +1146,17 @@ export default function StockInventory() {
           <form onSubmit={handleSaveFullEdit} className="space-y-4 py-2">
             <div className="grid grid-cols-3 gap-3">
               <div>
-                <Label className="text-xs font-semibold">Código *</Label>
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold">Código</Label>
+                  <span className="text-[10px] text-[#7A5C2E] font-medium">Bloqueado</span>
+                </div>
                 <Input
                   value={editForm.code}
-                  onChange={(e) => setEditForm({ ...editForm, code: e.target.value })}
-                  required
-                  className="font-mono uppercase font-bold"
+                  readOnly
+                  disabled
+                  className="font-mono uppercase font-bold bg-[#FDFBF7] cursor-not-allowed text-[#7A5C2E] select-none"
                 />
+                <p className="text-[10px] text-[#6B655E] mt-0.5">Identificador único da joia.</p>
               </div>
 
               <div className="col-span-2">
