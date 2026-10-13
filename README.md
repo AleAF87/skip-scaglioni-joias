@@ -73,14 +73,18 @@ As migrações localizam-se em `pocketbase/migrations/` e executam na ordem:
 
 ---
 
-## 🎙️ Cadastro Rápido de Joias por Voz com IA (Mobile-First)
+## 🎙️ Cadastro Rápido de Joias por Voz com IA (Mobile-First — v0.0.6)
 
 - Localizado na rota `/voz` (ou botão central na barra inferior no celular).
-- **Web Speech API:** A pessoa clica no botão dourado de microfone e dita a peça (ex: *"brinco folheado a ouro, feminino, tamanho único, investi 20, vendo por 60, uma unidade"*).
-- O texto falado é exibido em uma caixa **editável**.
-- Ao clicar em *"Preencher Formulário com IA"*, o servidor interpreta a descrição e preenche código sugerido, descrição, tipo, material, tamanho, público, valor investido, preço de venda e quantidade.
+- **Arquitetura Estável de Voz (v0.0.6):** A antiga Web Speech API do navegador foi descontinuada devido a problemas de repetição de palavras e ciclos de reinício no Android/Safari. Agora a captura é feita via **MediaRecorder nativo** (`getUserMedia`) com fallback inteligente de MIME type (`audio/webm;codecs=opus` para Android/Chrome e `audio/mp4` / `audio/aac` para iOS Safari).
+- **Gravação Contínua e Limpa:** O botão de microfone grava ininterruptamente do início ao fim até o usuário clicar em Parar. Não há religações intermediárias nem desarmes acidentais.
+- **Transcrição Segura no Servidor (pb_hooks):** O áudio gravado é enviado via multipart para o hook `/backend/v1/ai/transcribe-audio`.
+  - **Configuração de STT:** O hook consome a variável de ambiente `OPENAI_API_KEY` (configurada via Skip Cloud / variáveis de ambiente). Segredos ficam estritamente no servidor.
+  - Caso a chave ainda não tenha sido configurada, o sistema exibe aviso amigável e permite a digitação manual da descrição sem bloquear o uso da IA para preencher os campos.
+- **Preenchimento com IA:** Com o texto transcrito e editável, o botão *"Preencher Formulário com IA"* aciona o Skip AI Gateway (`/backend/v1/ai/interpret-product`), extraindo código, descrição limpa, tipo, material, tamanho, perfil, investimento, preço e estoque.
 - **Regra Crítica de Negócio:** A IA **nunca** inventa preços ou quantidades. Se não constarem na fala, os campos permanecem em branco com destaque visual para revisão manual.
 - **Captura de Câmera:** Botão com `capture="environment"` para fotos diretas da câmera do smartphone.
+- **Ditado de Observações:** Também utiliza gravação de áudio e transcrição no servidor.
 - O usuário valida e revisa os campos antes de clicar em salvar no estoque.
 
 ---

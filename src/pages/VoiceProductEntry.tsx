@@ -17,7 +17,6 @@ import {
   RotateCcw,
   CheckCircle2,
   AlertTriangle,
-  Upload,
   X,
   Volume2,
   PackageCheck,
@@ -26,19 +25,53 @@ import {
   ZoomIn,
   ShieldAlert,
   ShieldCheck,
-  Radio,
+  AlertCircle,
+  Key,
+  RefreshCw,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { APP_VERSION } from '@/version'
 
+/**
+ * Detect supported audio MIME type for MediaRecorder with cross-browser fallbacks.
+ * iOS Safari requires audio/mp4 or audio/aac; Chrome/Android prefers audio/webm.
+ */
+function getSupportedAudioMimeType(): { mimeType: string; extension: string } {
+  if (typeof window === 'undefined' || typeof MediaRecorder === 'undefined') {
+    return { mimeType: '', extension: 'mp4' }
+  }
+
+  const candidates = [
+    { mimeType: 'audio/webm;codecs=opus', extension: 'webm' },
+    { mimeType: 'audio/webm', extension: 'webm' },
+    { mimeType: 'audio/mp4;codecs=mp4a.40.2', extension: 'mp4' },
+    { mimeType: 'audio/mp4', extension: 'mp4' },
+    { mimeType: 'audio/aac', extension: 'aac' },
+    { mimeType: 'audio/ogg;codecs=opus', extension: 'ogg' },
+  ]
+
+  for (const candidate of candidates) {
+    if (MediaRecorder.isTypeSupported(candidate.mimeType)) {
+      return candidate
+    }
+  }
+
+  // Fallback default
+  return { mimeType: '', extension: 'mp4' }
+}
+
 export default function VoiceProductEntry() {
-  // Voice transcription state
-  const [isListening, setIsListening] = useState(false)
+  // Main voice recording & transcription state (Server-side STT via MediaRecorder)
+  const [isRecording, setIsRecording] = useState(false)
+  const [isTranscribing, setIsTranscribing] = useState(false)
+  const [transcriptionError, setTranscriptionError] = useState<string | null>(null)
+  const [isSttConfigured, setIsSttConfigured] = useState<boolean | null>(null)
   const [transcribedText, setTranscribedText] = useState('')
-  const [interimText, setInterimText] = useState('')
-  const [speechSupported, setSpeechSupported] = useState(true)
-  const [isAiProcessing, setIsAiProcessing] = useState(false)
   const [recordingSeconds, setRecordingSeconds] = useState(0)
+  const [isAiProcessing, setIsAiProcessing] = useState(false)
+
+  // Last recorded audio blob for retry
+  const lastRecordedBlobRef = useRef<{ blob: Blob; ext: string } | null>(null)
 
   // Microphone permission state: 'granted' | 'prompt' | 'denied' | 'unknown'
   const [micPermissionState, setMicPermissionState] = useState<
@@ -46,8 +79,9 @@ export default function VoiceProductEntry() {
   >('unknown')
   const [isRequestingPermission, setIsRequestingPermission] = useState(false)
 
-  // Observations specific speech dictation
-  const [isDictatingNotes, setIsDictatingNotes] = useState(false)
+  // Observations specific speech recording
+  const [isRecordingNotes, setIsRecordingNotes] = useState(false)
+  const [isTranscribingNotes, setIsTranscribingNotes] = useState(false)
 
   // Auxiliaries data
   const [types, setTypes] = useState<ProductType[]>([])
@@ -76,14 +110,17 @@ export default function VoiceProductEntry() {
   const formReviewRef = useRef<HTMLDivElement>(null)
   const descriptionInputRef = useRef<HTMLInputElement>(null)
 
-  // Speech Recognition state refs to avoid closure stale state & duplicate loops
-  const recognitionRef = useRef<any>(null)
-  const isListeningRef = useRef(false)
-  const manualStopRequestedRef = useRef(true) // Starts true: stopped until explicit user start
-  const finalSegmentsRef = useRef<string[]>([])
+  // MediaRecorder refs
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioStreamRef = useRef<MediaStream | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
   const timerIntervalRef = useRef<any>(null)
-  const restartTimeoutRef = useRef<any>(null)
-  const notesRecRef = useRef<any>(null)
+  const recordingStartTimeRef = useRef<number>(0)
+
+  // Notes MediaRecorder refs
+  const notesMediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const notesAudioStreamRef = useRef<MediaStream | null>(null)
+  const notesAudioChunksRef = useRef<Blob[]>([])
 
   // Lightbox
   const [lightboxOpen, setLightboxOpen] = useState(false)
@@ -103,7 +140,6 @@ export default function VoiceProductEntry() {
           setMicPermissionState(status.state as 'granted' | 'prompt' | 'denied')
         }
       } else {
-        // Fallback for browsers without permissions.query for mic
         setMicPermissionState('unknown')
       }
     } catch {
@@ -135,36 +171,39 @@ export default function VoiceProductEntry() {
     }
   }
 
-  // Initialize Speech Recognition & Auxiliary data
+  // Initialize data on mount
   useEffect(() => {
     loadAuxiliaries()
     loadRecentProducts()
     generateSuggestedCode()
     checkMicPermission()
 
-    // Check Speech Recognition support
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    if (!SpeechRecognition) {
-      setSpeechSupported(false)
-    }
-
     return () => {
-      manualStopRequestedRef.current = true
-      isListeningRef.current = false
+      // Clean up any active recording stream on unmount
       if (timerIntervalRef.current) {
         clearInterval(timerIntervalRef.current)
       }
-      if (restartTimeoutRef.current) {
-        clearTimeout(restartTimeoutRef.current)
-      }
       try {
-        recognitionRef.current?.abort?.()
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+          mediaRecorderRef.current.stop()
+        }
       } catch {
         // ignore
       }
       try {
-        notesRecRef.current?.abort?.()
+        audioStreamRef.current?.getTracks().forEach((t) => t.stop())
+      } catch {
+        // ignore
+      }
+      try {
+        if (notesMediaRecorderRef.current && notesMediaRecorderRef.current.state !== 'inactive') {
+          notesMediaRecorderRef.current.stop()
+        }
+      } catch {
+        // ignore
+      }
+      try {
+        notesAudioStreamRef.current?.getTracks().forEach((t) => t.stop())
       } catch {
         // ignore
       }
@@ -201,176 +240,122 @@ export default function VoiceProductEntry() {
     }
   }
 
-  // Robust Speech Recognition instance manager
-  // Keeps visual recording active without any flicker or restart of timer
-  const startRecognitionEngine = () => {
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    if (!SpeechRecognition) return
+  // Send audio Blob to server-side transcription
+  const processAudioBlob = async (audioBlob: Blob, extension: string) => {
+    setIsTranscribing(true)
+    setTranscriptionError(null)
+
+    const filename = `fala_${Date.now()}.${extension}`
 
     try {
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.abort()
-        } catch {
-          // ignore
-        }
-        recognitionRef.current = null
+      const res = await productService.transcribeAudio(audioBlob, filename)
+
+      setIsSttConfigured(true)
+      const text = (res.text || '').trim()
+
+      if (!text) {
+        toast.warning('O áudio gravado não contém fala compreensível. Tente gravar novamente.')
+        return
       }
 
-      const rec = new SpeechRecognition()
-      rec.continuous = true
-      rec.interimResults = true
-      rec.lang = 'pt-BR'
-      rec.maxAlternatives = 1
+      setTranscribedText(text)
+      toast.success(
+        'Áudio transcrito com sucesso! Revise ou clique em "Preencher Formulário com IA".',
+      )
+    } catch (err: any) {
+      console.error('Erro na transcrição:', err)
+      const errorMsg =
+        err?.data?.error ||
+        err?.message ||
+        'Falha ao transcrever o áudio no servidor. Verifique a conexão.'
 
-      rec.onstart = () => {
-        // Visual state is already true and never reset on underlying engine reconnect
-        setMicPermissionState('granted')
+      // Detect if STT is not configured
+      if (
+        err?.status === 503 ||
+        err?.data?.configured === false ||
+        errorMsg.includes('OPENAI_API_KEY')
+      ) {
+        setIsSttConfigured(false)
+        setTranscriptionError(
+          'A chave de API de transcrição (OPENAI_API_KEY) não está configurada no servidor. Configure a chave para habilitar a transcrição automática por IA ou digite o texto diretamente no campo abaixo.',
+        )
+        toast.error('Transcrição por IA não configurada no servidor.')
+      } else {
+        setTranscriptionError(errorMsg)
+        toast.error(`Erro ao transcrever: ${errorMsg}`)
       }
-
-      rec.onresult = (event: any) => {
-        let interimChunk = ''
-
-        // Reconstruct from event.resultIndex strictly
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          const item = event.results[i]
-          const text = item[0]?.transcript || ''
-
-          if (item.isFinal) {
-            const trimmed = text.trim()
-            if (trimmed) {
-              finalSegmentsRef.current.push(trimmed)
-              // Update persistent text
-              const fullText = finalSegmentsRef.current.join(' ')
-              setTranscribedText(fullText)
-            }
-          } else {
-            interimChunk += text
-          }
-        }
-
-        setInterimText(interimChunk.trim())
-      }
-
-      rec.onerror = (event: any) => {
-        console.warn('Speech engine event error:', event.error)
-
-        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-          // User denied permission - explicitly stop
-          manualStopRequestedRef.current = true
-          isListeningRef.current = false
-          setIsListening(false)
-          setMicPermissionState('denied')
-          if (timerIntervalRef.current) {
-            clearInterval(timerIntervalRef.current)
-          }
-          toast.error(
-            'Permissão de microfone negada. Clique no botão de permitir microfone ou nas configurações do navegador.',
-          )
-          return
-        }
-
-        // For 'no-speech', 'audio-capture', 'network':
-        // Web Speech API will call onend right after.
-        // We will transparently revive it in onend if manualStopRequestedRef is false.
-      }
-
-      rec.onend = () => {
-        // If stopped by user, stop cleanly
-        if (manualStopRequestedRef.current) {
-          isListeningRef.current = false
-          setIsListening(false)
-          setInterimText('')
-          if (timerIntervalRef.current) {
-            clearInterval(timerIntervalRef.current)
-          }
-          return
-        }
-
-        // The browser automatically ended the recognition session after a pause.
-        // Visual recording stays TRUE without flickering.
-        // Transparently reconnect the engine.
-        if (restartTimeoutRef.current) {
-          clearTimeout(restartTimeoutRef.current)
-        }
-
-        restartTimeoutRef.current = setTimeout(() => {
-          if (!manualStopRequestedRef.current) {
-            try {
-              rec.start()
-            } catch {
-              // If reviving the same instance fails, recreate a fresh engine instance
-              try {
-                startRecognitionEngine()
-              } catch (err) {
-                console.error('Erro ao reconectar motor de reconhecimento:', err)
-              }
-            }
-          }
-        }, 150)
-      }
-
-      recognitionRef.current = rec
-      rec.start()
-    } catch (err) {
-      console.error('Falha ao instanciar SpeechRecognition:', err)
-      // Only tear down state if user hadn't already cancelled
-      if (!manualStopRequestedRef.current) {
-        // Re-attempt after short delay
-        restartTimeoutRef.current = setTimeout(() => {
-          if (!manualStopRequestedRef.current) {
-            try {
-              startRecognitionEngine()
-            } catch {
-              manualStopRequestedRef.current = true
-              isListeningRef.current = false
-              setIsListening(false)
-            }
-          }
-        }, 500)
-      }
+    } finally {
+      setIsTranscribing(false)
     }
   }
 
-  // Toggle main speech recording
-  const toggleListening = () => {
-    if (!speechSupported) {
-      toast.warning('Seu navegador não suporta reconhecimento de voz. Por favor, digite o texto.')
+  // Retry last transcription
+  const handleRetryTranscription = () => {
+    if (lastRecordedBlobRef.current) {
+      processAudioBlob(lastRecordedBlobRef.current.blob, lastRecordedBlobRef.current.ext)
+    }
+  }
+
+  // Start real MediaRecorder
+  const startRecording = async () => {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      toast.error('Seu navegador não suporta captura de microfone.')
       return
     }
 
-    if (isListeningRef.current) {
-      // User clicked explicitly to STOP
-      manualStopRequestedRef.current = true
-      isListeningRef.current = false
-      setIsListening(false)
-      setInterimText('')
+    try {
+      setTranscriptionError(null)
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      })
+      audioStreamRef.current = stream
+      setMicPermissionState('granted')
 
-      if (timerIntervalRef.current) {
-        clearInterval(timerIntervalRef.current)
-      }
-      if (restartTimeoutRef.current) {
-        clearTimeout(restartTimeoutRef.current)
-      }
+      const { mimeType, extension } = getSupportedAudioMimeType()
+      const options: MediaRecorderOptions = mimeType ? { mimeType } : {}
 
+      let recorder: MediaRecorder
       try {
-        recognitionRef.current?.stop()
+        recorder = new MediaRecorder(stream, options)
       } catch {
-        // ignore
+        recorder = new MediaRecorder(stream)
       }
 
-      const finalText = finalSegmentsRef.current.join(' ').trim()
-      setTranscribedText(finalText)
-      toast.info('Gravação finalizada. Revise ou clique em Preencher com IA.')
-    } else {
-      // User clicked explicitly to START
-      manualStopRequestedRef.current = false
-      isListeningRef.current = true
-      setIsListening(true)
-      finalSegmentsRef.current = []
-      setTranscribedText('')
-      setInterimText('')
+      mediaRecorderRef.current = recorder
+      audioChunksRef.current = []
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          audioChunksRef.current.push(event.data)
+        }
+      }
+
+      recorder.onstop = () => {
+        // Release mic tracks
+        stream.getTracks().forEach((track) => track.stop())
+        audioStreamRef.current = null
+
+        const duration = (Date.now() - recordingStartTimeRef.current) / 1000
+        const blobType = recorder.mimeType || mimeType || 'audio/mp4'
+        const audioBlob = new Blob(audioChunksRef.current, { type: blobType })
+
+        // Check if recording is empty or too short (< 0.5s or empty blob)
+        if (audioBlob.size < 500 || duration < 0.5) {
+          toast.warning('Gravação muito curta ou vazia. Por favor, segure ou fale por mais tempo.')
+          return
+        }
+
+        lastRecordedBlobRef.current = { blob: audioBlob, ext: extension }
+        processAudioBlob(audioBlob, extension)
+      }
+
+      recordingStartTimeRef.current = Date.now()
+      recorder.start(500) // collect chunks every 500ms
+      setIsRecording(true)
       setRecordingSeconds(0)
 
       if (timerIntervalRef.current) {
@@ -380,14 +365,131 @@ export default function VoiceProductEntry() {
         setRecordingSeconds((prev) => prev + 1)
       }, 1000)
 
-      if (restartTimeoutRef.current) {
-        clearTimeout(restartTimeoutRef.current)
+      toast.info('Gravando áudio... Clique no botão vermelho quando terminar de falar.')
+    } catch (err: any) {
+      console.error('Falha ao iniciar gravação de áudio:', err)
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        setMicPermissionState('denied')
+        toast.error(
+          'Permissão de microfone negada. Clique em "Permitir microfone" ou nas configurações do navegador.',
+        )
+      } else {
+        toast.error(`Falha ao acessar o microfone: ${err.message || 'verifique as permissões.'}`)
+      }
+      setIsRecording(false)
+    }
+  }
+
+  // Stop real MediaRecorder
+  const stopRecording = () => {
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current)
+      timerIntervalRef.current = null
+    }
+
+    setIsRecording(false)
+
+    try {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop()
+      }
+    } catch (err) {
+      console.warn('Erro ao parar MediaRecorder:', err)
+    }
+  }
+
+  // Toggle main recording
+  const toggleRecording = () => {
+    if (isRecording) {
+      stopRecording()
+    } else {
+      startRecording()
+    }
+  }
+
+  // Dictate Observations with server-side STT
+  const toggleNotesRecording = async () => {
+    if (isRecordingNotes) {
+      // Stop notes recording
+      setIsRecordingNotes(false)
+      try {
+        if (notesMediaRecorderRef.current && notesMediaRecorderRef.current.state !== 'inactive') {
+          notesMediaRecorderRef.current.stop()
+        }
+      } catch (err) {
+        console.warn('Erro ao parar gravação de notas:', err)
+      }
+    } else {
+      // Start notes recording
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        toast.error('Navegador sem suporte à captura de áudio.')
+        return
       }
 
-      startRecognitionEngine()
-      toast.info(
-        'Gravador ligado. Ele continuará gravando ininterruptamente até você clicar em Parar.',
-      )
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        notesAudioStreamRef.current = stream
+
+        const { mimeType, extension } = getSupportedAudioMimeType()
+        const options: MediaRecorderOptions = mimeType ? { mimeType } : {}
+
+        let recorder: MediaRecorder
+        try {
+          recorder = new MediaRecorder(stream, options)
+        } catch {
+          recorder = new MediaRecorder(stream)
+        }
+
+        notesMediaRecorderRef.current = recorder
+        notesAudioChunksRef.current = []
+
+        recorder.ondataavailable = (event) => {
+          if (event.data && event.data.size > 0) {
+            notesAudioChunksRef.current.push(event.data)
+          }
+        }
+
+        recorder.onstop = async () => {
+          stream.getTracks().forEach((track) => track.stop())
+          notesAudioStreamRef.current = null
+
+          const blobType = recorder.mimeType || mimeType || 'audio/mp4'
+          const audioBlob = new Blob(notesAudioChunksRef.current, { type: blobType })
+
+          if (audioBlob.size < 500) {
+            toast.warning('Gravação de observação muito curta.')
+            return
+          }
+
+          setIsTranscribingNotes(true)
+          try {
+            const res = await productService.transcribeAudio(
+              audioBlob,
+              `obs_${Date.now()}.${extension}`,
+            )
+            const text = (res.text || '').trim()
+            if (text) {
+              setObservations((prev) => (prev ? `${prev} | ${text}` : text))
+              toast.success('Observação transcrita e adicionada!')
+            }
+          } catch (err: any) {
+            console.error('Erro ao transcrever observação:', err)
+            toast.error(
+              'Erro ao transcrever observação: ' + (err?.data?.error || err?.message || 'falha'),
+            )
+          } finally {
+            setIsTranscribingNotes(false)
+          }
+        }
+
+        recorder.start(500)
+        setIsRecordingNotes(true)
+        toast.info('Gravando observação... Clique novamente para finalizar.')
+      } catch (err: any) {
+        console.error('Falha ao iniciar gravação de notas:', err)
+        toast.error('Não foi possível acessar o microfone para a observação.')
+        setIsRecordingNotes(false)
+      }
     }
   }
 
@@ -452,19 +554,11 @@ export default function VoiceProductEntry() {
 
   // Process text with Skip AI Gateway (fast model)
   const handleProcessWithAi = async () => {
-    // If still recording, stop first
-    if (isListeningRef.current) {
-      toggleListening()
+    if (isRecording) {
+      stopRecording()
     }
 
-    const currentCombined = [
-      ...finalSegmentsRef.current,
-      ...(interimText ? [interimText.trim()] : []),
-    ]
-      .join(' ')
-      .trim()
-
-    const textToAnalyze = (transcribedText.trim() || currentCombined).trim()
+    const textToAnalyze = transcribedText.trim()
 
     if (!textToAnalyze) {
       toast.error('Grave ou digite uma descrição falada antes de interpretar com IA.')
@@ -497,7 +591,6 @@ export default function VoiceProductEntry() {
       }
       if (typeof result.quantity === 'number') {
         setQuantity(result.quantity.toString())
-        // Alerta de estoque mínimo pré-definido para 10% do estoque inicial
         const tenPercent = Math.max(1, Math.round(result.quantity * 0.1))
         setMinimumQuantity(tenPercent.toString())
       }
@@ -549,65 +642,14 @@ export default function VoiceProductEntry() {
     setPhotoPreviews(updatedPreviews)
   }
 
-  // Dictate notes
-  const toggleNotesDictation = () => {
-    if (!speechSupported) return
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    if (!SpeechRecognition) return
-
-    if (isDictatingNotes) {
-      try {
-        notesRecRef.current?.stop()
-      } catch {
-        // ignore
-      }
-      setIsDictatingNotes(false)
-    } else {
-      try {
-        const notesRec = new SpeechRecognition()
-        notesRecRef.current = notesRec
-        notesRec.lang = 'pt-BR'
-        notesRec.continuous = false
-        notesRec.interimResults = false
-        notesRec.onstart = () => setIsDictatingNotes(true)
-        notesRec.onresult = (ev: any) => {
-          let chunk = ''
-          for (let i = 0; i < ev.results.length; ++i) {
-            if (ev.results[i].isFinal) {
-              const text = ev.results[i][0]?.transcript || ''
-              if (text.trim()) {
-                chunk += (chunk ? ' ' : '') + text.trim()
-              }
-            }
-          }
-          const cleanChunk = chunk.trim()
-          if (cleanChunk) {
-            setObservations((prev) => (prev ? `${prev} | ${cleanChunk}` : cleanChunk))
-          }
-        }
-        notesRec.onerror = (err: any) => {
-          console.warn('Erro ao ditar observações:', err)
-          setIsDictatingNotes(false)
-        }
-        notesRec.onend = () => setIsDictatingNotes(false)
-        notesRec.start()
-      } catch (err) {
-        console.error('Falha ao iniciar ditado de notas:', err)
-        setIsDictatingNotes(false)
-      }
-    }
-  }
-
   // Clear form with confirmation
   const handleClearForm = () => {
     if (window.confirm('Deseja limpar todos os campos preenchidos?')) {
-      if (isListeningRef.current) {
-        toggleListening()
+      if (isRecording) {
+        stopRecording()
       }
-      finalSegmentsRef.current = []
       setTranscribedText('')
-      setInterimText('')
+      setTranscriptionError(null)
       setRecordingSeconds(0)
       generateSuggestedCode()
       setDescription('')
@@ -676,6 +718,7 @@ export default function VoiceProductEntry() {
 
       // Reset and reload recent
       setTranscribedText('')
+      setTranscriptionError(null)
       generateSuggestedCode()
       setDescription('')
       setSelectedType('')
@@ -720,13 +763,14 @@ export default function VoiceProductEntry() {
             </Badge>
           </div>
           <p className="text-sm text-[#6B655E] mt-1">
-            Fale a descrição da joia em uma frase e a IA estruturará o cadastro. O microfone
-            permanece gravando continuamente até você clicar no botão vermelho.
+            Grave o áudio descrevendo a joia com precisão. O áudio é gravado de forma estável e
+            transcrito no servidor com Inteligência Artificial, funcionando perfeitamente no Android
+            e iOS (Safari).
           </p>
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Permission Button - only shown when permission is not granted ('prompt', 'denied' or 'unknown') */}
+          {/* Permission Button - only shown when permission is not granted */}
           {micPermissionState !== 'granted' && (
             <Button
               type="button"
@@ -747,6 +791,12 @@ export default function VoiceProductEntry() {
                   ? 'Liberar Microfone no Navegador'
                   : 'Permitir Microfone'}
             </Button>
+          )}
+
+          {micPermissionState === 'granted' && (
+            <div className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#2E7D4F]/10 border border-[#2E7D4F]/30 text-[#2E7D4F] text-xs font-medium">
+              <ShieldCheck className="h-3.5 w-3.5" /> Microfone liberado
+            </div>
           )}
 
           <Button
@@ -789,6 +839,26 @@ export default function VoiceProductEntry() {
         </div>
       )}
 
+      {/* STT Configuration Notice if missing server key */}
+      {isSttConfigured === false && (
+        <div className="p-4 rounded-xl bg-[#B26A00]/10 border border-[#B26A00]/30 text-sm text-[#B26A00] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-2.5">
+            <Key className="h-5 w-5 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold">Transcrição de áudio por IA aguardando configuração</p>
+              <p className="text-xs text-[#2D2A26] mt-0.5">
+                Para ativar a transcrição automática no servidor, adicione a variável de ambiente{' '}
+                <code className="font-mono bg-white/70 px-1 py-0.5 rounded border border-[#B26A00]/30">
+                  OPENAI_API_KEY
+                </code>{' '}
+                no Skip Cloud. Enquanto isso, você pode digitar ou colar a descrição no campo abaixo
+                e usar normalmente o botão "Preencher Formulário com IA".
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Voice Assistant Anchor Section (Mobile-First Hero) */}
       <Card className="border-[#E5DFD5] bg-gradient-to-br from-[#FFFFFF] via-[#FDFBF7] to-[#F3EAD8]/40 shadow-md">
         <CardHeader className="text-center pb-2">
@@ -796,10 +866,10 @@ export default function VoiceProductEntry() {
             variant="outline"
             className="w-fit mx-auto border-[#C6A664] text-[#7A5C2E] bg-[#C6A664]/10 font-medium tracking-wide mb-2"
           >
-            <Sparkles className="h-3 w-3 mr-1" /> Inteligência Artificial Skip AI
+            <Sparkles className="h-3 w-3 mr-1" /> Gravação Direta + Transcrição no Servidor
           </Badge>
           <CardTitle className="font-serif text-xl md:text-2xl text-[#2D2A26]">
-            Descreva a joia falando pelo microfone
+            Descreva a joia gravando seu áudio
           </CardTitle>
           <CardDescription className="text-xs md:text-sm text-[#6B655E] max-w-lg mx-auto">
             Exemplo:{' '}
@@ -811,50 +881,79 @@ export default function VoiceProductEntry() {
         </CardHeader>
 
         <CardContent className="space-y-6 pt-2">
-          {/* Giant Microphone Recording Button — Estado estável garantido sem flicker */}
+          {/* Giant Microphone Recording Button — MediaRecorder real com gravação estável */}
           <div className="flex flex-col items-center justify-center py-4">
             <button
               type="button"
-              onClick={toggleListening}
-              aria-label={isListening ? 'Parar gravação' : 'Iniciar gravação'}
+              onClick={toggleRecording}
+              disabled={isTranscribing}
+              aria-label={isRecording ? 'Parar gravação' : 'Iniciar gravação'}
               className={`relative h-24 w-24 md:h-28 md:w-28 rounded-full flex items-center justify-center text-white transition-all duration-300 shadow-xl cursor-pointer ${
-                isListening
-                  ? 'bg-[#B3261E] ring-8 ring-[#B3261E]/30 scale-105'
-                  : 'bg-gradient-to-tr from-[#7A5C2E] via-[#C6A664] to-[#E8D5A3] hover:scale-105 hover:shadow-2xl'
+                isRecording
+                  ? 'bg-[#B3261E] ring-8 ring-[#B3261E]/30 scale-105 animate-pulse'
+                  : isTranscribing
+                    ? 'bg-[#8C8275] cursor-not-allowed opacity-80'
+                    : 'bg-gradient-to-tr from-[#7A5C2E] via-[#C6A664] to-[#E8D5A3] hover:scale-105 hover:shadow-2xl'
               }`}
             >
-              {isListening ? (
+              {isTranscribing ? (
+                <Loader2 className="h-10 w-10 md:h-12 md:w-12 animate-spin" />
+              ) : isRecording ? (
                 <MicOff className="h-10 w-10 md:h-12 md:w-12" />
               ) : (
                 <Mic className="h-10 w-10 md:h-12 md:w-12" />
               )}
             </button>
 
-            {/* Timer and uninterrupted status banner */}
-            {isListening ? (
+            {/* Status indicators */}
+            {isRecording ? (
               <div className="mt-3 flex flex-col items-center gap-1">
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#B3261E]/10 border border-[#B3261E]/30 text-[#B3261E] text-xs font-semibold">
                   <span className="relative flex h-2.5 w-2.5">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#B3261E] opacity-75" />
                     <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#B3261E]" />
                   </span>
-                  <span>GRAVANDO CONTINUAMENTE ({formatTimer(recordingSeconds)})</span>
+                  <span>GRAVANDO ÁUDIO ({formatTimer(recordingSeconds)})</span>
                 </div>
                 <p className="text-xs text-[#6B655E] mt-1 font-medium">
-                  O gravador não desligará sozinho. Clique no botão vermelho quando terminar de
-                  falar.
+                  Clique no botão vermelho quando terminar de falar para enviar ao servidor.
+                </p>
+              </div>
+            ) : isTranscribing ? (
+              <div className="mt-3 flex flex-col items-center gap-1">
+                <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#C6A664]/20 border border-[#C6A664]/50 text-[#7A5C2E] text-xs font-semibold">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>TRANSCREVENDO NO SERVIDOR POR IA...</span>
+                </div>
+                <p className="text-xs text-[#6B655E] mt-0.5">
+                  Processando o áudio completo. Aguarde alguns instantes.
                 </p>
               </div>
             ) : (
               <p className="mt-3 text-sm font-semibold text-[#2D2A26]">
-                Clique no microfone para gravar (permanece ativo até você parar)
+                Clique no microfone para gravar o áudio (estável, sem repetição de palavras)
               </p>
             )}
 
-            {!speechSupported && (
-              <p className="text-xs text-[#B3261E] mt-2">
-                Reconhecimento de fala não suportado neste navegador. Digite no campo abaixo.
-              </p>
+            {/* Transcription error retry box */}
+            {transcriptionError && !isTranscribing && (
+              <div className="mt-3 max-w-md w-full p-3 rounded-lg bg-[#B3261E]/10 border border-[#B3261E]/30 text-xs text-[#B3261E] flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{transcriptionError}</span>
+                </div>
+                {lastRecordedBlobRef.current && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={handleRetryTranscription}
+                    className="h-7 text-xs border-[#B3261E]/40 text-[#B3261E] hover:bg-[#B3261E]/10 shrink-0"
+                  >
+                    <RefreshCw className="h-3 w-3 mr-1" /> Tentar de novo
+                  </Button>
+                )}
+              </div>
             )}
           </div>
 
@@ -865,34 +964,19 @@ export default function VoiceProductEntry() {
                 <Volume2 className="h-3.5 w-3.5 text-[#C6A664]" /> Texto transcrito da fala
                 (Editável)
               </Label>
-              <div className="flex items-center gap-2">
-                {isListening && interimText && (
-                  <span className="text-[11px] text-[#2E7D4F] italic flex items-center gap-1">
-                    <Radio className="h-3 w-3 animate-pulse" /> Ouvindo agora...
-                  </span>
-                )}
-                {transcribedText && (
-                  <span className="text-xs text-[#7A5C2E] font-medium">
-                    {transcribedText.split(' ').filter(Boolean).length} palavras
-                  </span>
-                )}
-              </div>
+              {transcribedText && (
+                <span className="text-xs text-[#7A5C2E] font-medium">
+                  {transcribedText.split(' ').filter(Boolean).length} palavras
+                </span>
+              )}
             </div>
 
             <Textarea
-              value={
-                isListening && interimText
-                  ? transcribedText
-                    ? `${transcribedText} [ouvindo: ${interimText}]`
-                    : `[ouvindo: ${interimText}]`
-                  : transcribedText
-              }
-              onChange={(e) => {
-                setTranscribedText(e.target.value)
-                finalSegmentsRef.current = e.target.value ? [e.target.value] : []
-              }}
-              placeholder="Sua fala aparecerá aqui automaticamente. Você também pode digitar ou corrigir o texto antes de enviar para a IA..."
+              value={transcribedText}
+              onChange={(e) => setTranscribedText(e.target.value)}
+              placeholder="O texto transcrito pelo servidor aparecerá aqui após a gravação. Você também pode digitar ou corrigir o texto antes de enviar para a IA..."
               rows={3}
+              disabled={isTranscribing}
               className="bg-white border-[#E5DFD5] focus-visible:ring-[#C6A664] text-base resize-none"
             />
           </div>
@@ -906,7 +990,7 @@ export default function VoiceProductEntry() {
             <Button
               type="button"
               onClick={handleProcessWithAi}
-              disabled={isAiProcessing || !transcribedText.trim()}
+              disabled={isAiProcessing || isTranscribing || !transcribedText.trim()}
               className="w-full sm:w-auto bg-gradient-to-r from-[#7A5C2E] to-[#C6A664] hover:opacity-90 text-white font-semibold shadow-sm px-6"
             >
               {isAiProcessing ? (
@@ -1005,7 +1089,7 @@ export default function VoiceProductEntry() {
                 </div>
               </div>
 
-              {/* Ordem obrigatória: Tipo, Material, Perfil, Tamanho (sem ' / Medida') */}
+              {/* Ordem: Tipo, Material, Perfil, Tamanho */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
                   <Label className="text-xs font-semibold text-[#2D2A26]">Tipo</Label>
@@ -1142,26 +1226,38 @@ export default function VoiceProductEntry() {
                 </div>
               </div>
 
-              {/* Row 4: Observations with Dictate button */}
+              {/* Row 4: Observations with Server-side Audio Dictate button */}
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <Label htmlFor="obs" className="text-xs font-semibold text-[#2D2A26]">
                     Observações e Detalhes
                   </Label>
-                  {speechSupported && (
-                    <button
-                      type="button"
-                      onClick={toggleNotesDictation}
-                      className={`text-xs flex items-center gap-1 font-medium transition-colors ${
-                        isDictatingNotes
-                          ? 'text-[#B3261E] animate-pulse'
+                  <button
+                    type="button"
+                    onClick={toggleNotesRecording}
+                    disabled={isTranscribingNotes}
+                    className={`text-xs flex items-center gap-1 font-medium transition-colors ${
+                      isRecordingNotes
+                        ? 'text-[#B3261E] animate-pulse font-bold'
+                        : isTranscribingNotes
+                          ? 'text-[#C6A664]'
                           : 'text-[#7A5C2E] hover:underline'
-                      }`}
-                    >
-                      <Mic className="h-3 w-3" />
-                      {isDictatingNotes ? 'Ouvindo observações...' : 'Ditar observação por voz'}
-                    </button>
-                  )}
+                    }`}
+                  >
+                    {isTranscribingNotes ? (
+                      <>
+                        <Loader2 className="h-3 w-3 animate-spin" /> Transcrevendo observação...
+                      </>
+                    ) : isRecordingNotes ? (
+                      <>
+                        <MicOff className="h-3 w-3" /> Parar gravação de observação
+                      </>
+                    ) : (
+                      <>
+                        <Mic className="h-3 w-3" /> Gravar observação por voz
+                      </>
+                    )}
+                  </button>
                 </div>
                 <Textarea
                   id="obs"
@@ -1262,7 +1358,7 @@ export default function VoiceProductEntry() {
         </form>
       </div>
 
-      {/* Recently Added Products List — Com colunas separadas para Tipo, Tamanho e Perfil */}
+      {/* Recently Added Products List */}
       <div className="pt-6 border-t border-[#E5DFD5]">
         <h2 className="font-serif text-lg md:text-xl font-bold text-[#2D2A26] mb-4 flex items-center gap-2">
           <CheckCircle2 className="h-5 w-5 text-[#C6A664]" />
@@ -1334,7 +1430,6 @@ export default function VoiceProductEntry() {
 
                         <td className="py-2.5 px-3 font-mono font-bold text-[#7A5C2E]">{p.code}</td>
 
-                        {/* Ordem: Tipo, Material, Perfil, Tamanho, Descrição Completa */}
                         <td className="py-2.5 px-3 font-medium text-[#2D2A26]">
                           {p.expand?.type?.name || '—'}
                         </td>

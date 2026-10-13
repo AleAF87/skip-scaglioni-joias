@@ -127,6 +127,20 @@ export const productService = {
     return { types, materials, sizes }
   },
 
+  async transcribeAudio(audioBlob: Blob, filename = 'audio.mp4') {
+    const formData = new FormData()
+    formData.append('audio', audioBlob, filename)
+
+    return pb.send<{
+      text: string
+      configured: boolean
+      error?: string
+    }>('/backend/v1/ai/transcribe-audio', {
+      method: 'POST',
+      body: formData,
+    })
+  },
+
   async interpretVoiceDescription(text: string) {
     return pb.send<{
       raw_text: string
