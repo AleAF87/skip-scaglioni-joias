@@ -2,7 +2,12 @@ import React, { useState, useEffect, useRef } from 'react'
 import { salesService } from '@/services/salesService'
 import { productService } from '@/services/productService'
 import { Product, Customer, Sale, SaleItem } from '@/types'
-import { formatCurrency, formatDateTime, getFileUrl } from '@/lib/formatters'
+import {
+  formatCurrency,
+  formatDateTime,
+  getFileUrl,
+  normalizeCurrencyValue,
+} from '@/lib/formatters'
 import { ImageLightbox } from '@/components/ImageLightbox'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -218,8 +223,8 @@ export default function PosSale() {
 
   // Totals
   const subtotal = cart.reduce((acc, item) => acc + item.total, 0)
-  const discountVal = Math.max(0, parseFloat(discount) || 0)
-  const total = Math.max(0, subtotal - discountVal)
+  const discountVal = Math.max(0, normalizeCurrencyValue(discount) || 0)
+  const total = Math.round(Math.max(0, subtotal - discountVal) * 100) / 100
   const installmentValue = Math.round((total / installments) * 100) / 100
 
   // Key press on Barcode input (Enter triggers exact match addition)

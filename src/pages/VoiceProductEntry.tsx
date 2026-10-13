@@ -1,7 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { productService } from '@/services/productService'
 import { Product, ProductType, ProductMaterial, ProductSize } from '@/types'
-import { formatCurrency, getFileUrl } from '@/lib/formatters'
+import {
+  formatCurrency,
+  getFileUrl,
+  normalizeCurrencyValue,
+  normalizeCurrencyText,
+} from '@/lib/formatters'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -64,7 +69,10 @@ export default function VoiceProductEntry() {
   // Main voice recording & transcription state (Server-side STT via MediaRecorder)
   const [isRecording, setIsRecording] = useState(false)
   const [isTranscribing, setIsTranscribing] = useState(false)
-  const [transcriptionError, setTranscriptionError] = useState<string | null>(null)
+  const [transcriptionError, setTranscriptionError] = useState<{
+    type: 'info' | 'error'
+    message: string
+  } | null>(null)
   const [isSttConfigured, setIsSttConfigured] = useState<boolean | null>(null)
   const [transcribedText, setTranscribedText] = useState('')
   const [recordingSeconds, setRecordingSeconds] = useState(0)
@@ -277,9 +285,10 @@ export default function VoiceProductEntry() {
             currentTranscript += transcript
           }
         }
-        const full = (accumulated + ' ' + currentTranscript).trim()
-        if (full) {
-          onResult(full)
+        const rawFull = (accumulated + ' ' + currentTranscript).trim()
+        const normalized = normalizeCurrencyText(rawFull)
+        if (normalized) {
+          onResult(normalized)
         }
       }
 
@@ -298,7 +307,7 @@ export default function VoiceProductEntry() {
   // Send audio Blob to server-side transcription
   const processAudioBlob = async (audioBlob: Blob, extension: string) => {
     // If browser speech recognition already captured text while speaking, keep it as fallback/preview
-    const existingBrowserText = transcribedText.trim()
+    const existingBrowserText = normalizeCurrencyText(transcribedText.trim())
 
     setIsTranscribing(true)
     setTranscriptionError(null)
@@ -308,23 +317,47 @@ export default function VoiceProductEntry() {
     try {
       const res = await productService.transcribeAudio(audioBlob, filename)
 
-      setIsSttConfigured(true)
-      const text = (res.text || '').trim()
+      if (res.configured !== false) {
+        setIsSttConfigured(true)
+        const text = normalizeCurrencyText((res.text || '').trim())
 
-      if (text) {
-        setTranscribedText(text)
-        toast.success(
-          'Áudio transcrito com sucesso! Revise ou clique em "Preencher Formulário com IA".',
-        )
-      } else if (existingBrowserText) {
-        toast.success(
-          'Fala transcrita diretamente pelo navegador! Revise ou clique em "Preencher Formulário com IA".',
-        )
+        if (text) {
+          setTranscribedText(text)
+          toast.success(
+            'Áudio transcrito com sucesso! Revise ou clique em "Preencher Formulário com IA".',
+          )
+        } else if (existingBrowserText) {
+          setTranscribedText(existingBrowserText)
+          toast.success(
+            'Fala transcrita diretamente pelo navegador! Revise ou clique em "Preencher Formulário com IA".',
+          )
+        } else {
+          toast.warning('O áudio gravado não contém fala compreensível. Tente gravar novamente.')
+        }
       } else {
-        toast.warning('O áudio gravado não contém fala compreensível. Tente gravar novamente.')
+        // Servidor retornou 503 com configured: false (capturado de forma limpa pelo productService)
+        setIsSttConfigured(false)
+        if (existingBrowserText) {
+          setTranscribedText(existingBrowserText)
+          setTranscriptionError({
+            type: 'info',
+            message:
+              'Transcrição no servidor ainda não está configurada. O texto reconhecido no aparelho foi aproveitado — revise e edite antes de continuar.',
+          })
+          toast.info(
+            'Texto reconhecido no aparelho aproveitado. Revise e edite antes de continuar.',
+          )
+        } else {
+          setTranscriptionError({
+            type: 'info',
+            message:
+              'Transcrição no servidor ainda não está configurada. Digite a descrição abaixo ou grave novamente pelo microfone do aparelho.',
+          })
+          toast.info('Grave novamente ou digite a descrição da joia no campo abaixo.')
+        }
       }
     } catch (err: any) {
-      console.error('Erro na transcrição:', err)
+      console.info('[STT Transcrição]', err?.message || 'Falha na conexão de transcrição')
       const errorMsg =
         err?.data?.error ||
         err?.message ||
@@ -342,24 +375,31 @@ export default function VoiceProductEntry() {
       ) {
         setIsSttConfigured(false)
         if (existingBrowserText) {
-          // We have the text from browser recognition!
-          toast.success(
-            'Transcrição concluída via microfone do navegador! Agora clique em "Preencher Formulário com IA".',
-          )
+          setTranscribedText(existingBrowserText)
+          setTranscriptionError({
+            type: 'info',
+            message:
+              'Transcrição no servidor ainda não está configurada. O texto reconhecido no aparelho foi aproveitado — revise e edite antes de continuar.',
+          })
+          toast.info('Texto reconhecido no aparelho aproveitado!')
         } else {
-          setTranscriptionError(
-            'Transcrição no servidor requer chave STT (OPENAI_API_KEY ou GROQ_API_KEY). Use o reconhecimento de voz nativo ou digite no campo abaixo.',
-          )
-          toast.info(
-            'A transcrição no servidor requer chave STT. O reconhecimento nativo do navegador foi ativado.',
-          )
+          setTranscriptionError({
+            type: 'info',
+            message:
+              'Transcrição no servidor ainda não está configurada. Digite a descrição abaixo ou grave novamente pelo microfone do aparelho.',
+          })
+          toast.info('Grave novamente ou digite a descrição no campo abaixo.')
         }
       } else {
-        // Upstream or other error
+        // Outro erro inesperado
         if (existingBrowserText) {
+          setTranscribedText(existingBrowserText)
           toast.info('Transcrição local do navegador preservada.')
         } else {
-          setTranscriptionError(errorMsg)
+          setTranscriptionError({
+            type: 'error',
+            message: errorMsg,
+          })
           toast.error(`Erro ao transcrever áudio: ${errorMsg}`)
         }
       }
@@ -624,14 +664,14 @@ export default function VoiceProductEntry() {
     }
   }
 
-  // Handle quantity changes: automatically set minimumQuantity to 10% of initial quantity (editable)
+  // Handle quantity changes: automatically set minimumQuantity to 30% of initial quantity (editable)
   const handleQuantityChange = (newQtyStr: string) => {
     setQuantity(newQtyStr)
     const num = parseInt(newQtyStr, 10)
     if (!isNaN(num) && num > 0) {
-      // 10% do estoque inicial (mínimo 1 unidade)
-      const tenPercent = Math.max(1, Math.round(num * 0.1))
-      setMinimumQuantity(tenPercent.toString())
+      // 30% do estoque inicial (mínimo 1 unidade)
+      const thirtyPercent = Math.max(1, Math.round(num * 0.3))
+      setMinimumQuantity(thirtyPercent.toString())
     } else {
       setMinimumQuantity('')
     }
@@ -715,15 +755,18 @@ export default function VoiceProductEntry() {
       if (result.target_audience) setTargetAudience(result.target_audience)
 
       if (typeof result.invested_value === 'number') {
-        setInvestedValue(result.invested_value.toString())
+        const normInv = normalizeCurrencyValue(result.invested_value)
+        setInvestedValue(normInv !== null ? normInv.toFixed(2) : '')
       }
       if (typeof result.selling_price === 'number') {
-        setSellingPrice(result.selling_price.toString())
+        const normSell = normalizeCurrencyValue(result.selling_price)
+        setSellingPrice(normSell !== null ? normSell.toFixed(2) : '')
       }
       if (typeof result.quantity === 'number') {
         setQuantity(result.quantity.toString())
-        const tenPercent = Math.max(1, Math.round(result.quantity * 0.1))
-        setMinimumQuantity(tenPercent.toString())
+        // Padrão de 30% do estoque inicial (mínimo 1 unidade), liberado para edição
+        const thirtyPercent = Math.max(1, Math.round(result.quantity * 0.3))
+        setMinimumQuantity(thirtyPercent.toString())
       }
       if (result.observations) {
         setObservations((prev) => (prev ? `${prev} | ${result.observations}` : result.observations))
@@ -813,11 +856,13 @@ export default function VoiceProductEntry() {
       toast.error('A descrição do produto é obrigatória.')
       return
     }
-    const numSellingPrice = parseFloat(sellingPrice)
-    if (isNaN(numSellingPrice) || numSellingPrice <= 0) {
+    const normSellingPrice = normalizeCurrencyValue(sellingPrice)
+    if (normSellingPrice === null || normSellingPrice <= 0) {
       toast.error('Informe um preço de venda válido maior que zero.')
       return
     }
+    const normInvestedValue = normalizeCurrencyValue(investedValue)
+
     const numQuantity = parseInt(quantity, 10)
     if (isNaN(numQuantity) || numQuantity < 0) {
       toast.error('Informe uma quantidade válida.')
@@ -833,8 +878,9 @@ export default function VoiceProductEntry() {
       if (selectedMaterial) formData.append('material', selectedMaterial)
       if (selectedSize) formData.append('size', selectedSize)
       if (targetAudience) formData.append('target_audience', targetAudience)
-      if (investedValue) formData.append('invested_value', investedValue)
-      formData.append('selling_price', numSellingPrice.toString())
+      if (normInvestedValue !== null)
+        formData.append('invested_value', normInvestedValue.toFixed(2))
+      formData.append('selling_price', normSellingPrice.toFixed(2))
       formData.append('quantity', numQuantity.toString())
       if (minimumQuantity) formData.append('minimum_quantity', minimumQuantity)
       if (observations) formData.append('observations', observations.trim())
@@ -1069,14 +1115,24 @@ export default function VoiceProductEntry() {
               </p>
             )}
 
-            {/* Transcription error retry box */}
+            {/* Transcription notice / error box */}
             {transcriptionError && !isTranscribing && (
-              <div className="mt-3 max-w-md w-full p-3 rounded-lg bg-[#B3261E]/10 border border-[#B3261E]/30 text-xs text-[#B3261E] flex items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5">
-                  <AlertCircle className="h-4 w-4 shrink-0" />
-                  <span className="truncate">{transcriptionError}</span>
+              <div
+                className={`mt-3 max-w-lg w-full p-3 rounded-xl border text-xs flex items-center justify-between gap-3 ${
+                  transcriptionError.type === 'info'
+                    ? 'bg-[#C6A664]/10 border-[#C6A664]/40 text-[#7A5C2E]'
+                    : 'bg-[#B3261E]/10 border-[#B3261E]/30 text-[#B3261E]'
+                }`}
+              >
+                <div className="flex items-start gap-2">
+                  {transcriptionError.type === 'info' ? (
+                    <HelpCircle className="h-4 w-4 shrink-0 mt-0.5 text-[#C6A664]" />
+                  ) : (
+                    <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                  )}
+                  <span className="leading-relaxed">{transcriptionError.message}</span>
                 </div>
-                {lastRecordedBlobRef.current && (
+                {lastRecordedBlobRef.current && transcriptionError.type === 'error' && (
                   <Button
                     type="button"
                     size="sm"
@@ -1345,7 +1401,7 @@ export default function VoiceProductEntry() {
                     <Label htmlFor="minQty" className="text-xs font-semibold text-[#6B655E]">
                       Alerta Estoque Mínimo
                     </Label>
-                    <span className="text-[10px] text-[#7A5C2E] font-medium">(10% sugerido)</span>
+                    <span className="text-[10px] text-[#7A5C2E] font-medium">(30% padrão)</span>
                   </div>
                   <Input
                     id="minQty"
@@ -1354,7 +1410,7 @@ export default function VoiceProductEntry() {
                     step="1"
                     value={minimumQuantity}
                     onChange={(e) => setMinimumQuantity(e.target.value)}
-                    placeholder="Auto 10%"
+                    placeholder="Padrão 30%"
                     className="mt-1 bg-white border-[#E5DFD5] focus-visible:ring-[#C6A664]"
                   />
                 </div>

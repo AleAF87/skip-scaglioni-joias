@@ -11,6 +11,12 @@ routerAdd(
       return e.json(400, { error: 'A transcrição da fala é obrigatória.' })
     }
 
+    // Normalização inicial de valores com pausas na transcrição recebida (ex: 78,902 -> 78,92)
+    const normalizedDescription = description.replace(
+      /\b(\d+)([,.])(\d)0(\d)\b/g,
+      (_match, intPart, sep, d1, d2) => `${intPart}${sep}${d1}${d2}`,
+    )
+
     // Load available types, materials, sizes from DB to supply in context
     const types = $app
       .findRecordsByFilter('product_types', '', 'name', 100, 0)
@@ -31,11 +37,16 @@ Sua tarefa é analisar uma descrição falada de um produto e extrair EXATAMENTE
 
 REGRAS CRÍTICAS INVIOLÁVEIS:
 1. NUNCA invente preço de venda, valor investido, quantidade ou qualquer outro campo que não tenha sido explicitamente falado ou claramente deduzido da fala. Se não foi falado, deixe como null ou string vazia ("").
-2. Se o usuário falou por exemplo "investi 20", valor investido é 20.00. Se falou "vendo por 60", preço de venda é 60.00.
+2. REGRA DE VALORES MONETÁRIOS E CENTAVOS (MUITO IMPORTANTE):
+   - NUNCA retorne mais de 2 casas decimais. Valores monetários devem ter no máximo 2 casas decimais.
+   - Quando o usuário falar um valor pausado e a transcrição tiver algo como "78,902" ou "78.902", entenda como 78.92 (o zero entre os centavos é um artefato de fala pausada). Ex: "78,902" -> 78.92.
+   - Se o usuário falou por exemplo "investi 20", valor investido é 20.00. Se falou "vendo por 60", preço de venda é 60.00.
 3. Se o usuário falou "uma unidade", quantidade é 1. Se falou "cinco", quantidade é 5. Se não mencionou quantidade, retorne null.
-4. Tipo de produto (type_name): deve casar com uma das opções cadastradas: [${typeNames}] se identificável, senão null.
-5. Material (material_name): deve casar com uma das opções cadastradas: [${materialNames}] se identificável, senão null.
-6. Tamanho (size_name): deve casar com uma das opções cadastradas: [${sizeNames}] se identificável, senão null.
+4. Tipo de produto (type_name): liste exatamente a opção correspondente dentre: [${typeNames}] se identificável, senão null.
+5. Material (material_name):
+   - As opções cadastradas são: [${materialNames}].
+   - Tente interpretar correspondências mesmo que parciais (ex: se o usuário disser "ouro branco" e a única opção correspondente for "Ouro Branco 18k", use "Ouro Branco 18k"). Se houver dúvida ou mais de uma correspondência possível, retorne o texto falado (ex: "ouro branco") para revisão.
+6. Tamanho (size_name): dentre [${sizeNames}] se identificável, senão null.
 7. Perfil (target_audience): apenas "feminino", "masculino" ou "unissex" se mencionado ou inferido com alta confiança (ex: "brinco feminino" -> "feminino", "pulseira masculina" -> "masculino"), senão null.
 8. REGRA CRUCIAL DO CAMPO "description": O campo "description" deve conter SOMENTE a descrição real/estética da peça (ex: "Brinco folheado a ouro com cristais" ou "Anel solitário com zircônia redonda").
    NUNCA inclua o tipo ("brinco", "anel"), o tamanho ("tamanho único", "18cm", "aro 16") nem o perfil ("feminino", "masculino", "unissex") repetidos dentro de "description", pois já existem campos próprios para cada um deles. Se o usuário disser "brinco folheado a ouro, feminino, tamanho único", a "description" deve ser apenas "Folheado a ouro" ou "Brinco folheado a ouro" (sem as palavras ", feminino, tamanho único").
@@ -60,7 +71,7 @@ Formato JSON esperado:
         model: 'fast',
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: 'Descrição falada: ' + description },
+          { role: 'user', content: 'Descrição falada: ' + normalizedDescription },
         ],
       })
 
@@ -89,30 +100,90 @@ Formato JSON esperado:
         })
       }
 
+      // Função auxiliar inteligente para correspondência de cadastros auxiliares:
+      // - Match exato (case-insensitive): match único imediato
+      // - Match por prefixo/inclusão (ex: "ouro branco" em "Ouro Branco 18k"):
+      //   - Se houver EXATAMENTE 1 candidato: seleciona-o automaticamente
+      //   - Se houver MAIS de 1 candidato: retorna null (não escolhe sozinho) e flag ambiguo = true
+      function matchAuxiliary(query, list) {
+        if (!query || typeof query !== 'string') {
+          return { id: null, name: '', ambiguous: false, candidates: [] }
+        }
+        const q = query.trim().toLowerCase()
+        if (!q) return { id: null, name: '', ambiguous: false, candidates: [] }
+
+        // 1. Match exato
+        const exact = list.find((item) => item.name.toLowerCase() === q)
+        if (exact) {
+          return { id: exact.id, name: exact.name, ambiguous: false, candidates: [exact] }
+        }
+
+        // 2. Busca por prefixo ou se o nome do cadastro começa com ou contém a query
+        const candidates = list.filter((item) => {
+          const itemLower = item.name.toLowerCase()
+          return itemLower.includes(q) || q.includes(itemLower)
+        })
+
+        if (candidates.length === 1) {
+          return {
+            id: candidates[0].id,
+            name: candidates[0].name,
+            ambiguous: false,
+            candidates,
+          }
+        }
+
+        if (candidates.length > 1) {
+          // Múltiplos candidatos: NÃO escolhe sozinho, deixa para revisão manual
+          return {
+            id: null,
+            name: query, // preserva o que a IA/usuário falou
+            ambiguous: true,
+            candidates,
+          }
+        }
+
+        return { id: null, name: query, ambiguous: false, candidates: [] }
+      }
+
       // Match type, material, size IDs
-      let matchedTypeId = null
-      if (parsed.type_name) {
-        const match = types.find((t) => t.name.toLowerCase() === parsed.type_name.toLowerCase())
-        if (match) matchedTypeId = match.id
+      const typeResult = matchAuxiliary(parsed.type_name, types)
+      const materialResult = matchAuxiliary(parsed.material_name, materials)
+      const sizeResult = matchAuxiliary(parsed.size_name, sizes)
+
+      const matchedTypeId = typeResult.id
+      const resolvedTypeName = typeResult.name || parsed.type_name || ''
+
+      const matchedMaterialId = materialResult.id
+      const resolvedMaterialName = materialResult.name || parsed.material_name || ''
+
+      const matchedSizeId = sizeResult.id
+      const resolvedSizeName = sizeResult.name || parsed.size_name || ''
+
+      // Função de normalização numérica centralizada no servidor para valores monetários
+      function normalizeServerCurrency(val) {
+        if (val === null || val === undefined) return null
+        if (typeof val === 'string') {
+          val = val.replace(/\s/g, '').replace(',', '.')
+        }
+        const str = val.toString()
+        // Trata regra "78,902" ou "78.902" -> "78.92"
+        const pausedMatch = str.match(/^(\d+)\.(\d)0(\d)$/)
+        if (pausedMatch) {
+          const fixed = parseFloat(`${pausedMatch[1]}.${pausedMatch[2]}${pausedMatch[3]}`)
+          return Math.round(fixed * 100) / 100
+        }
+        const parsedNum = parseFloat(str)
+        if (isNaN(parsedNum)) return null
+        return Math.round(parsedNum * 100) / 100
       }
 
-      let matchedMaterialId = null
-      if (parsed.material_name) {
-        const match = materials.find(
-          (m) => m.name.toLowerCase() === parsed.material_name.toLowerCase(),
-        )
-        if (match) matchedMaterialId = match.id
-      }
+      const normalizedInvested = normalizeServerCurrency(parsed.invested_value)
+      const normalizedSelling = normalizeServerCurrency(parsed.selling_price)
 
-      let matchedSizeId = null
-      if (parsed.size_name) {
-        const match = sizes.find((s) => s.name.toLowerCase() === parsed.size_name.toLowerCase())
-        if (match) matchedSizeId = match.id
-      }
-
-      // Detect missing fields list
+      // Detect missing fields list (campos sem valor ou com correspondência ambígua)
       const missing = []
-      if (!parsed.selling_price) missing.push('selling_price')
+      if (!normalizedSelling) missing.push('selling_price')
       if (!parsed.quantity) missing.push('quantity')
       if (!matchedTypeId) missing.push('type')
       if (!matchedMaterialId) missing.push('material')
@@ -123,14 +194,14 @@ Formato JSON esperado:
         raw_text: description,
         description: parsed.description || description,
         type_id: matchedTypeId,
-        type_name: parsed.type_name || '',
+        type_name: resolvedTypeName,
         material_id: matchedMaterialId,
-        material_name: parsed.material_name || '',
+        material_name: resolvedMaterialName,
         size_id: matchedSizeId,
-        size_name: parsed.size_name || '',
+        size_name: resolvedSizeName,
         target_audience: parsed.target_audience || '',
-        invested_value: typeof parsed.invested_value === 'number' ? parsed.invested_value : null,
-        selling_price: typeof parsed.selling_price === 'number' ? parsed.selling_price : null,
+        invested_value: normalizedInvested,
+        selling_price: normalizedSelling,
         quantity: typeof parsed.quantity === 'number' ? parsed.quantity : null,
         observations: parsed.observations || '',
         missing_fields: missing,

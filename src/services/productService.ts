@@ -131,15 +131,34 @@ export const productService = {
     const formData = new FormData()
     formData.append('audio', audioBlob, filename)
 
-    return pb.send<{
-      text: string
-      configured: boolean
-      error?: string
-      useBrowserStt?: boolean
-    }>('/backend/v1/ai/transcribe-audio', {
-      method: 'POST',
-      body: formData,
-    })
+    try {
+      return await pb.send<{
+        text: string
+        configured: boolean
+        error?: string
+        useBrowserStt?: boolean
+      }>('/backend/v1/ai/transcribe-audio', {
+        method: 'POST',
+        body: formData,
+      })
+    } catch (err: any) {
+      // Quando a transcrição no servidor retornar 503 (não configurada ou sem chave STT),
+      // capturamos silenciosamente para não poluir o console com erro não tratado de rede,
+      // logando apenas como info e retornando o objeto de fallback amigável.
+      if (err?.status === 503 || err?.data?.configured === false) {
+        console.info(
+          '[STT Info] Transcrição por IA no servidor não configurada (503 esperado). Utilizando reconhecimento nativo do navegador.',
+        )
+        return {
+          text: '',
+          configured: false,
+          error:
+            'Transcrição no servidor ainda não está configurada. O texto reconhecido no aparelho foi aproveitado — revise e edite antes de continuar.',
+          useBrowserStt: true,
+        }
+      }
+      throw err
+    }
   },
 
   async interpretVoiceDescription(text: string) {

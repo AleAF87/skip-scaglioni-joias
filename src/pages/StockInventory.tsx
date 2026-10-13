@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { productService } from '@/services/productService'
 import { Product, ProductType, ProductMaterial, ProductSize } from '@/types'
-import { formatCurrency, formatDate, getFileUrl } from '@/lib/formatters'
+import { formatCurrency, formatDate, getFileUrl, normalizeCurrencyValue } from '@/lib/formatters'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -222,8 +222,14 @@ export default function StockInventory() {
     if (selectedIds.length === 0) return
     const updates: Partial<Product> = {}
 
-    if (bulkPrice) updates.selling_price = parseFloat(bulkPrice)
-    if (bulkInvested) updates.invested_value = parseFloat(bulkInvested)
+    if (bulkPrice) {
+      const normPrice = normalizeCurrencyValue(bulkPrice)
+      if (normPrice !== null) updates.selling_price = normPrice
+    }
+    if (bulkInvested) {
+      const normInvested = normalizeCurrencyValue(bulkInvested)
+      if (normInvested !== null) updates.invested_value = normInvested
+    }
     if (bulkType) updates.type = bulkType
     if (bulkMaterial) updates.material = bulkMaterial
     if (bulkStatus) updates.status = bulkStatus as any
@@ -328,6 +334,9 @@ export default function StockInventory() {
     setIsSavingEdit(true)
     try {
       const parsedQty = parseInt(editForm.quantity, 10)
+      const normInvested = normalizeCurrencyValue(editForm.invested_value)
+      const normSelling = normalizeCurrencyValue(editForm.selling_price)
+
       const fields = {
         code: editForm.code.trim().toUpperCase(),
         description: editForm.description.trim(),
@@ -335,10 +344,12 @@ export default function StockInventory() {
         material: editForm.material || '',
         size: editForm.size || '',
         target_audience: editForm.target_audience || '',
-        invested_value: editForm.invested_value ? parseFloat(editForm.invested_value) : '',
-        selling_price: parseFloat(editForm.selling_price),
+        invested_value: normInvested !== null ? normInvested : '',
+        selling_price: normSelling !== null ? normSelling : 0,
         quantity: parsedQty,
-        minimum_quantity: editForm.minimum_quantity ? parseInt(editForm.minimum_quantity, 10) : 3,
+        minimum_quantity: editForm.minimum_quantity
+          ? parseInt(editForm.minimum_quantity, 10)
+          : Math.max(1, Math.round(parsedQty * 0.3)),
         observations: editForm.observations,
         status: parsedQty > 0 ? 'available' : 'unavailable',
       }
@@ -1251,11 +1262,11 @@ export default function StockInventory() {
                   onChange={(e) => {
                     const newQtyStr = e.target.value
                     const newQty = parseInt(newQtyStr, 10) || 0
-                    const tenPercent = Math.max(1, Math.round(newQty * 0.1))
+                    const thirtyPercent = Math.max(1, Math.round(newQty * 0.3))
                     setEditForm({
                       ...editForm,
                       quantity: newQtyStr,
-                      minimum_quantity: editForm.minimum_quantity || tenPercent.toString(),
+                      minimum_quantity: editForm.minimum_quantity || thirtyPercent.toString(),
                     })
                   }}
                   className="mt-1 font-bold"
@@ -1264,14 +1275,14 @@ export default function StockInventory() {
 
               <div>
                 <Label className="text-xs font-semibold text-[#6B655E]">
-                  Alerta Estoque Mín. (10%)
+                  Alerta Estoque Mín. (30%)
                 </Label>
                 <Input
                   type="number"
                   min="0"
                   value={editForm.minimum_quantity}
                   onChange={(e) => setEditForm({ ...editForm, minimum_quantity: e.target.value })}
-                  placeholder="10% do estoque"
+                  placeholder="30% do estoque"
                   className="mt-1 font-medium"
                 />
               </div>
