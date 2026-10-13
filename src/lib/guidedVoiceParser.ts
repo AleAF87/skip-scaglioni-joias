@@ -121,6 +121,61 @@ export function matchAuxiliaryItem<T extends { id: string; name: string }>(
     }
   }
 
+  // REQUISITO: "sempre selecionar o último item falado (exemplo falou 'brinco pulseira', seleciona 'pulseira')"
+  // Se a transcrição contiver múltiplos itens da lista (ou palavras que batem exatamente com nomes de itens),
+  // a última opção mencionada na fala deve vencer.
+  interface PositionedMatch {
+    item: T
+    pos: number
+    exactLength: number
+  }
+
+  const findLastMentionedItem = (): T | null => {
+    const matches: PositionedMatch[] = []
+    // Tokeniza e busca por limites de palavra para evitar falso positivos parciais
+    for (const item of list) {
+      const itemClean = normalizeForMatch(item.name)
+      if (!itemClean || itemClean.length < 2) continue
+
+      // Regex de palavra inteira no texto normalizado
+      const escaped = itemClean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const regex = new RegExp(`(?:^|\\s)${escaped}(?:$|\\s)`, 'gi')
+      let m: RegExpExecArray | null
+      while ((m = regex.exec(qClean)) !== null) {
+        // Encontra o índice real de onde a palavra começa
+        const matchedIndex = m.index + (m[0].startsWith(' ') ? 1 : 0)
+        matches.push({
+          item,
+          pos: matchedIndex,
+          exactLength: itemClean.length,
+        })
+      }
+    }
+
+    if (matches.length > 0) {
+      // Ordena decrescente pela posição final (último falado na frase)
+      matches.sort((a, b) => {
+        if (b.pos !== a.pos) return b.pos - a.pos
+        // Se começam na mesma posição (ex: "ouro" vs "ouro branco"), vence o mais específico/longo
+        return b.exactLength - a.exactLength
+      })
+      return matches[0].item
+    }
+    return null
+  }
+
+  const lastMentioned = findLastMentionedItem()
+  if (lastMentioned) {
+    return {
+      matched: lastMentioned,
+      exact: true,
+      ambiguous: false,
+      candidates: [lastMentioned],
+      originalInput,
+      score: 1,
+    }
+  }
+
   // 1. Match exato normalizado
   const exact = list.find((item) => normalizeForMatch(item.name) === qClean)
   if (exact) {
@@ -380,29 +435,67 @@ export function parseTargetAudience(text: string): {
   const clean = normalizeForMatch(text)
   if (!clean) return { value: '', recognized: false }
 
-  if (
-    clean.includes('fem') ||
-    clean.includes('mulher') ||
-    clean.includes('moca') ||
-    clean.includes('dama')
-  ) {
-    return { value: 'feminino', recognized: true }
+  // Se o usuário falou várias palavras (ex: "masculino feminino" ou "para homem e mulher"),
+  // seleciona a ÚLTIMA opção mencionada na fala.
+  const femKeywords = [
+    'feminino',
+    'feminina',
+    'mulher',
+    'mulheres',
+    'moca',
+    'mocas',
+    'dama',
+    'damas',
+    'fem',
+  ]
+  const mascKeywords = [
+    'masculino',
+    'masculina',
+    'homem',
+    'homens',
+    'rapaz',
+    'rapazes',
+    'varao',
+    'masc',
+  ]
+  const uniKeywords = [
+    'unissex',
+    'unisex',
+    'ambos',
+    'ambas',
+    'misto',
+    'mista',
+    'neutro',
+    'neutra',
+    'uni',
+  ]
+
+  interface AudMatch {
+    type: 'feminino' | 'masculino' | 'unissex'
+    pos: number
   }
-  if (
-    clean.includes('masc') ||
-    clean.includes('homem') ||
-    clean.includes('rapaz') ||
-    clean.includes('varao')
-  ) {
-    return { value: 'masculino', recognized: true }
+
+  const occurrences: AudMatch[] = []
+
+  const findLastOfKeywords = (keywords: string[], type: 'feminino' | 'masculino' | 'unissex') => {
+    for (const kw of keywords) {
+      let idx = clean.lastIndexOf(kw)
+      while (idx !== -1) {
+        occurrences.push({ type, pos: idx })
+        if (idx === 0) break
+        idx = clean.lastIndexOf(kw, idx - 1)
+      }
+    }
   }
-  if (
-    clean.includes('uni') ||
-    clean.includes('ambos') ||
-    clean.includes('misto') ||
-    clean.includes('neutro')
-  ) {
-    return { value: 'unissex', recognized: true }
+
+  findLastOfKeywords(femKeywords, 'feminino')
+  findLastOfKeywords(mascKeywords, 'masculino')
+  findLastOfKeywords(uniKeywords, 'unissex')
+
+  if (occurrences.length > 0) {
+    // Ordena pela maior posição (última ocorrência no texto falado)
+    occurrences.sort((a, b) => b.pos - a.pos)
+    return { value: occurrences[0].type, recognized: true }
   }
 
   return { value: '', recognized: false }

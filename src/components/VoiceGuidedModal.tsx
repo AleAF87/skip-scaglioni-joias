@@ -275,6 +275,9 @@ export function VoiceGuidedModal({
     return (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition || null
   }
 
+  // Ref para forward do processSpokenInput evitando stale closure
+  const processSpokenInputRef = useRef<(text: string) => void>(() => {})
+
   // Stop listening cleanly
   const stopListening = useCallback(() => {
     if (restartTimerRef.current) {
@@ -308,7 +311,24 @@ export function VoiceGuidedModal({
 
   // Start speech recognition for the current step
   const startListening = useCallback(async () => {
-    stopListening()
+    // Para instância anterior de recognition sem fechar o activeStream caso já esteja concedido
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current)
+      restartTimerRef.current = null
+    }
+
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.onresult = null
+        recognitionRef.current.onerror = null
+        recognitionRef.current.onend = null
+        recognitionRef.current.stop()
+      } catch {
+        // ignore
+      }
+      recognitionRef.current = null
+    }
+
     setMicError(null)
 
     const SpeechRec = getSpeechRecClass()
@@ -319,9 +339,15 @@ export function VoiceGuidedModal({
       return
     }
 
-    // Request getUserMedia first to ensure permission is active and stream kept alive
+    // Garante permissão do microfone via getUserMedia uma única vez
+    // e mantém a stream ativa (NUNCA pare a stream entre perguntas no Android/Chrome)
     try {
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      const isStreamActive =
+        activeStreamRef.current &&
+        activeStreamRef.current.active &&
+        activeStreamRef.current.getAudioTracks().some((t) => t.readyState === 'live')
+
+      if (!isStreamActive && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
         activeStreamRef.current = stream
       }
@@ -363,10 +389,9 @@ export function VoiceGuidedModal({
             setManualInput(full)
           }
 
-          // Quando uma frase final for reconhecida (ou conforme a fala avança),
-          // roda o processamento de pré-seleção / detecção para listas
-          if (hasFinalResult || full.length > 2) {
-            processSpokenInput(full)
+          // Dispara processamento com a versão mais recente do processSpokenInput (via ref)
+          if (hasFinalResult || full.length >= 2) {
+            processSpokenInputRef.current(full)
           }
         }
       }
@@ -380,6 +405,8 @@ export function VoiceGuidedModal({
           stopListening()
         } else if (event.error === 'network') {
           setMicError('Falha de conexão com o serviço de voz. Digite abaixo se preferir.')
+        } else if (event.error === 'no-speech') {
+          // Normal quando há pausa na fala; o onend irá reengatilhar a escuta
         }
       }
 
@@ -388,13 +415,17 @@ export function VoiceGuidedModal({
         if (open && currentStepIndexRef.current < STEPS.length) {
           restartTimerRef.current = setTimeout(() => {
             try {
-              if (recognitionRef.current) {
+              if (recognitionRef.current === recognition) {
                 recognition.start()
+                setIsListening(true)
               }
             } catch {
-              // ignore
+              // Se falhar o start no mesmo objeto, chama startListening() para criar uma nova instância limpa
+              if (open && currentStepIndexRef.current < STEPS.length) {
+                startListening()
+              }
             }
-          }, 300)
+          }, 250)
         } else {
           setIsListening(false)
         }
@@ -430,7 +461,7 @@ export function VoiceGuidedModal({
 
     if (!isReview) {
       // Pré-preenche o input manual com o valor já salvo caso esteja voltando
-      const currentK = STEPS[currentStepIndex].key
+      const currentK = STEPS[currentStepIndex]?.key
       let initialVal = ''
       if (currentK === 'type') initialVal = data.typeName
       else if (currentK === 'material') initialVal = data.materialName
@@ -444,8 +475,15 @@ export function VoiceGuidedModal({
 
       setManualInput(initialVal)
 
-      // Inicia a gravação imediatamente para a nova pergunta
-      startListening()
+      // Inicia / reinicia a escuta para a nova etapa
+      // Timeout curto para que o recognition anterior tenha finalizado completamente
+      const startTimer = setTimeout(() => {
+        startListening()
+      }, 120)
+
+      return () => {
+        clearTimeout(startTimer)
+      }
     } else {
       stopListening()
     }
@@ -639,19 +677,19 @@ export function VoiceGuidedModal({
   // Avalia o texto transcrito em tempo real para auto-seleção ou agendamento de auto-limpeza
   const processSpokenInput = useCallback(
     (spokenText: string) => {
-      if (!currentStep) return
+      const stepIdx = currentStepIndexRef.current
+      if (stepIdx >= STEPS.length) return
+      const step = STEPS[stepIdx]
+      if (!step) return
+
       const trimmed = spokenText.trim()
       if (!trimmed) return
 
       // Não processar se o usuário estiver digitando manualmente no input
       if (isManuallyTypingRef.current) return
 
-      const key = currentStep.key
+      const key = step.key
       clearAutoClearTimer()
-
-      // Apenas para as etapas com lista de opções fechada (Tipo, Material, Perfil, Tamanho)
-      const isListStep =
-        key === 'type' || key === 'material' || key === 'audience' || key === 'size'
 
       if (key === 'type') {
         const match = matchAuxiliaryItem(trimmed, localTypesRef.current, { category: 'type' })
@@ -680,12 +718,15 @@ export function VoiceGuidedModal({
         } else {
           // Sem match e sem sugestão por similaridade
           setPreSelectionFeedback(null)
-          // Se o usuário não está interagindo com a lista nem selecionou nada:
-          // Agenda limpeza automática em 2.5s com aviso amigável
+          // Requisito 1: limpar automaticamente após 3 segundos a partir do momento em que o usuário parou de falar
           setClearingNotice('Não entendi. Fale de novo…')
           autoClearTimerRef.current = setTimeout(() => {
-            // Verifica se o usuário não começou a digitar ou selecionou algo
-            if (!isManuallyTypingRef.current && !dataRef.current.typeId) {
+            // Verifica se o usuário não começou a digitar e se a etapa ainda é a mesma
+            if (
+              !isManuallyTypingRef.current &&
+              currentStepIndexRef.current === stepIdx &&
+              !dataRef.current.typeId
+            ) {
               setLiveTranscript('')
               setManualInput('')
               setClearingNotice(null)
@@ -693,7 +734,7 @@ export function VoiceGuidedModal({
             } else {
               setClearingNotice(null)
             }
-          }, 2500)
+          }, 3000)
         }
       } else if (key === 'material') {
         const match = matchAuxiliaryItem(trimmed, localMaterialsRef.current, {
@@ -723,9 +764,14 @@ export function VoiceGuidedModal({
           )
         } else {
           setPreSelectionFeedback(null)
+          // Requisito 1: limpar automaticamente após 3 segundos a partir do momento em que o usuário parou de falar
           setClearingNotice('Não entendi. Fale de novo…')
           autoClearTimerRef.current = setTimeout(() => {
-            if (!isManuallyTypingRef.current && !dataRef.current.materialId) {
+            if (
+              !isManuallyTypingRef.current &&
+              currentStepIndexRef.current === stepIdx &&
+              !dataRef.current.materialId
+            ) {
               setLiveTranscript('')
               setManualInput('')
               setClearingNotice(null)
@@ -733,7 +779,7 @@ export function VoiceGuidedModal({
             } else {
               setClearingNotice(null)
             }
-          }, 2500)
+          }, 3000)
         }
       } else if (key === 'audience') {
         const parsed = parseTargetAudience(trimmed)
@@ -756,16 +802,21 @@ export function VoiceGuidedModal({
           setClearingNotice(null)
         } else {
           setPreSelectionFeedback(null)
+          // Requisito 1: limpar automaticamente após 3 segundos a partir do momento em que o usuário parou de falar
           setClearingNotice('Não entendi. Fale de novo…')
           autoClearTimerRef.current = setTimeout(() => {
-            if (!isManuallyTypingRef.current && !dataRef.current.targetAudience) {
+            if (
+              !isManuallyTypingRef.current &&
+              currentStepIndexRef.current === stepIdx &&
+              !dataRef.current.targetAudience
+            ) {
               setLiveTranscript('')
               setManualInput('')
               setClearingNotice(null)
             } else {
               setClearingNotice(null)
             }
-          }, 2500)
+          }, 3000)
         }
       } else if (key === 'size') {
         const match = matchAuxiliaryItem(trimmed, localSizesRef.current, { category: 'size' })
@@ -791,9 +842,14 @@ export function VoiceGuidedModal({
           setStepError(`Mais de um tamanho encontrado para "${trimmed}". Selecione uma opção:`)
         } else {
           setPreSelectionFeedback(null)
+          // Requisito 1: limpar automaticamente após 3 segundos a partir do momento em que o usuário parou de falar
           setClearingNotice('Não entendi. Fale de novo…')
           autoClearTimerRef.current = setTimeout(() => {
-            if (!isManuallyTypingRef.current && !dataRef.current.sizeId) {
+            if (
+              !isManuallyTypingRef.current &&
+              currentStepIndexRef.current === stepIdx &&
+              !dataRef.current.sizeId
+            ) {
               setLiveTranscript('')
               setManualInput('')
               setClearingNotice(null)
@@ -801,15 +857,18 @@ export function VoiceGuidedModal({
             } else {
               setClearingNotice(null)
             }
-          }, 2500)
+          }, 3000)
         }
       } else {
         // NÃO vale para etapas de texto livre (descrição, observações, valores)
         setClearingNotice(null)
       }
     },
-    [currentStep, clearAutoClearTimer],
+    [clearAutoClearTimer],
   )
+
+  // Sempre sincroniza o ref para a closure mais recente
+  processSpokenInputRef.current = processSpokenInput
 
   // Confirm current step answer
   const handleConfirmStep = (forcedText?: string) => {
