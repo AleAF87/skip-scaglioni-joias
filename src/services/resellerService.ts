@@ -29,6 +29,10 @@ export const resellerService = {
     return pb.collection('resellers').create<Reseller>(formData)
   },
 
+  async updateReseller(id: string, data: Partial<Reseller>) {
+    return pb.collection('resellers').update<Reseller>(id, data)
+  },
+
   async updateResellerStatus(
     id: string,
     status: 'active' | 'rejected' | 'disabled',

@@ -21,6 +21,13 @@ import UsersManagement from '@/pages/UsersManagement'
 import UserProfile from '@/pages/UserProfile'
 import NotFound from '@/pages/NotFound'
 
+// New Pages - Módulo de Revendedora com Estoque Próprio
+import ResellerDeliveriesAndStock from '@/pages/ResellerDeliveriesAndStock'
+import ResellerPosSale from '@/pages/ResellerPosSale'
+import ResellerReturnsAndIssues from '@/pages/ResellerReturnsAndIssues'
+import ResellerFinancial from '@/pages/ResellerFinancial'
+import PublicResellerStore from '@/pages/PublicResellerStore'
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -31,6 +38,7 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/recuperar-senha" element={<ForgotPasswordPage />} />
           <Route path="/solicitar-revendedor" element={<ResellerRequestPage />} />
+          <Route path="/loja/:resellerId" element={<PublicResellerStore />} />
 
           {/* Authenticated Root under Layout */}
           <Route
@@ -96,8 +104,17 @@ export default function App() {
             {/* Catalog / Vitrine (Accessible to Resellers, Operators, Admins) */}
             <Route path="vitrine" element={<CatalogVitrine />} />
 
-            {/* Consignments */}
+            {/* Consignments (Fluxo tradicional de listas mantido intacto) */}
             <Route path="consignacoes" element={<ConsignmentsManagement />} />
+
+            {/* Módulo de Estoque Próprio da Revendedora (NOVO) */}
+            <Route path="revendedora/estoque-entregas" element={<ResellerDeliveriesAndStock />} />
+            <Route path="revendedora/pdv" element={<ResellerPosSale />} />
+            <Route
+              path="revendedora/devolucoes-pendencias"
+              element={<ResellerReturnsAndIssues />}
+            />
+            <Route path="revendedora/financeiro" element={<ResellerFinancial />} />
 
             {/* Resellers management (Admin & Operator) */}
             <Route

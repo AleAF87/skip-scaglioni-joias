@@ -17,6 +17,9 @@ import {
   X,
   Sparkles,
   ChevronRight,
+  PackageCheck,
+  RotateCcw,
+  BadgeDollarSign,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -45,12 +48,36 @@ export default function Layout() {
     ...(canManageInternal
       ? [
           { to: '/produtos', label: 'Catálogo de Joias', icon: Gem },
-          { to: '/estoque', label: 'Estoque', icon: Boxes },
-          { to: '/pdv', label: 'PDV / Vendas', icon: ShoppingCart },
+          { to: '/estoque', label: 'Estoque Loja', icon: Boxes },
+          { to: '/pdv', label: 'PDV Loja', icon: ShoppingCart },
         ]
       : []),
-    { to: '/vitrine', label: 'Vitrine', icon: Store },
-    { to: '/consignacoes', label: 'Consignação', icon: Handshake },
+
+    // MÓDULO NOVO: Estoque Próprio da Revendedora
+    {
+      to: '/revendedora/estoque-entregas',
+      label: canManageInternal ? 'Entregas & Estoque Vendedora' : 'Meu Estoque & Entregas',
+      icon: PackageCheck,
+      highlight: !canManageInternal,
+    },
+    {
+      to: '/revendedora/pdv',
+      label: canManageInternal ? 'PDV Vendedora' : 'Meu PDV (Vendas)',
+      icon: ShoppingCart,
+    },
+    {
+      to: '/revendedora/financeiro',
+      label: canManageInternal ? 'Lucro & Financeiro Vendedoras' : 'Meu Lucro & Acerto',
+      icon: BadgeDollarSign,
+    },
+    {
+      to: '/revendedora/devolucoes-pendencias',
+      label: canManageInternal ? 'Devoluções & Pendências' : 'Minhas Devoluções & Pendências',
+      icon: RotateCcw,
+    },
+
+    { to: '/vitrine', label: 'Vitrine Geral', icon: Store },
+    { to: '/consignacoes', label: 'Consignação em Listas', icon: Handshake },
     ...(isAdmin || (canManageInternal && !isReseller)
       ? [{ to: '/revendedores', label: 'Revendedores', icon: Users2 }]
       : []),
@@ -60,14 +87,18 @@ export default function Layout() {
 
   // Mobile Bottom bar items (focused on mobile-first navigation)
   const mobileBottomItems = [
-    ...(canManageInternal ? [{ to: '/dashboard', label: 'Painel', icon: LayoutDashboard }] : []),
-    ...(canManageInternal ? [{ to: '/pdv', label: 'PDV', icon: ShoppingCart }] : []),
-    ...(canManageInternal ? [{ to: '/voz', label: 'Voz IA', icon: Mic, center: true }] : []),
+    ...(canManageInternal
+      ? [{ to: '/dashboard', label: 'Painel', icon: LayoutDashboard }]
+      : [{ to: '/revendedora/estoque-entregas', label: 'Estoque', icon: PackageCheck }]),
+    ...(canManageInternal
+      ? [{ to: '/pdv', label: 'PDV', icon: ShoppingCart }]
+      : [{ to: '/revendedora/pdv', label: 'Meu PDV', icon: ShoppingCart }]),
+    ...(canManageInternal
+      ? [{ to: '/voz', label: 'Voz IA', icon: Mic, center: true }]
+      : [{ to: '/revendedora/financeiro', label: 'Lucro', icon: BadgeDollarSign }]),
     { to: '/vitrine', label: 'Vitrine', icon: Store },
-    { to: '/consignacoes', label: 'Consign.', icon: Handshake },
     { to: '/perfil', label: 'Perfil', icon: User },
   ]
-
   const handleLogout = () => {
     logout()
     navigate('/login')

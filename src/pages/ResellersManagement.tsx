@@ -408,6 +408,40 @@ export default function ResellersManagement() {
                     {activeReseller.city ? `${activeReseller.city} - ${activeReseller.state}` : '—'}
                   </span>
                 </div>
+                <div className="col-span-2 pt-2 border-t border-[#E5DFD5] flex items-center justify-between">
+                  <div>
+                    <span className="text-xs text-[#6B655E] block">Comissão da Vendedora</span>
+                    <span className="font-bold text-[#7A5C2E]">
+                      {activeReseller.commission_rate ?? 40}% sobre vendas no PDV
+                    </span>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-xs border-[#C6A664] text-[#7A5C2E]"
+                    onClick={async () => {
+                      const input = window.prompt(
+                        'Defina a porcentagem de comissão desta revendedora (%):',
+                        String(activeReseller.commission_rate ?? 40),
+                      )
+                      if (input !== null) {
+                        const parsed = parseFloat(input)
+                        if (!isNaN(parsed) && parsed >= 0 && parsed <= 100) {
+                          await resellerService.updateReseller(activeReseller.id, {
+                            commission_rate: parsed,
+                          })
+                          toast.success('Comissão atualizada com sucesso!')
+                          setActiveReseller({ ...activeReseller, commission_rate: parsed })
+                          loadResellers()
+                        } else {
+                          toast.error('Informe um valor entre 0 e 100.')
+                        }
+                      }
+                    }}
+                  >
+                    Alterar Comissão
+                  </Button>
+                </div>
               </div>
 
               {activeReseller.rejection_reason && (
