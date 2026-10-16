@@ -16,6 +16,12 @@ export default function UserProfile() {
   const [name, setName] = useState(user?.name || '')
   const [phone, setPhone] = useState(user?.phone || '')
   const [document, setDocument] = useState(user?.document || '')
+  const [birthDate, setBirthDate] = useState(user?.birth_date || '')
+  const [street, setStreet] = useState(user?.address_street || '')
+  const [number, setNumber] = useState(user?.address_number || '')
+  const [complement, setComplement] = useState(user?.address_complement || '')
+  const [neighborhood, setNeighborhood] = useState(user?.address_neighborhood || '')
+  const [zip, setZip] = useState(user?.address_zip || '')
   const [city, setCity] = useState(user?.city || '')
   const [state, setState] = useState(user?.state || '')
   const [isSavingProfile, setIsSavingProfile] = useState(false)
@@ -40,9 +46,38 @@ export default function UserProfile() {
         name: name.trim(),
         phone: phone.trim(),
         document: document.trim(),
+        birth_date: birthDate.trim(),
+        address_street: street.trim(),
+        address_number: number.trim(),
+        address_complement: complement.trim(),
+        address_neighborhood: neighborhood.trim(),
+        address_zip: zip.trim(),
         city: city.trim(),
-        state: state.trim(),
+        state: state.trim().toUpperCase(),
       })
+
+      // Se for revendedora, sincronizar também com a collection resellers
+      try {
+        const resellerRec = await pb.collection('resellers').getFirstListItem(`user = '${user.id}'`)
+        if (resellerRec) {
+          await pb.collection('resellers').update(resellerRec.id, {
+            name: name.trim(),
+            phone: phone.trim(),
+            document: document.trim(),
+            birth_date: birthDate.trim(),
+            address_street: street.trim(),
+            address_number: number.trim(),
+            address_complement: complement.trim(),
+            address_neighborhood: neighborhood.trim(),
+            address_zip: zip.trim(),
+            city: city.trim(),
+            state: state.trim().toUpperCase(),
+          })
+        }
+      } catch {
+        /* intentionally ignored */
+      }
+
       await refreshUser()
       toast.success('Dados cadastrais atualizados!')
     } catch (err: any) {
@@ -202,22 +237,89 @@ export default function UserProfile() {
                   </div>
 
                   <div>
-                    <Label className="text-xs font-semibold">Cidade</Label>
+                    <Label className="text-xs font-semibold">Data de Nascimento</Label>
                     <Input
-                      value={city}
-                      onChange={(e) => setCity(e.target.value)}
+                      type="date"
+                      value={birthDate}
+                      onChange={(e) => setBirthDate(e.target.value)}
                       className="mt-1"
                     />
                   </div>
+                </div>
 
-                  <div>
-                    <Label className="text-xs font-semibold">Estado (UF)</Label>
-                    <Input
-                      value={state}
-                      maxLength={2}
-                      onChange={(e) => setState(e.target.value.toUpperCase())}
-                      className="mt-1 uppercase"
-                    />
+                <div className="pt-2 border-t border-[#E5DFD5]">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-[#7A5C2E] mb-2">
+                    Endereço Completo (Para Documentos Contratuais)
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="sm:col-span-2">
+                      <Label className="text-xs font-semibold">Rua / Logradouro</Label>
+                      <Input
+                        value={street}
+                        onChange={(e) => setStreet(e.target.value)}
+                        placeholder="Rua, Avenida..."
+                        className="mt-1"
+                      />
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-semibold">Número</Label>
+                      <Input
+                        value={number}
+                        onChange={(e) => setNumber(e.target.value)}
+                        placeholder="123"
+                        className="mt-1"
+                      />
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-semibold">Complemento</Label>
+                      <Input
+                        value={complement}
+                        onChange={(e) => setComplement(e.target.value)}
+                        placeholder="Apto, Bloco"
+                        className="mt-1"
+                      />
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-semibold">Bairro</Label>
+                      <Input
+                        value={neighborhood}
+                        onChange={(e) => setNeighborhood(e.target.value)}
+                        placeholder="Bairro"
+                        className="mt-1"
+                      />
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-semibold">CEP</Label>
+                      <Input
+                        value={zip}
+                        onChange={(e) => setZip(e.target.value)}
+                        placeholder="00000-000"
+                        className="mt-1 font-mono"
+                      />
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-semibold">Cidade</Label>
+                      <Input
+                        value={city}
+                        onChange={(e) => setCity(e.target.value)}
+                        className="mt-1"
+                      />
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-semibold">Estado (UF)</Label>
+                      <Input
+                        value={state}
+                        maxLength={2}
+                        onChange={(e) => setState(e.target.value.toUpperCase())}
+                        className="mt-1 uppercase"
+                      />
+                    </div>
                   </div>
                 </div>
 

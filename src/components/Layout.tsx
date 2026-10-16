@@ -20,6 +20,7 @@ import {
   PackageCheck,
   RotateCcw,
   BadgeDollarSign,
+  Building2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -82,6 +83,7 @@ export default function Layout() {
       ? [{ to: '/revendedores', label: 'Revendedores', icon: Users2 }]
       : []),
     ...(isAdmin ? [{ to: '/usuarios', label: 'Gestão de Usuários', icon: UserCheck }] : []),
+    ...(isAdmin ? [{ to: '/empresa', label: 'Dados da Empresa (Contrato)', icon: Building2 }] : []),
     { to: '/perfil', label: 'Meu Perfil', icon: User },
   ]
 

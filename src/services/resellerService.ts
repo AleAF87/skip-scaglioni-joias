@@ -83,8 +83,15 @@ export const resellerService = {
       description: string
       quantity: number
       selling_price: number
+      type_name?: string
+      material_name?: string
+      size_name?: string
+      photo_url?: string
     }>
     valid_until?: string
+    financial_due_date?: string
+    return_due_date?: string
+    notes?: string
   }) {
     const timestamp = new Date().getTime().toString().slice(-6)
     const code = 'CONS-' + new Date().getFullYear() + '-' + timestamp
@@ -92,7 +99,7 @@ export const resellerService = {
     const payload = {
       code,
       reseller: data.reseller_id,
-      status: 'pending',
+      status: 'pending_signature',
       items: JSON.stringify(
         data.items.map((it) => ({
           ...it,
@@ -101,6 +108,9 @@ export const resellerService = {
         })),
       ),
       valid_until: data.valid_until || null,
+      financial_due_date: data.financial_due_date || null,
+      return_due_date: data.return_due_date || null,
+      notes: data.notes || '',
       operator: pb.authStore.model?.id,
     }
 

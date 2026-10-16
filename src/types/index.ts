@@ -13,6 +13,12 @@ export interface AppUser {
   city?: string
   state?: string
   notes?: string
+  birth_date?: string
+  address_street?: string
+  address_number?: string
+  address_complement?: string
+  address_neighborhood?: string
+  address_zip?: string
   created: string
   updated: string
 }
@@ -127,6 +133,12 @@ export interface Reseller {
   state?: string
   status: 'pending' | 'active' | 'rejected' | 'disabled'
   commission_rate?: number
+  birth_date?: string
+  address_street?: string
+  address_number?: string
+  address_complement?: string
+  address_neighborhood?: string
+  address_zip?: string
   attachments?: string[]
   rejection_reason?: string
   created: string
@@ -271,19 +283,152 @@ export interface ConsignmentList {
   id: string
   reseller: string
   code: string
-  status: 'pending' | 'accepted' | 'in_progress' | 'closed' | 'rejected'
+  status:
+    | 'pending_signature'
+    | 'pending'
+    | 'accepted'
+    | 'open'
+    | 'in_progress'
+    | 'closed'
+    | 'rejected'
+    | 'cancelled'
   items: ConsignmentItem[]
   valid_until?: string
+  financial_due_date?: string
+  return_due_date?: string
+  notes?: string
   operator?: string
+  created_ip?: string
+  cancellation_reason?: string
+  cancelled_at?: string
+  cancelled_by?: string
   created: string
   updated: string
   expand?: {
     reseller?: Reseller
     operator?: AppUser
+    cancelled_by?: AppUser
   }
 }
 
 export interface AppSettings {
   id?: string
   min_stock_alert: number
+  company_legal_name?: string
+  company_trade_name?: string
+  company_cnpj?: string
+  company_address_street?: string
+  company_address_number?: string
+  company_address_complement?: string
+  company_address_neighborhood?: string
+  company_address_city?: string
+  company_address_state?: string
+  company_address_zip?: string
+  company_email?: string
+  company_phone?: string
+  forum_city?: string
+  forum_state?: string
+  contract_version?: string
+}
+
+export interface ConsignmentDocumentSnapshotItem {
+  product_id: string
+  code: string
+  description: string
+  type_name?: string
+  material_name?: string
+  size_name?: string
+  photo_url?: string
+  quantity: number
+  selling_price: number
+  subtotal: number
+}
+
+export interface ConsignmentDocumentSnapshot {
+  contract_version: string
+  company: {
+    legal_name: string
+    trade_name: string
+    cnpj: string
+    address_street: string
+    address_number: string
+    address_complement: string
+    address_neighborhood: string
+    address_city: string
+    address_state: string
+    address_zip: string
+    email: string
+    phone: string
+    forum_city: string
+    forum_state: string
+  }
+  reseller: {
+    id: string
+    name: string
+    cpf: string
+    birth_date: string
+    phone: string
+    email: string
+    address_street: string
+    address_number: string
+    address_complement: string
+    address_neighborhood: string
+    address_city: string
+    address_state: string
+    address_zip: string
+  }
+  consignment: {
+    id: string
+    code: string
+    created_at: string
+    valid_until?: string
+    financial_due_date?: string
+    return_due_date?: string
+    notes?: string
+    status: string
+    operator_name?: string
+    created_ip?: string
+  }
+  items: ConsignmentDocumentSnapshotItem[]
+  totals: {
+    items_count: number
+    pieces_count: number
+    total_value: number
+    total_value_words: string
+  }
+  signature?: {
+    signed_at: string
+    signed_ip: string
+    signer_name: string
+    signer_document: string
+    document_hash: string
+    session_id: string
+  }
+}
+
+export interface ConsignmentDocument {
+  id: string
+  consignment_list: string
+  reseller: string
+  document_code: string
+  contract_version: string
+  status: 'pending_signature' | 'signed' | 'closed' | 'cancelled'
+  document_hash?: string
+  session_id?: string
+  signer_name?: string
+  signer_document?: string
+  signed_at?: string
+  signed_ip?: string
+  creator_ip?: string
+  created_by?: string
+  signature_image_data?: string
+  snapshot_data?: ConsignmentDocumentSnapshot | string
+  pdf_file?: string
+  created: string
+  updated: string
+  expand?: {
+    consignment_list?: ConsignmentList
+    reseller?: Reseller
+    created_by?: AppUser
+  }
 }

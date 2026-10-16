@@ -2,9 +2,12 @@ import React, { useState, useEffect } from 'react'
 import { resellerService } from '@/services/resellerService'
 import { productService } from '@/services/productService'
 import { useAuth } from '@/contexts/AuthContext'
-import { ConsignmentList, Product, Reseller, ConsignmentItem } from '@/types'
+import { ConsignmentList, Product, Reseller, ConsignmentItem, AppSettings } from '@/types'
 import { formatCurrency, formatDate, formatDateTime, getFileUrl } from '@/lib/formatters'
 import { ImageLightbox } from '@/components/ImageLightbox'
+import { companySettingsService } from '@/services/companySettingsService'
+import { consignmentDocumentService } from '@/services/consignmentDocumentService'
+import { ConsignmentContractModal } from '@/components/ConsignmentContractModal'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -33,6 +36,9 @@ import {
   Sparkles,
   Package,
   ZoomIn,
+  FileSignature,
+  ShieldCheck,
+  Ban,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -43,11 +49,25 @@ export default function ConsignmentsManagement() {
   const [loading, setLoading] = useState(true)
   const [resellers, setResellers] = useState<Reseller[]>([])
   const [products, setProducts] = useState<Product[]>([])
+  const [companySettings, setCompanySettings] = useState<AppSettings | null>(null)
+
+  // Contract Modal State
+  const [contractModalOpen, setContractModalOpen] = useState(false)
+  const [activeContractList, setActiveContractList] = useState<ConsignmentList | null>(null)
+
+  // Cancel Modal State
+  const [cancelModalOpen, setCancelModalOpen] = useState(false)
+  const [listToCancel, setListToCancel] = useState<ConsignmentList | null>(null)
+  const [cancelReason, setCancelReason] = useState('')
+  const [cancelling, setCancelling] = useState(false)
 
   // New list modal
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [selectedResellerId, setSelectedResellerId] = useState('')
   const [validUntilDate, setValidUntilDate] = useState('')
+  const [financialDueDate, setFinancialDueDate] = useState('')
+  const [returnDueDate, setReturnDueDate] = useState('')
+  const [listNotes, setListNotes] = useState('')
   const [selectedItemsForConsign, setSelectedItemsForConsign] = useState<
     Array<{
       product_id: string
@@ -56,6 +76,10 @@ export default function ConsignmentsManagement() {
       quantity: number
       selling_price: number
       maxQty: number
+      type_name?: string
+      material_name?: string
+      size_name?: string
+      photo_url?: string
     }>
   >([])
 
@@ -120,12 +144,14 @@ export default function ConsignmentsManagement() {
 
   const loadDependencies = async () => {
     try {
-      const [resRes, prodRes] = await Promise.all([
+      const [resRes, prodRes, settingsRes] = await Promise.all([
         resellerService.getResellers({ status: 'active' }),
         productService.getProducts({ perPage: 100, status: 'available' }),
+        companySettingsService.getSettings(),
       ])
       setResellers(resRes)
       setProducts(prodRes.items)
+      setCompanySettings(settingsRes)
     } catch (err) {
       console.error(err)
     }
@@ -143,6 +169,11 @@ export default function ConsignmentsManagement() {
         prev.map((it) => (it.product_id === prod.id ? { ...it, quantity: it.quantity + 1 } : it)),
       )
     } else {
+      const photoUrl =
+        prod.photos && prod.photos.length > 0
+          ? getFileUrl('products', prod.id, prod.photos[0])
+          : undefined
+
       setSelectedItemsForConsign((prev) => [
         ...prev,
         {
@@ -152,6 +183,10 @@ export default function ConsignmentsManagement() {
           quantity: 1,
           selling_price: prod.selling_price,
           maxQty: prod.quantity,
+          type_name: prod.expand?.type?.name,
+          material_name: prod.expand?.material?.name,
+          size_name: prod.expand?.size?.name,
+          photo_url: photoUrl,
         },
       ])
     }
@@ -170,17 +205,29 @@ export default function ConsignmentsManagement() {
     }
 
     try {
-      await resellerService.createConsignmentList({
+      const createdList = await resellerService.createConsignmentList({
         reseller_id: selectedResellerId,
         items: selectedItemsForConsign,
         valid_until: validUntilDate ? new Date(validUntilDate).toISOString() : undefined,
+        financial_due_date: financialDueDate ? new Date(financialDueDate).toISOString() : undefined,
+        return_due_date: returnDueDate ? new Date(returnDueDate).toISOString() : undefined,
+        notes: listNotes.trim() || undefined,
       })
-      toast.success('Lista de consignação criada com sucesso!')
+      toast.success(
+        'Lista de consignação gerada com sucesso! Status inicial: Pendente de Assinatura. Os produtos só saem do estoque após a assinatura do contrato.',
+      )
       setCreateModalOpen(false)
       setSelectedResellerId('')
       setValidUntilDate('')
+      setFinancialDueDate('')
+      setReturnDueDate('')
+      setListNotes('')
       setSelectedItemsForConsign([])
-      loadConsignments()
+      await loadConsignments()
+
+      // Abrir imediatamente o contrato para conferência
+      setActiveContractList(createdList)
+      setContractModalOpen(true)
     } catch (err: any) {
       toast.error('Erro ao criar lista: ' + (err.message || ''))
     }
@@ -264,6 +311,38 @@ export default function ConsignmentsManagement() {
     setDocList(list)
     setDocType(type)
     setPrintDocModalOpen(true)
+  }
+
+  // Open Electronic Contract Modal
+  const handleOpenContractModal = (list: ConsignmentList) => {
+    setActiveContractList(list)
+    setContractModalOpen(true)
+  }
+
+  // Confirm cancel list
+  const handleConfirmCancel = async () => {
+    if (!listToCancel) return
+    if (!cancelReason.trim()) {
+      toast.error('Informe o motivo do cancelamento.')
+      return
+    }
+
+    setCancelling(true)
+    try {
+      await consignmentDocumentService.cancelConsignment({
+        consignmentId: listToCancel.id,
+        cancellationReason: cancelReason.trim(),
+      })
+      toast.success(`Lista ${listToCancel.code} cancelada com sucesso! Histórico preservado.`)
+      setCancelModalOpen(false)
+      setListToCancel(null)
+      loadConsignments()
+    } catch (err: any) {
+      console.error(err)
+      toast.error('Falha ao cancelar: ' + (err.message || 'Tente novamente.'))
+    } finally {
+      setCancelling(false)
+    }
   }
 
   const parseListItems = (list: ConsignmentList): ConsignmentItem[] => {
@@ -361,25 +440,38 @@ export default function ConsignmentsManagement() {
                       </td>
 
                       <td className="py-3 px-4">
-                        {list.status === 'pending' && (
+                        {(list.status === 'pending_signature' || list.status === 'pending') && (
                           <Badge
                             variant="outline"
-                            className="border-[#B26A00] text-[#B26A00] bg-[#B26A00]/10 text-xs"
+                            className="border-[#B26A00] text-[#B26A00] bg-[#B26A00]/10 text-xs font-semibold"
                           >
-                            Aguardando Aceite
+                            <Clock className="w-3 h-3 mr-1" /> Pendente de Assinatura
                           </Badge>
                         )}
-                        {list.status === 'accepted' && (
+                        {(list.status === 'open' ||
+                          list.status === 'accepted' ||
+                          list.status === 'in_progress') && (
                           <Badge
                             variant="outline"
-                            className="border-[#2E7D4F] text-[#2E7D4F] bg-[#2E7D4F]/10 text-xs"
+                            className="border-[#2E7D4F] text-[#2E7D4F] bg-[#2E7D4F]/10 text-xs font-semibold"
                           >
-                            Em Andamento
+                            <ShieldCheck className="w-3 h-3 mr-1" /> Aberta (Assinada)
                           </Badge>
                         )}
                         {list.status === 'closed' && (
-                          <Badge variant="secondary" className="bg-gray-100 text-gray-700 text-xs">
+                          <Badge
+                            variant="secondary"
+                            className="bg-stone-100 text-stone-700 text-xs font-semibold"
+                          >
                             Finalizada
+                          </Badge>
+                        )}
+                        {list.status === 'cancelled' && (
+                          <Badge
+                            variant="destructive"
+                            className="bg-[#B3261E] text-white text-xs font-semibold"
+                          >
+                            <Ban className="w-3 h-3 mr-1" /> Cancelada
                           </Badge>
                         )}
                         {list.status === 'rejected' && (
@@ -391,50 +483,50 @@ export default function ConsignmentsManagement() {
 
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
-                          {/* Reseller Actions: Accept or Reject */}
-                          {isReseller && list.status === 'pending' && (
-                            <>
-                              <Button
-                                size="sm"
-                                onClick={() => handleResellerDecision(list.id, 'accepted')}
-                                className="h-8 bg-[#2E7D4F] text-white text-xs"
-                              >
-                                Aceitar Lista
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handleResellerDecision(list.id, 'rejected')}
-                                className="h-8 border-[#B3261E] text-[#B3261E] text-xs"
-                              >
-                                Recusar
-                              </Button>
-                            </>
-                          )}
+                          {/* BOTÃO PRINCIPAL: CONTRATO ELETRÔNICO OBRIGATÓRIO (PDF + ASSINATURA) */}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleOpenContractModal(list)}
+                            className="h-8 px-2.5 border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] text-xs flex items-center gap-1.5 font-semibold"
+                            title="Contrato de Consignação e Termo de Recebimento de Produtos"
+                          >
+                            <FileSignature className="h-3.5 w-3.5 text-[#7A5C2E]" />
+                            <span>
+                              {list.status === 'pending_signature' || list.status === 'pending'
+                                ? isReseller
+                                  ? 'Assinar Contrato'
+                                  : 'Ver Contrato'
+                                : 'Contrato PDF'}
+                            </span>
+                          </Button>
 
-                          {/* Print Recibo de Consignação (Available once accepted) */}
-                          {(list.status === 'accepted' || list.status === 'closed') && (
+                          {/* Print Recibo de Consignação (Available once accepted/closed) */}
+                          {(list.status === 'open' ||
+                            list.status === 'accepted' ||
+                            list.status === 'closed') && (
                             <Button
                               size="sm"
                               variant="ghost"
                               onClick={() => handleOpenDoc(list, 'receipt')}
                               className="h-8 text-[#7A5C2E] hover:bg-[#F3EAD8] text-xs"
-                              title="Recibo de Consignação"
+                              title="Recibo Sintético de Consignação"
                             >
                               <Printer className="h-3.5 w-3.5 mr-1" /> Recibo
                             </Button>
                           )}
 
                           {/* Close List (Admin / Operator only) */}
-                          {canManageInternal && list.status === 'accepted' && (
-                            <Button
-                              size="sm"
-                              onClick={() => handleOpenClosing(list)}
-                              className="h-8 bg-[#7A5C2E] text-white text-xs"
-                            >
-                              <FileCheck2 className="h-3.5 w-3.5 mr-1" /> Fechar Lista
-                            </Button>
-                          )}
+                          {canManageInternal &&
+                            (list.status === 'open' || list.status === 'accepted') && (
+                              <Button
+                                size="sm"
+                                onClick={() => handleOpenClosing(list)}
+                                className="h-8 bg-[#7A5C2E] text-white text-xs"
+                              >
+                                <FileCheck2 className="h-3.5 w-3.5 mr-1" /> Fechar Lista
+                              </Button>
+                            )}
 
                           {/* Relatório de Fechamento (once closed) */}
                           {list.status === 'closed' && (
@@ -447,6 +539,25 @@ export default function ConsignmentsManagement() {
                               <FileCheck2 className="h-3.5 w-3.5 mr-1" /> Relatório
                             </Button>
                           )}
+
+                          {/* Cancelar Lista (Admin / Operator) - Mantém histórico e PDF */}
+                          {canManageInternal &&
+                            list.status !== 'closed' &&
+                            list.status !== 'cancelled' && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => {
+                                  setListToCancel(list)
+                                  setCancelReason('')
+                                  setCancelModalOpen(true)
+                                }}
+                                className="h-8 text-[#B3261E] hover:bg-[#B3261E]/10 text-xs"
+                                title="Cancelar lista mantendo histórico do contrato"
+                              >
+                                <Ban className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
                         </div>
                       </td>
                     </tr>
@@ -490,11 +601,41 @@ export default function ConsignmentsManagement() {
               </div>
 
               <div>
-                <Label className="text-xs font-semibold">Data de Validade (Opcional)</Label>
+                <Label className="text-xs font-semibold">Prazo para Venda (Validade)</Label>
                 <Input
                   type="date"
                   value={validUntilDate}
                   onChange={(e) => setValidUntilDate(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
+
+              <div>
+                <Label className="text-xs font-semibold">Data Limite de Acerto Financeiro</Label>
+                <Input
+                  type="date"
+                  value={financialDueDate}
+                  onChange={(e) => setFinancialDueDate(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
+
+              <div>
+                <Label className="text-xs font-semibold">Data Limite para Devolução</Label>
+                <Input
+                  type="date"
+                  value={returnDueDate}
+                  onChange={(e) => setReturnDueDate(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <Label className="text-xs font-semibold">Observações da Lista</Label>
+                <Input
+                  value={listNotes}
+                  onChange={(e) => setListNotes(e.target.value)}
+                  placeholder="Observações da lista (ou deixe em branco para 'Sem observações')"
                   className="mt-1"
                 />
               </div>
@@ -892,6 +1033,79 @@ export default function ConsignmentsManagement() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* MODAL DE CONTRATO ELETRÔNICO E TERMO DE RECEBIMENTO */}
+      {activeContractList && (
+        <ConsignmentContractModal
+          isOpen={contractModalOpen}
+          onClose={() => {
+            setContractModalOpen(false)
+            setActiveContractList(null)
+          }}
+          list={activeContractList}
+          reseller={
+            resellers.find((r) => r.id === activeContractList.reseller) ||
+            activeContractList.expand?.reseller ||
+            null
+          }
+          settings={companySettings}
+          canSign={
+            isReseller || user?.role === 'admin' || user?.role === 'operator' // revendedora assina; admin/operador pode assinar/demonstrar
+          }
+          onSignedSuccess={() => {
+            loadConsignments()
+          }}
+        />
+      )}
+
+      {/* MODAL DE CANCELAMENTO COM MOTIVO AUDITADO */}
+      <Dialog open={cancelModalOpen} onOpenChange={setCancelModalOpen}>
+        <DialogContent className="max-w-md bg-white rounded-2xl border border-[#E5DFD5] p-6">
+          <DialogHeader>
+            <DialogTitle className="text-[#B3261E] font-serif flex items-center gap-2">
+              <Ban className="h-5 w-5" /> Cancelar Lista de Consignação
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-xs text-[#6B655E] leading-relaxed">
+              O cancelamento da lista <strong>{listToCancel?.code}</strong> manterá o histórico
+              completo, o PDF original gerado e registrará o responsável e o motivo. Caso os
+              produtos tenham sido liberados, o estoque será restaurado automaticamente.
+            </p>
+            <div>
+              <Label className="text-xs font-semibold text-[#2D2A26]">
+                Motivo do Cancelamento *
+              </Label>
+              <Input
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder="Ex: Revendedora solicitou ajuste de mix de peças..."
+                className="mt-1"
+              />
+            </div>
+          </div>
+          <DialogFooter className="flex justify-end gap-2 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setCancelModalOpen(false)}
+              disabled={cancelling}
+            >
+              Voltar
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleConfirmCancel}
+              disabled={!cancelReason.trim() || cancelling}
+              className="bg-[#B3261E] text-white hover:bg-[#B3261E]/90"
+            >
+              {cancelling ? 'Cancelando...' : 'Confirmar Cancelamento'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

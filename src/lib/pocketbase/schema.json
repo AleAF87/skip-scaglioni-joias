@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-15T19:16:48.481Z",
+  "generatedAt": "2026-10-16T02:44:33.554Z",
   "collections": [
     {
       "name": "users",
@@ -78,6 +78,42 @@
         },
         {
           "name": "notes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "birth_date",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "address_street",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "address_number",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "address_complement",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "address_neighborhood",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "address_zip",
           "type": "text",
           "required": false,
           "system": false
@@ -222,6 +258,96 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "company_legal_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "company_trade_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "company_cnpj",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "company_address_street",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "company_address_number",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "company_address_complement",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "company_address_neighborhood",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "company_address_city",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "company_address_state",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "company_address_zip",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "company_email",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "company_phone",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "forum_city",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "forum_state",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "contract_version",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": []
@@ -505,6 +631,42 @@
           "type": "number",
           "required": false,
           "system": false
+        },
+        {
+          "name": "birth_date",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "address_street",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "address_number",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "address_complement",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "address_neighborhood",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "address_zip",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -643,7 +805,16 @@
           "type": "select",
           "required": false,
           "system": false,
-          "selectValues": ["pending", "accepted", "in_progress", "closed", "rejected"]
+          "selectValues": [
+            "pending_signature",
+            "pending",
+            "accepted",
+            "open",
+            "in_progress",
+            "closed",
+            "rejected",
+            "cancelled"
+          ]
         },
         {
           "name": "items",
@@ -677,6 +848,49 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "created_ip",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "financial_due_date",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "return_due_date",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cancellation_reason",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cancelled_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cancelled_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
         }
       ],
       "indexes": [
@@ -1168,6 +1382,137 @@
       "indexes": [
         "CREATE INDEX idx_reseller_issues_reseller ON reseller_issues (reseller)",
         "CREATE INDEX idx_reseller_issues_status ON reseller_issues (status)"
+      ]
+    },
+    {
+      "name": "consignment_documents",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && (@request.auth.role = 'admin' || @request.auth.role = 'operator' || reseller.user = @request.auth.id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'admin' || @request.auth.role = 'operator' || reseller.user = @request.auth.id)",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'admin' || @request.auth.role = 'operator')",
+        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+      },
+      "fields": [
+        {
+          "name": "consignment_list",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "consignment_lists"
+        },
+        {
+          "name": "reseller",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "resellers"
+        },
+        {
+          "name": "document_code",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "contract_version",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "document_hash",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "session_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "signer_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "signer_document",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "signed_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "signed_ip",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "creator_ip",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "signature_image_data",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "snapshot_data",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "pdf_file",
+          "type": "file",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_consignment_docs_list ON consignment_documents (consignment_list)",
+        "CREATE INDEX idx_consignment_docs_reseller ON consignment_documents (reseller)",
+        "CREATE INDEX idx_consignment_docs_hash ON consignment_documents (document_hash)"
       ]
     }
   ]

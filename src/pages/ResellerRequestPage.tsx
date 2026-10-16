@@ -15,6 +15,12 @@ export default function ResellerRequestPage() {
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [document, setDocument] = useState('')
+  const [birthDate, setBirthDate] = useState('')
+  const [street, setStreet] = useState('')
+  const [number, setNumber] = useState('')
+  const [complement, setComplement] = useState('')
+  const [neighborhood, setNeighborhood] = useState('')
+  const [zip, setZip] = useState('')
   const [city, setCity] = useState('')
   const [state, setState] = useState('')
   const [password, setPassword] = useState('')
@@ -39,8 +45,14 @@ export default function ResellerRequestPage() {
         status: 'pending',
         phone: phone.trim(),
         document: document.trim(),
+        birth_date: birthDate.trim(),
+        address_street: street.trim(),
+        address_number: number.trim(),
+        address_complement: complement.trim(),
+        address_neighborhood: neighborhood.trim(),
+        address_zip: zip.trim(),
         city: city.trim(),
-        state: state.trim(),
+        state: state.trim().toUpperCase(),
       })
 
       // 2. Create Reseller record with attachments
@@ -50,10 +62,15 @@ export default function ResellerRequestPage() {
       formData.append('email', email.trim())
       formData.append('phone', phone.trim())
       formData.append('document', document.trim())
+      formData.append('birth_date', birthDate.trim())
+      formData.append('address_street', street.trim())
+      formData.append('address_number', number.trim())
+      formData.append('address_complement', complement.trim())
+      formData.append('address_neighborhood', neighborhood.trim())
+      formData.append('address_zip', zip.trim())
       formData.append('city', city.trim())
-      formData.append('state', state.trim())
+      formData.append('state', state.trim().toUpperCase())
       formData.append('status', 'pending')
-
       files.forEach((file) => {
         formData.append('attachments', file)
       })
@@ -164,25 +181,98 @@ export default function ResellerRequestPage() {
                 </div>
 
                 <div>
-                  <Label className="text-xs font-semibold">Cidade *</Label>
+                  <Label className="text-xs font-semibold">Data de Nascimento *</Label>
                   <Input
-                    value={city}
-                    onChange={(e) => setCity(e.target.value)}
+                    type="date"
+                    value={birthDate}
+                    onChange={(e) => setBirthDate(e.target.value)}
                     required
                     className="mt-1"
                   />
                 </div>
+              </div>
 
-                <div>
-                  <Label className="text-xs font-semibold">Estado (UF) *</Label>
-                  <Input
-                    value={state}
-                    maxLength={2}
-                    onChange={(e) => setState(e.target.value.toUpperCase())}
-                    required
-                    placeholder="SP"
-                    className="mt-1 uppercase"
-                  />
+              {/* Endereço Residencial Completo */}
+              <div className="pt-2 border-t border-[#E5DFD5]">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-[#7A5C2E] mb-2">
+                  Endereço Residencial Completo (Para Contrato de Consignação)
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="sm:col-span-2">
+                    <Label className="text-xs font-semibold">Rua / Logradouro *</Label>
+                    <Input
+                      value={street}
+                      onChange={(e) => setStreet(e.target.value)}
+                      required
+                      placeholder="Rua, Avenida, Alameda..."
+                      className="mt-1"
+                    />
+                  </div>
+
+                  <div>
+                    <Label className="text-xs font-semibold">Número *</Label>
+                    <Input
+                      value={number}
+                      onChange={(e) => setNumber(e.target.value)}
+                      required
+                      placeholder="123"
+                      className="mt-1"
+                    />
+                  </div>
+
+                  <div>
+                    <Label className="text-xs font-semibold">Complemento</Label>
+                    <Input
+                      value={complement}
+                      onChange={(e) => setComplement(e.target.value)}
+                      placeholder="Apto 42, Bloco B"
+                      className="mt-1"
+                    />
+                  </div>
+
+                  <div>
+                    <Label className="text-xs font-semibold">Bairro *</Label>
+                    <Input
+                      value={neighborhood}
+                      onChange={(e) => setNeighborhood(e.target.value)}
+                      required
+                      placeholder="Bairro"
+                      className="mt-1"
+                    />
+                  </div>
+
+                  <div>
+                    <Label className="text-xs font-semibold">CEP *</Label>
+                    <Input
+                      value={zip}
+                      onChange={(e) => setZip(e.target.value)}
+                      required
+                      placeholder="00000-000"
+                      className="mt-1 font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <Label className="text-xs font-semibold">Cidade *</Label>
+                    <Input
+                      value={city}
+                      onChange={(e) => setCity(e.target.value)}
+                      required
+                      className="mt-1"
+                    />
+                  </div>
+
+                  <div>
+                    <Label className="text-xs font-semibold">Estado (UF) *</Label>
+                    <Input
+                      value={state}
+                      maxLength={2}
+                      onChange={(e) => setState(e.target.value.toUpperCase())}
+                      required
+                      placeholder="SP"
+                      className="mt-1 uppercase"
+                    />
+                  </div>
                 </div>
               </div>
 

@@ -19,6 +19,7 @@ import ConsignmentsManagement from '@/pages/ConsignmentsManagement'
 import ResellersManagement from '@/pages/ResellersManagement'
 import UsersManagement from '@/pages/UsersManagement'
 import UserProfile from '@/pages/UserProfile'
+import CompanySettingsPage from '@/pages/CompanySettingsPage'
 import NotFound from '@/pages/NotFound'
 
 // New Pages - Módulo de Revendedora com Estoque Próprio
@@ -106,6 +107,16 @@ export default function App() {
 
             {/* Consignments (Fluxo tradicional de listas mantido intacto) */}
             <Route path="consignacoes" element={<ConsignmentsManagement />} />
+
+            {/* Configurações da Empresa (Somente Administrador) */}
+            <Route
+              path="empresa"
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <CompanySettingsPage />
+                </ProtectedRoute>
+              }
+            />
 
             {/* Módulo de Estoque Próprio da Revendedora (NOVO) */}
             <Route path="revendedora/estoque-entregas" element={<ResellerDeliveriesAndStock />} />
