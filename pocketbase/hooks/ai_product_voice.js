@@ -40,14 +40,23 @@ REGRAS CRÍTICAS INVIOLÁVEIS:
 2. REGRA DE VALORES MONETÁRIOS E CENTAVOS (MUITO IMPORTANTE):
    - NUNCA retorne mais de 2 casas decimais. Valores monetários devem ter no máximo 2 casas decimais.
    - Quando o usuário falar um valor pausado e a transcrição tiver algo como "78,902" ou "78.902", entenda como 78.92 (o zero entre os centavos é um artefato de fala pausada). Ex: "78,902" -> 78.92.
-   - Se o usuário falou por exemplo "investi 20", valor investido é 20.00. Se falou "vendo por 60", preço de venda é 60.00.
-3. Se o usuário falou "uma unidade", quantidade é 1. Se falou "cinco", quantidade é 5. Se não mencionou quantidade, retorne null.
-4. Tipo de produto (type_name): liste exatamente a opção correspondente dentre: [${typeNames}] se identificável, senão null.
+   - Trate expressões faladas de números e centavos: "cento e trinta e oito e quarenta e dois" -> 138.42; "51 e 95" -> 51.95; "investi 20" -> 20.00; "vendo por 60" -> 60.00.
+3. REGRA DE QUANTIDADES:
+   - "uma unidade" -> 1; "duas unidades" -> 2; "meia dúzia" -> 6; "uma dúzia" -> 12; "um par" -> 1 (ou 2 se contexto explícito de peças individuais); "dez unidades" -> 10. Se não mencionou quantidade, retorne null.
+4. Tipo de produto (type_name):
+   - As opções cadastradas são: [${typeNames}].
+   - Tente casar com uma opção existente se for sinônimo evidente (ex: "gargantilha" -> se houver Colar/Gargantilha, ou mantenha "Gargantilha" para o cadastrador). Se não souber, retorne o termo falado ou null.
 5. Material (material_name):
    - As opções cadastradas são: [${materialNames}].
-   - Tente interpretar correspondências mesmo que parciais (ex: se o usuário disser "ouro branco" e a única opção correspondente for "Ouro Branco 18k", use "Ouro Branco 18k"). Se houver dúvida ou mais de uma correspondência possível, retorne o texto falado (ex: "ouro branco") para revisão.
-6. Tamanho (size_name): dentre [${sizeNames}] se identificável, senão null.
-7. Perfil (target_audience): apenas "feminino", "masculino" ou "unissex" se mencionado ou inferido com alta confiança (ex: "brinco feminino" -> "feminino", "pulseira masculina" -> "masculino"), senão null.
+   - Tente interpretar e normalizar correspondências comuns:
+     * "folhado" ou "folhada" -> "folheado a ouro" (se existir em cadastrados)
+     * "ouro branco" -> "Ouro Branco 18k" (se for a única opção parecida)
+     * "prata" -> "Prata 925" (se for a opção parecida)
+     * se houver dúvida ou termo novo não cadastrado, retorne exatamente o termo falado (ex: "titânio") para que a interface ofereça cadastrar como novo.
+6. Tamanho (size_name): dentre [${sizeNames}] se identificável, senão o termo falado (ex: "20", "único", "45cm") ou null.
+7. Perfil (target_audience):
+   - "feminino", "masculino", "unissex"
+   - Interprete expressões populares: "pra moça", "pra mulher", "menina", "feminino" -> "feminino"; "pra homem", "masculino" -> "masculino"; "pra qualquer um", "unissex" -> "unissex". Se não mencionado, null.
 8. REGRA ABSOLUTA DO CAMPO "description" (NUNCA POLUIR COM MATERIAL, TIPO, PERFIL OU TAMANHO):
    - O campo "description" deve conter APENAS E EXCLUSIVAMENTE a descrição estética/detalhes da peça (ex: pedras, detalhes, formato, textura).
    - O MATERIAL (ex: "ouro branco", "ouro 18k", "prata 925", "folheado a ouro", "aço cirúrgico") NUNCA DEVE APARECER na "description", pois já tem o campo próprio "material_name".
@@ -55,29 +64,31 @@ REGRAS CRÍTICAS INVIOLÁVEIS:
    - O PERFIL/SEXO (ex: "feminino", "masculino", "unissex") NUNCA DEVE APARECER na "description".
    - O TAMANHO (ex: "tamanho 20", "tamanho único", "aro 16", "45cm") NUNCA DEVE APARECER na "description".
    - EXEMPLO REAL OBRIGATÓRIO:
-     Se o usuário disser: "brinco ouro branco feminino tamanho 20 paguei 51 e 95 vou vender por 138 e 42 comprei 22 unidades ele é de pedras prateadas"
+     Se o usuário disser: "brinco folhado pra moça tamanho único paguei 51 e 95 vou vender por 138 e 42 comprei meia dúzia ele tem zircônia redonda brilhante"
      -> type_name: "Brinco"
-     -> material_name: "Ouro Branco 18k"
+     -> material_name: "Folheado a Ouro"
      -> target_audience: "feminino"
-     -> size_name: "20" (ou correspondente)
-     -> description: "pedras prateadas" (NUNCA "Ouro branco com pedras prateadas" nem "Brinco de pedras prateadas")
+     -> size_name: "Único"
+     -> invested_value: 51.95
+     -> selling_price: 138.42
+     -> quantity: 6
+     -> description: "zircônia redonda brilhante"
    - Se o usuário disser apenas características do material e tipo sem nenhuma descrição estética adicional (ex: "anel ouro 18k tamanho 16"), a "description" pode ser string vazia ("") ou apenas detalhes se houver (ex: "solitário").
-9. Retorne SEMPRE E APENAS um objeto JSON válido, sem texto antes ou depois, sem markdown, sem blocos \`\`\`json.
+9. Retorne SEMPRE E APENAS um objeto JSON válido, sem texto antes ou depois, sem markdown, sem blocos de codigo.
 
 Formato JSON esperado:
 {
-  "description": "Apenas detalhes estéticos da peça SEM material, tipo, tamanho ou perfil (ex: pedras prateadas)",
+  "description": "Apenas detalhes estéticos da peça SEM material, tipo, tamanho ou perfil",
   "type_name": "Nome do tipo ou null",
   "material_name": "Nome do material ou null",
   "size_name": "Nome do tamanho ou null",
-  "target_audience": "feminino" | "masculino" | "unissex" | null,
-  "invested_value": number | null,
-  "selling_price": number | null,
-  "quantity": number | null,
-  "observations": "Observações adicionais extraídas da fala ou string vazia",
-  "missing_fields": ["lista", "de", "campos", "ausentes", "que", "precisam", "de", "revisao"]
+  "target_audience": "feminino | masculino | unissex | null",
+  "invested_value": null,
+  "selling_price": null,
+  "quantity": null,
+  "observations": "Observacoes adicionais ou string vazia",
+  "missing_fields": []
 }`
-
     try {
       const aiResponse = $ai.chat({
         model: 'fast',
@@ -113,24 +124,67 @@ Formato JSON esperado:
       }
 
       // Função auxiliar inteligente para correspondência de cadastros auxiliares:
-      // - Match exato (case-insensitive): match único imediato
-      // - Match por prefixo/inclusão (ex: "ouro branco" em "Ouro Branco 18k"):
-      //   - Se houver EXATAMENTE 1 candidato: seleciona-o automaticamente
-      //   - Se houver MAIS de 1 candidato: retorna null (não escolhe sozinho) e flag ambiguo = true
+      // - Match exato (case-insensitive): matched = true
+      // - Match por inclusão / prefixo / normalizações comuns ("folhado" -> "folheado"):
+      //   - 1 candidato: matched = true
+      //   - > 1 candidatos: ambiguous = true
+      //   - 0 candidatos: not_found = true (se query preenchida)
       function matchAuxiliary(query, list) {
         if (!query || typeof query !== 'string') {
-          return { id: null, name: '', ambiguous: false, candidates: [] }
+          return {
+            id: null,
+            name: '',
+            status: 'empty',
+            matched: false,
+            ambiguous: false,
+            not_found: false,
+            candidates: [],
+          }
         }
-        const q = query.trim().toLowerCase()
-        if (!q) return { id: null, name: '', ambiguous: false, candidates: [] }
+        let q = query.trim().toLowerCase()
+        if (!q) {
+          return {
+            id: null,
+            name: '',
+            status: 'empty',
+            matched: false,
+            ambiguous: false,
+            not_found: false,
+            candidates: [],
+          }
+        }
+
+        // Sinônimos/normalizações comuns para materiais e tipos
+        if (q === 'folhado' || q === 'folhada') {
+          const folheado = list.find((item) => item.name.toLowerCase().includes('folheado'))
+          if (folheado) {
+            return {
+              id: folheado.id,
+              name: folheado.name,
+              status: 'matched',
+              matched: true,
+              ambiguous: false,
+              not_found: false,
+              candidates: [folheado],
+            }
+          }
+        }
 
         // 1. Match exato
         const exact = list.find((item) => item.name.toLowerCase() === q)
         if (exact) {
-          return { id: exact.id, name: exact.name, ambiguous: false, candidates: [exact] }
+          return {
+            id: exact.id,
+            name: exact.name,
+            status: 'matched',
+            matched: true,
+            ambiguous: false,
+            not_found: false,
+            candidates: [exact],
+          }
         }
 
-        // 2. Busca por prefixo ou se o nome do cadastro começa com ou contém a query
+        // 2. Busca por inclusão / prefixo
         const candidates = list.filter((item) => {
           const itemLower = item.name.toLowerCase()
           return itemLower.includes(q) || q.includes(itemLower)
@@ -140,22 +194,35 @@ Formato JSON esperado:
           return {
             id: candidates[0].id,
             name: candidates[0].name,
+            status: 'matched',
+            matched: true,
             ambiguous: false,
+            not_found: false,
             candidates,
           }
         }
 
         if (candidates.length > 1) {
-          // Múltiplos candidatos: NÃO escolhe sozinho, deixa para revisão manual
           return {
             id: null,
-            name: query, // preserva o que a IA/usuário falou
+            name: query,
+            status: 'ambiguous',
+            matched: false,
             ambiguous: true,
+            not_found: false,
             candidates,
           }
         }
 
-        return { id: null, name: query, ambiguous: false, candidates: [] }
+        return {
+          id: null,
+          name: query,
+          status: 'not_found',
+          matched: false,
+          ambiguous: false,
+          not_found: true,
+          candidates: [],
+        }
       }
 
       // Match type, material, size IDs
@@ -324,6 +391,11 @@ Formato JSON esperado:
         quantity: typeof parsed.quantity === 'number' ? parsed.quantity : null,
         observations: parsed.observations || '',
         missing_fields: missing,
+        analysis: {
+          type: typeResult,
+          material: materialResult,
+          size: sizeResult,
+        },
       })
     } catch (err) {
       console.log('Erro no Skip AI Gateway:', err.message)

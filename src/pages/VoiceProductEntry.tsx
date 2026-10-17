@@ -15,6 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { ImageLightbox } from '@/components/ImageLightbox'
 import { VoiceGuidedModal, GuidedProductData } from '@/components/VoiceGuidedModal'
+import { VoiceCadIaModal, CadIaProductData } from '@/components/VoiceCadIaModal'
 import {
   Mic,
   MicOff,
@@ -35,6 +36,7 @@ import {
   Key,
   RefreshCw,
   ListOrdered,
+  Bot,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { APP_VERSION } from '@/version'
@@ -134,6 +136,9 @@ export default function VoiceProductEntry() {
 
   // Guided Voice Modal State
   const [guidedModalOpen, setGuidedModalOpen] = useState(false)
+
+  // Cad IA Modal State (3º formato de cadastro por voz)
+  const [cadIaModalOpen, setCadIaModalOpen] = useState(false)
 
   // Lightbox
   const [lightboxOpen, setLightboxOpen] = useState(false)
@@ -866,6 +871,74 @@ export default function VoiceProductEntry() {
     return cleaned || desc
   }
 
+  // Handler para aplicar dados retornados pelo Cad IA (3º formato)
+  const handleApplyCadIaData = (guidedData: CadIaProductData) => {
+    if (guidedData.typeName) {
+      const foundType = types.find((t) => t.id === guidedData.typeId)
+      if (foundType) setSelectedType(foundType.id)
+      else if (guidedData.typeId) setSelectedType(guidedData.typeId)
+    }
+
+    if (guidedData.materialName) {
+      const foundMat = materials.find((m) => m.id === guidedData.materialId)
+      if (foundMat) setSelectedMaterial(foundMat.id)
+      else if (guidedData.materialId) setSelectedMaterial(guidedData.materialId)
+    }
+
+    if (guidedData.targetAudience) {
+      setTargetAudience(guidedData.targetAudience)
+    }
+
+    if (guidedData.sizeName) {
+      const foundSize = sizes.find((s) => s.id === guidedData.sizeId)
+      if (foundSize) setSelectedSize(foundSize.id)
+      else if (guidedData.sizeId) setSelectedSize(guidedData.sizeId)
+    }
+
+    if (guidedData.description) {
+      setDescription(guidedData.description)
+    }
+
+    if (guidedData.investedValue) {
+      const normInv = normalizeCurrencyValue(guidedData.investedValue)
+      setInvestedValue(normInv !== null ? normInv.toFixed(2) : '')
+    }
+
+    if (guidedData.sellingPrice) {
+      const normSell = normalizeCurrencyValue(guidedData.sellingPrice)
+      setSellingPrice(normSell !== null ? normSell.toFixed(2) : '')
+    }
+
+    if (guidedData.quantity) {
+      setQuantity(guidedData.quantity)
+      if (guidedData.minimumQuantity) {
+        setMinimumQuantity(guidedData.minimumQuantity)
+      } else {
+        const numQty = parseInt(guidedData.quantity, 10)
+        if (!isNaN(numQty) && numQty > 0) {
+          const thirty = Math.max(1, Math.round(numQty * 0.3))
+          setMinimumQuantity(thirty.toString())
+        }
+      }
+    }
+
+    if (guidedData.observations) {
+      setObservations((prev) =>
+        prev ? `${prev} | ${guidedData.observations}` : guidedData.observations,
+      )
+    }
+
+    setTranscribedText(
+      `${guidedData.description} • ${guidedData.materialName} • ${guidedData.typeName}`,
+    )
+
+    // Scroll e foco no formulário para revisão final do usuário
+    setTimeout(() => {
+      formReviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      descriptionInputRef.current?.focus()
+    }, 120)
+  }
+
   // Process text with Skip AI Gateway (fast model)
   const handleProcessWithAi = async () => {
     if (isRecording) {
@@ -1200,10 +1273,10 @@ export default function VoiceProductEntry() {
         </CardHeader>
 
         <CardContent className="space-y-6 pt-2">
-          {/* Dual Action Recording Zone: Gravação Contínua + Cadastro Guiado */}
+          {/* Triple Action Recording Zone: Gravação Livre + Cadastro Guiado + Cad IA (3º Formato) */}
           <div className="flex flex-col items-center justify-center py-4 space-y-4">
             <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6">
-              {/* Giant Microphone Recording Button — Gravação Livre existente (MediaRecorder real) */}
+              {/* Botão 1: Gravação Livre existente (MediaRecorder real) */}
               <div className="flex flex-col items-center">
                 <button
                   type="button"
@@ -1230,7 +1303,7 @@ export default function VoiceProductEntry() {
                 <span className="text-xs font-semibold text-[#2D2A26] mt-2">Gravação Livre</span>
               </div>
 
-              {/* Botão Novo: Cadastro Guiado campo por campo (convive com o livre) */}
+              {/* Botão 2: Cadastro Guiado campo por campo (existente) */}
               <div className="flex flex-col items-center">
                 <button
                   type="button"
@@ -1255,6 +1328,39 @@ export default function VoiceProductEntry() {
                 </button>
                 <span className="text-xs font-semibold text-[#7A5C2E] mt-2 flex items-center gap-1">
                   <Sparkles className="h-3 w-3 text-[#C6A664]" /> Cadastro Guiado
+                </span>
+              </div>
+
+              {/* Botão 3: Cad IA (NOVO - 3º Formato solicitado pelo usuário) */}
+              <div className="flex flex-col items-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isRecording) {
+                      stopRecording()
+                    }
+                    setCadIaModalOpen(true)
+                  }}
+                  disabled={isTranscribing}
+                  aria-label="Abrir Cad IA (3º formato de cadastro por voz)"
+                  title="Cad IA: fale tudo de uma vez com interpretação inteligente no servidor"
+                  className="relative h-24 w-24 md:h-28 md:w-28 rounded-full flex flex-col items-center justify-center text-white bg-gradient-to-tr from-[#1D1B18] via-[#2D2A26] to-[#7A5C2E] border-2 border-[#C6A664] hover:border-[#E8D5A3] transition-all duration-300 shadow-xl cursor-pointer hover:scale-105 hover:shadow-2xl group ring-2 ring-[#C6A664]/30"
+                >
+                  <div className="p-2.5 rounded-full bg-[#C6A664]/20 text-[#E8D5A3] group-hover:bg-[#C6A664]/35 transition-colors">
+                    <Bot className="h-7 w-7 md:h-8 md:w-8" />
+                  </div>
+                  <span className="text-[10px] font-bold text-[#E8D5A3] uppercase tracking-wider mt-1">
+                    IA Servidor
+                  </span>
+                </button>
+                <span className="text-xs font-semibold text-[#2D2A26] mt-2 flex items-center gap-1">
+                  <Sparkles className="h-3 w-3 text-[#C6A664]" /> Cad IA
+                  <Badge
+                    variant="outline"
+                    className="border-[#C6A664]/60 text-[#7A5C2E] text-[9px] px-1 py-0 ml-0.5"
+                  >
+                    Novo
+                  </Badge>
                 </span>
               </div>
             </div>
@@ -1289,12 +1395,14 @@ export default function VoiceProductEntry() {
             ) : (
               <div className="text-center space-y-1">
                 <p className="text-xs sm:text-sm font-semibold text-[#2D2A26]">
-                  Escolha como prefere cadastrar:
+                  Escolha como prefere cadastrar (3 formatos disponíveis):
                 </p>
-                <p className="text-xs text-[#6B655E]">
-                  <strong>Gravação Livre:</strong> fale tudo de uma vez e a IA preenche o
-                  formulário. <span className="hidden sm:inline">|</span>{' '}
-                  <strong>Cadastro Guiado:</strong> o sistema pergunta campo por campo no microfone.
+                <p className="text-xs text-[#6B655E] max-w-xl mx-auto">
+                  <strong>Gravação Livre:</strong> fala direta com botão de preenchimento.{' '}
+                  <span className="hidden sm:inline">|</span> <strong>Cadastro Guiado:</strong>{' '}
+                  assistente interativo pergunta campo a campo.{' '}
+                  <span className="hidden sm:inline">|</span> <strong>Cad IA:</strong> fala tudo em
+                  uma única captura com interpretação semântica profunda e revisão antes de salvar.
                 </p>
               </div>
             )}
@@ -1864,6 +1972,19 @@ export default function VoiceProductEntry() {
         onApplyToForm={handleApplyGuidedData}
         onAuxiliaryCreated={() => {
           // Atualiza lista do formulário pai em background para ficar disponível nos selects
+          loadAuxiliaries()
+        }}
+      />
+
+      {/* Modal Cad IA: 3º Formato de Cadastro por Voz (fala completa + interpretação no servidor) */}
+      <VoiceCadIaModal
+        open={cadIaModalOpen}
+        onOpenChange={setCadIaModalOpen}
+        types={types}
+        materials={materials}
+        sizes={sizes}
+        onApplyToForm={handleApplyCadIaData}
+        onAuxiliaryCreated={() => {
           loadAuxiliaries()
         }}
       />

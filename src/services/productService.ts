@@ -177,6 +177,35 @@ export const productService = {
       quantity: number | null
       observations: string
       missing_fields: string[]
+      analysis?: {
+        type?: {
+          id: string | null
+          name: string
+          status: 'matched' | 'ambiguous' | 'not_found' | 'empty'
+          matched: boolean
+          ambiguous: boolean
+          not_found: boolean
+          candidates: Array<{ id: string; name: string }>
+        }
+        material?: {
+          id: string | null
+          name: string
+          status: 'matched' | 'ambiguous' | 'not_found' | 'empty'
+          matched: boolean
+          ambiguous: boolean
+          not_found: boolean
+          candidates: Array<{ id: string; name: string }>
+        }
+        size?: {
+          id: string | null
+          name: string
+          status: 'matched' | 'ambiguous' | 'not_found' | 'empty'
+          matched: boolean
+          ambiguous: boolean
+          not_found: boolean
+          candidates: Array<{ id: string; name: string }>
+        }
+      }
     }>('/backend/v1/ai/interpret-product', {
       method: 'POST',
       body: JSON.stringify({ text }),
