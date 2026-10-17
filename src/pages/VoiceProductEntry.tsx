@@ -1086,9 +1086,8 @@ export default function VoiceProductEntry() {
     setIsSaving(true)
     try {
       const formData = new FormData()
-      // Enviamos o campo code vazio para que o hook PocketBase no servidor gere o próximo número sequencial
-      // atômico sem conflito entre múltiplos usuários simultâneos
-      formData.append('code', '')
+      // O código sequencial é gerado automaticamente no servidor.
+      // Não enviamos o campo 'code' vazio para não violar regras de schema ou unicidade de strings vazias.
       formData.append('description', description.trim())
       if (selectedType) formData.append('type', selectedType)
       if (selectedMaterial) formData.append('material', selectedMaterial)
@@ -1098,7 +1097,12 @@ export default function VoiceProductEntry() {
         formData.append('invested_value', normInvestedValue.toFixed(2))
       formData.append('selling_price', normSellingPrice.toFixed(2))
       formData.append('quantity', numQuantity.toString())
-      if (minimumQuantity) formData.append('minimum_quantity', minimumQuantity)
+      if (minimumQuantity) {
+        const numMin = parseInt(minimumQuantity, 10)
+        if (!isNaN(numMin) && numMin >= 0) {
+          formData.append('minimum_quantity', numMin.toString())
+        }
+      }
       if (observations) formData.append('observations', observations.trim())
       formData.append('status', numQuantity > 0 ? 'available' : 'unavailable')
 
@@ -1121,6 +1125,7 @@ export default function VoiceProductEntry() {
       setInvestedValue('')
       setSellingPrice('')
       setQuantity('')
+      setMinimumQuantity('')
       setObservations('')
       setPhotos([])
       setPhotoPreviews([])
@@ -1129,7 +1134,25 @@ export default function VoiceProductEntry() {
       loadRecentProducts()
     } catch (err: any) {
       console.error('Erro ao salvar produto:', err)
-      const message = err?.data?.data?.code?.message || err?.message || 'Falha ao salvar produto.'
+      // Formatação clara de erros do PocketBase por campo
+      let message = ''
+      const fieldData = err?.response?.data || err?.data?.data || err?.data
+      if (fieldData && typeof fieldData === 'object') {
+        const fieldErrors: string[] = []
+        for (const [key, val] of Object.entries(fieldData)) {
+          if (val && typeof val === 'object' && 'message' in (val as any)) {
+            fieldErrors.push(`${key}: ${(val as any).message}`)
+          } else if (typeof val === 'string') {
+            fieldErrors.push(`${key}: ${val}`)
+          }
+        }
+        if (fieldErrors.length > 0) {
+          message = fieldErrors.join(' | ')
+        }
+      }
+      if (!message) {
+        message = err?.message || 'Falha ao salvar produto.'
+      }
       toast.error(`Erro ao salvar: ${message}`)
     } finally {
       setIsSaving(false)

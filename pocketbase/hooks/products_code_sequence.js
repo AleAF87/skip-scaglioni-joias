@@ -77,12 +77,13 @@ routerAdd(
   $apis.requireAuth(),
 )
 
-// 2. onRecordCreateExecute hook for 'products' collection:
-// If code is not provided or empty, generate next atomic sequential 6-digit code.
-onRecordCreateExecute((e) => {
+// 2. onRecordCreateRequest and onRecordCreateExecute hooks for 'products' collection:
+// If code is not provided or empty, generate next atomic sequential 6-digit code before validation.
+function assignSequentialProductCode(e) {
   const record = e.record
-  const incomingCode = (record.getString('code') || '').trim()
+  if (!record) return
 
+  const incomingCode = (record.getString('code') || '').trim()
   if (!incomingCode) {
     const generatedCode = generateNextSequentialProductCode($app)
     record.set('code', generatedCode)
@@ -91,6 +92,14 @@ onRecordCreateExecute((e) => {
     // Ensure code is uppercase and trimmed if provided
     record.set('code', incomingCode.toUpperCase())
   }
+}
 
+onRecordCreateRequest((e) => {
+  assignSequentialProductCode(e)
+  e.next()
+}, 'products')
+
+onRecordCreateExecute((e) => {
+  assignSequentialProductCode(e)
   e.next()
 }, 'products')
