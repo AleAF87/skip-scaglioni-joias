@@ -37,6 +37,9 @@ import {
   ArrowLeft,
   ArrowRight,
   ZoomIn,
+  Download,
+  FileSpreadsheet,
+  HelpCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Link } from 'react-router-dom'
@@ -77,6 +80,9 @@ export default function StockInventory() {
 
   // Print Labels modal
   const [printModalOpen, setPrintModalOpen] = useState(false)
+
+  // CSV Instructions Modal
+  const [csvInfoModalOpen, setCsvInfoModalOpen] = useState(false)
 
   // Lightbox state
   const [lightboxOpen, setLightboxOpen] = useState(false)
@@ -437,6 +443,36 @@ export default function StockInventory() {
               </Button>
             </>
           )}
+
+          <div className="flex items-center gap-1">
+            <a
+              href="/modelo-importacao-produtos.csv"
+              download="modelo-importacao-produtos.csv"
+              className="inline-flex items-center"
+            >
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] font-medium"
+                title="Baixar planilha modelo CSV para importação de joias"
+              >
+                <FileSpreadsheet className="h-4 w-4 mr-1.5 text-[#2E7D4F]" />
+                Baixar CSV Modelo
+              </Button>
+            </a>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => setCsvInfoModalOpen(true)}
+              className="h-8 w-8 text-[#7A5C2E] hover:bg-[#F3EAD8]"
+              title="Ver instruções do arquivo CSV modelo"
+              aria-label="Ver instruções do CSV modelo"
+            >
+              <HelpCircle className="h-4 w-4" />
+            </Button>
+          </div>
 
           <Link to="/voz">
             <Button className="bg-gradient-to-r from-[#7A5C2E] to-[#C6A664] hover:opacity-90 text-white font-semibold shadow-xs">
@@ -1510,6 +1546,185 @@ export default function StockInventory() {
         initialIndex={lightboxIndex}
         title={lightboxTitle}
       />
+
+      {/* CSV Instructions Modal */}
+      <Dialog open={csvInfoModalOpen} onOpenChange={setCsvInfoModalOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-white p-6">
+          <DialogHeader>
+            <div className="flex items-center gap-2">
+              <span className="p-2 rounded-lg bg-[#2E7D4F]/15 text-[#2E7D4F]">
+                <FileSpreadsheet className="h-5 w-5" />
+              </span>
+              <div>
+                <DialogTitle className="font-serif text-xl text-[#2D2A26]">
+                  Modelo CSV para Importação de Produtos
+                </DialogTitle>
+                <CardDescription className="text-xs text-[#6B655E] mt-0.5">
+                  Orientações para preparar sua planilha do Excel ou de outras plataformas.
+                </CardDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2 text-sm text-[#2D2A26]">
+            <div className="p-3.5 rounded-xl bg-[#FDFBF7] border border-[#E5DFD5] space-y-2">
+              <h4 className="font-semibold text-xs uppercase tracking-wider text-[#7A5C2E]">
+                Formato do Arquivo (Padrão Brasil / Excel)
+              </h4>
+              <ul className="text-xs text-[#6B655E] space-y-1 list-disc pl-4">
+                <li>
+                  <strong>Separador de colunas:</strong> Ponto e vírgula (<code>;</code>) —
+                  compatível nativamente com o Excel em português do Brasil.
+                </li>
+                <li>
+                  <strong>Codificação:</strong> UTF-8 com suporte a acentuação e caracteres
+                  especiais.
+                </li>
+                <li>
+                  <strong>Valores em reais:</strong> Use vírgula como separador decimal (ex.:{' '}
+                  <code>51,95</code> ou <code>1250,00</code>). Não inclua o símbolo "R$".
+                </li>
+                <li>
+                  <strong>Datas:</strong> Formato brasileiro <code>dd/mm/aaaa</code> (ex.:{' '}
+                  <code>15/01/2025</code>).
+                </li>
+              </ul>
+            </div>
+
+            <div>
+              <h4 className="font-semibold text-xs uppercase tracking-wider text-[#7A5C2E] mb-2">
+                Colunas na Ordem Oficial do Formulário
+              </h4>
+              <div className="border border-[#E5DFD5] rounded-lg overflow-hidden text-xs">
+                <table className="w-full border-collapse">
+                  <thead className="bg-[#F3EAD8] text-[#2D2A26] font-semibold">
+                    <tr>
+                      <th className="py-2 px-3 text-left">Coluna</th>
+                      <th className="py-2 px-3 text-left">Obrigatório</th>
+                      <th className="py-2 px-3 text-left">Descrição e Valores Aceitos</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#E5DFD5]">
+                    <tr>
+                      <td className="py-2 px-3 font-mono text-[#7A5C2E]">codigo</td>
+                      <td className="py-2 px-3 text-[#6B655E]">Opcional</td>
+                      <td className="py-2 px-3 text-[#6B655E]">
+                        Deixe em branco para o servidor gerar o código sequencial de 6 dígitos
+                        automaticamente (recomendado).
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-3 font-mono text-[#7A5C2E]">descricao</td>
+                      <td className="py-2 px-3 font-bold text-[#2E7D4F]">Sim</td>
+                      <td className="py-2 px-3 text-[#6B655E]">
+                        Descrição detalhada da joia (ex.: Anel com Zircônia).
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-3 font-mono text-[#7A5C2E]">tipo</td>
+                      <td className="py-2 px-3 text-[#6B655E]">Recomendado</td>
+                      <td className="py-2 px-3 text-[#6B655E]">
+                        Cadastros auxiliares:{' '}
+                        {types.map((t) => t.name).join(', ') || 'Anel, Brinco, Colar, Pulseira...'}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-3 font-mono text-[#7A5C2E]">perfil</td>
+                      <td className="py-2 px-3 text-[#6B655E]">Recomendado</td>
+                      <td className="py-2 px-3 text-[#6B655E]">Feminino, Masculino ou Unissex.</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-3 font-mono text-[#7A5C2E]">material</td>
+                      <td className="py-2 px-3 text-[#6B655E]">Recomendado</td>
+                      <td className="py-2 px-3 text-[#6B655E]">
+                        Cadastros auxiliares:{' '}
+                        {materials.map((m) => m.name).join(', ') ||
+                          'Ouro 18k, Folheado a Ouro, Prata 925...'}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-3 font-mono text-[#7A5C2E]">tamanho</td>
+                      <td className="py-2 px-3 text-[#6B655E]">Opcional</td>
+                      <td className="py-2 px-3 text-[#6B655E]">
+                        Aro, comprimento ou Único (ex.: 16, 18, 20, 45cm, 50cm, Único, G, M, P).
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-3 font-mono text-[#7A5C2E]">data_entrada</td>
+                      <td className="py-2 px-3 text-[#6B655E]">Opcional</td>
+                      <td className="py-2 px-3 text-[#6B655E]">
+                        Data de entrada do lote (dd/mm/aaaa). Se vazia, assume a data atual.
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-3 font-mono text-[#7A5C2E]">valor_investido</td>
+                      <td className="py-2 px-3 text-[#6B655E]">Opcional</td>
+                      <td className="py-2 px-3 text-[#6B655E]">
+                        Custo de aquisição unitário (ex.: 45,00).
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-3 font-mono text-[#7A5C2E]">preco_venda</td>
+                      <td className="py-2 px-3 font-bold text-[#2E7D4F]">Sim</td>
+                      <td className="py-2 px-3 text-[#6B655E]">
+                        Preço de venda final da joia (ex.: 120,00).
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-3 font-mono text-[#7A5C2E]">quantidade</td>
+                      <td className="py-2 px-3 font-bold text-[#2E7D4F]">Sim</td>
+                      <td className="py-2 px-3 text-[#6B655E]">
+                        Quantidade em estoque inicial (número inteiro).
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-3 font-mono text-[#7A5C2E]">
+                        estoque_minimo_percentual
+                      </td>
+                      <td className="py-2 px-3 text-[#6B655E]">Opcional</td>
+                      <td className="py-2 px-3 text-[#6B655E]">
+                        Percentual de alerta de estoque mínimo (padrão 30%).
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-3 font-mono text-[#7A5C2E]">observacoes</td>
+                      <td className="py-2 px-3 text-[#6B655E]">Opcional</td>
+                      <td className="py-2 px-3 text-[#6B655E]">
+                        Detalhes adicionais, garantia, acabamento, etc.
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="flex flex-col sm:flex-row items-center justify-between gap-2 pt-2 border-t border-[#E5DFD5]">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setCsvInfoModalOpen(false)}
+              className="text-[#6B655E]"
+            >
+              Fechar
+            </Button>
+            <a
+              href="/modelo-importacao-produtos.csv"
+              download="modelo-importacao-produtos.csv"
+              className="w-full sm:w-auto"
+            >
+              <Button
+                type="button"
+                className="w-full bg-gradient-to-r from-[#7A5C2E] to-[#C6A664] hover:opacity-90 text-white font-semibold"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Baixar Arquivo CSV Modelo
+              </Button>
+            </a>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Print Barcodes Modal (A4 printable layout) */}
       <Dialog open={printModalOpen} onOpenChange={setPrintModalOpen}>

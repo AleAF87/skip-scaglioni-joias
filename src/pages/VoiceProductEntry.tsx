@@ -37,6 +37,7 @@ import {
   RefreshCw,
   ListOrdered,
   Bot,
+  FileSpreadsheet,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { APP_VERSION } from '@/version'
@@ -1161,7 +1162,25 @@ export default function VoiceProductEntry() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Botão Baixar CSV Modelo */}
+          <a
+            href="/modelo-importacao-produtos.csv"
+            download="modelo-importacao-produtos.csv"
+            className="inline-flex items-center"
+          >
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] font-medium"
+              title="Baixar planilha CSV modelo para importação de joias"
+            >
+              <FileSpreadsheet className="h-4 w-4 mr-1.5 text-[#2E7D4F]" />
+              Baixar CSV Modelo
+            </Button>
+          </a>
+
           {/* Permission Button - only shown when permission is not granted */}
           {micPermissionState !== 'granted' && (
             <Button
