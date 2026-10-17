@@ -143,15 +143,28 @@ export function VoiceCadIaModal({
   // Refs de áudio e reconhecimento
   const recognitionRef = useRef<any>(null)
   const timerIntervalRef = useRef<any>(null)
+  const restartTimerRef = useRef<any>(null)
   const activeStreamRef = useRef<MediaStream | null>(null)
+  const isListeningRef = useRef(false)
+  const isStartingRef = useRef(false)
+  const spokenTextRef = useRef('')
+  spokenTextRef.current = spokenText
 
   const getSpeechRecClass = () => {
     if (typeof window === 'undefined') return null
     return (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition || null
   }
 
-  // Parar escuta
+  // Parar escuta e encerrar tracks de áudio e timers
   const stopListening = useCallback(() => {
+    isListeningRef.current = false
+    isStartingRef.current = false
+
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current)
+      restartTimerRef.current = null
+    }
+
     if (timerIntervalRef.current) {
       clearInterval(timerIntervalRef.current)
       timerIntervalRef.current = null
@@ -181,26 +194,56 @@ export function VoiceCadIaModal({
     setIsListening(false)
   }, [])
 
-  // Iniciar escuta livre
+  // Iniciar escuta livre de forma estável (sem restart loop)
   const startListening = useCallback(async () => {
-    stopListening()
+    if (!open) return
+    if (isStartingRef.current) return
+    isStartingRef.current = true
+
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current)
+      restartTimerRef.current = null
+    }
+
+    // Para recognition anterior sem destruir a stream de áudio se já estiver viva
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.onresult = null
+        recognitionRef.current.onerror = null
+        recognitionRef.current.onend = null
+        recognitionRef.current.stop()
+      } catch {
+        // ignore
+      }
+      recognitionRef.current = null
+    }
+
     setMicError(null)
 
     const SpeechRec = getSpeechRecClass()
     if (!SpeechRec) {
+      isStartingRef.current = false
       setMicError(
         'Seu navegador não possui suporte direto a ditado por voz. Digite no campo abaixo.',
       )
       return
     }
 
+    // Garante stream de áudio única aberta durante o ciclo do modal (sem reiniciar hardware repetidamente)
     try {
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      const isStreamActive =
+        activeStreamRef.current &&
+        activeStreamRef.current.active &&
+        activeStreamRef.current.getAudioTracks().some((t) => t.readyState === 'live')
+
+      if (!isStreamActive && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
         activeStreamRef.current = stream
       }
     } catch (err: any) {
+      console.warn('Verificação de microfone:', err)
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        isStartingRef.current = false
         setMicError('Microfone bloqueado. Permita o microfone no navegador para continuar.')
         return
       }
@@ -213,56 +256,87 @@ export function VoiceCadIaModal({
       recognition.interimResults = true
       recognition.maxAlternatives = 1
 
-      let accumulated = spokenText ? spokenText + ' ' : ''
+      // Mantém o texto acumulado até o momento do início deste ciclo
+      let baseText = spokenTextRef.current ? spokenTextRef.current.trim() : ''
 
       recognition.onresult = (event: any) => {
-        let currentTranscript = ''
+        let interimTranscript = ''
+        let newFinalTranscript = ''
+
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const t = event.results[i][0].transcript
           if (event.results[i].isFinal) {
-            accumulated += (accumulated ? ' ' : '') + t
+            newFinalTranscript += (newFinalTranscript ? ' ' : '') + t
           } else {
-            currentTranscript += t
+            interimTranscript += t
           }
         }
-        const full = (accumulated + ' ' + currentTranscript).trim()
+
+        if (newFinalTranscript) {
+          baseText = (baseText ? baseText + ' ' : '') + newFinalTranscript
+        }
+
+        const full = (baseText + (interimTranscript ? ' ' + interimTranscript : '')).trim()
         if (full) {
           setSpokenText(full)
         }
       }
 
       recognition.onerror = (event: any) => {
-        if (event.error === 'not-allowed') {
-          setMicError('Microfone bloqueado pelo usuário.')
+        console.warn('Cad IA SpeechRecognition erro:', event.error)
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+          setMicError('Microfone bloqueado ou sem permissão no navegador.')
           stopListening()
+        } else if (event.error === 'network') {
+          setMicError('Falha de conexão com o serviço de voz do navegador. Você pode digitar.')
+        } else if (event.error === 'no-speech') {
+          // Pausa normal da fala humana - não é erro crítico, onend cuidará do recomeço estável
         }
       }
 
       recognition.onend = () => {
-        // Se ainda estiver gravando na etapa inicial, reinicia
-        if (isListening) {
-          try {
-            recognition.start()
-          } catch {
-            setIsListening(false)
-          }
+        // Se ainda for para ouvir e o modal continuar aberto na etapa de gravação, reagenda start suave
+        if (isListeningRef.current && open) {
+          restartTimerRef.current = setTimeout(() => {
+            if (!isListeningRef.current || !open) return
+            try {
+              if (recognitionRef.current === recognition) {
+                recognition.start()
+                setIsListening(true)
+              } else {
+                startListening()
+              }
+            } catch {
+              // Se o start falhar no mesmo objeto (típico do Chrome Android), recria limpo
+              if (isListeningRef.current && open) {
+                startListening()
+              }
+            }
+          }, 250)
+        } else {
+          setIsListening(false)
         }
       }
 
       recognition.start()
       recognitionRef.current = recognition
+      isListeningRef.current = true
       setIsListening(true)
-      setRecordingSeconds(0)
 
-      timerIntervalRef.current = setInterval(() => {
-        setRecordingSeconds((prev) => prev + 1)
-      }, 1000)
+      if (!timerIntervalRef.current) {
+        timerIntervalRef.current = setInterval(() => {
+          setRecordingSeconds((prev) => prev + 1)
+        }, 1000)
+      }
     } catch (err: any) {
       console.warn('Falha ao iniciar microfone:', err)
       setMicError('Não foi possível iniciar o microfone. Você pode digitar.')
       setIsListening(false)
+      isListeningRef.current = false
+    } finally {
+      isStartingRef.current = false
     }
-  }, [isListening, spokenText, stopListening])
+  }, [open, stopListening])
 
   // Reset ao abrir modal
   useEffect(() => {
@@ -290,10 +364,10 @@ export function VoiceCadIaModal({
         observations: '',
       })
 
-      // Inicia automaticamente o microfone para conveniência
+      // Inicia automaticamente o microfone com atraso controlado para evitar concorrência com montagem
       const t = setTimeout(() => {
         startListening()
-      }, 150)
+      }, 200)
       return () => clearTimeout(t)
     } else {
       stopListening()

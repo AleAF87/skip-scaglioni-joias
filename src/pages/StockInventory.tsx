@@ -40,6 +40,7 @@ import {
   Download,
   FileSpreadsheet,
   HelpCircle,
+  Image as ImageIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Link } from 'react-router-dom'
@@ -1577,16 +1578,69 @@ export default function StockInventory() {
                   compatível nativamente com o Excel em português do Brasil.
                 </li>
                 <li>
-                  <strong>Codificação:</strong> UTF-8 com suporte a acentuação e caracteres
-                  especiais.
+                  <strong>Codificação:</strong> UTF-8 com BOM (bytes <code>EF BB BF</code> no
+                  início) para que o Excel abra acentuações e caracteres especiais corretamente com
+                  duplo clique.
                 </li>
                 <li>
-                  <strong>Valores em reais:</strong> Use vírgula como separador decimal (ex.:{' '}
-                  <code>51,95</code> ou <code>1250,00</code>). Não inclua o símbolo "R$".
+                  <strong>Valores em reais e casas decimais:</strong> Use sempre vírgula como
+                  separador decimal e 2 casas — tanto para centavos quanto para valores redondos
+                  (ex.: <code>51,95</code>; <code>138,42</code>; <code>35,50</code>;{' '}
+                  <code>450,00</code>). Não inclua o símbolo "R$".
                 </li>
                 <li>
                   <strong>Datas:</strong> Formato brasileiro <code>dd/mm/aaaa</code> (ex.:{' '}
                   <code>15/01/2025</code>).
+                </li>
+              </ul>
+            </div>
+
+            {/* Seção sobre fotos dos produtos */}
+            <div className="p-3.5 rounded-xl bg-[#F4F9F5] border border-[#2E7D4F]/30 space-y-2.5">
+              <div className="flex items-center gap-2">
+                <span className="p-1 rounded-md bg-[#2E7D4F]/15 text-[#2E7D4F]">
+                  <ImageIcon className="h-4 w-4" />
+                </span>
+                <h4 className="font-semibold text-xs uppercase tracking-wider text-[#2E7D4F]">
+                  Como enviar as fotos dos produtos
+                </h4>
+              </div>
+              <p className="text-xs text-[#2D2A26] leading-relaxed">
+                Como arquivos CSV transportam apenas dados em texto e não carregam imagens, o envio
+                de fotos segue uma regra simples e automática de correspondência pelo{' '}
+                <strong>código do produto</strong>:
+              </p>
+              <ul className="text-xs text-[#6B655E] space-y-1.5 list-disc pl-4">
+                <li>
+                  <strong>Nomenclatura dos arquivos:</strong> Nomeie cada arquivo de foto com o{' '}
+                  <strong>CÓDIGO</strong> do produto cadastrado na planilha, seguido de hífen e
+                  número sequencial para suportar <strong>múltiplas fotos por peça</strong>.
+                  <div className="mt-1 font-mono text-[11px] text-[#2E7D4F] bg-white p-2 rounded border border-[#2E7D4F]/20">
+                    Exemplo para o produto 100045:
+                    <br />• Foto principal: <code>100045-1.jpg</code>
+                    <br />• Fotos complementares: <code>100045-2.jpg</code>,{' '}
+                    <code>100045-3.jpg</code>
+                  </div>
+                </li>
+                <li>
+                  <strong>Formatos aceitos:</strong> Imagens no formato <code>JPG</code>,{' '}
+                  <code>JPEG</code> ou <code>PNG</code>.
+                </li>
+                <li>
+                  <strong>Várias imagens por produto:</strong> Você pode ter quantas fotos desejar
+                  por joia, bastando incrementar a sequência (<code>-1</code>, <code>-2</code>,{' '}
+                  <code>-3</code>...).
+                </li>
+                <li>
+                  <strong>Associação automática:</strong> O importador associará cada imagem
+                  diretamente ao produto cujo código corresponder ao prefixo do nome do arquivo.
+                </li>
+                <li>
+                  <strong>Recomendação importante sobre o código:</strong> Se a coluna{' '}
+                  <code>codigo</code> ficar em branco na planilha, o sistema gerará o código
+                  automaticamente. Contudo, para que a associação automática das fotos funcione,{' '}
+                  <strong>recomenda-se preencher previamente a coluna código</strong> no CSV com a
+                  mesma identificação usada nos nomes das fotos.
                 </li>
               </ul>
             </div>

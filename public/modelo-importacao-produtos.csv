@@ -1,6 +1,6 @@
-codigo;descricao;tipo;perfil;material;tamanho;data_entrada;valor_investido;preco_venda;quantidade;estoque_minimo_percentual;observacoes
-;Anel de Ouro 18k com Zircônia Cravejada;Anel;Feminino;Ouro 18k;16;15/01/2025;450,00;1250,00;8;30;Acabamento polido espelhado, cravação em quatro garras reforçada
-;Brinco Folheado a Ouro Redondo com Pérola;Brinco;Feminino;Folheado a Ouro;Único;01/02/2025;20,00;60,00;25;30;Banho de 10 milésimos, camada antialérgica de verniz suíço
-;Pulseira Masculina Elo Português Fecho Gaveta;Pulseira;Masculino;Ouro 18k;20;15/02/2025;890,00;2600,00;4;30;Malha elo português com fecho gaveta de dupla trava de segurança
-;Gargantilha Ponto de Luz em Prata 925;Gargantilha;Feminino;Prata 925;45cm;20/02/2025;55,00;180,00;12;30;Choker ponto de luz cristal austríaco lapidação brilhante
-;Colar Veneziano em Aço Cirúrgico com Cruz;Colar;Unissex;Aço Cirúrgico;50cm;10/03/2025;35,50;119,90;15;30;Aço 316L cirúrgico antialérgico, corrente veneziana 50cm
+﻿codigo;descricao;tipo;perfil;material;tamanho;data_entrada;valor_investido;preco_venda;quantidade;estoque_minimo_percentual;observacoes
+100041;Anel Solitário de Ouro 18k com Zircônia Cravejada;Anel;Feminino;Ouro 18k;16;15/01/2025;450,00;1250,00;8;30;Acabamento polido espelhado, cravação em quatro garras reforçada
+100042;Brinco Folheado a Ouro Redondo com Pérola Natural;Brinco;Feminino;Folheado a Ouro;Único;01/02/2025;20,00;51,95;25;30;Banho de 10 milésimos, camada antialérgica de verniz suíço
+100043;Pulseira Masculina Elo Português Fecho Gaveta Duplo;Pulseira;Masculino;Ouro 18k;20;15/02/2025;890,00;2600,00;4;30;Malha elo português com fecho gaveta de dupla trava de segurança
+100044;Gargantilha Ponto de Luz em Prata 925 Cristal Lapidado;Gargantilha;Feminino;Prata 925;45cm;20/02/2025;42,50;138,42;12;30;Choker ponto de luz cristal austríaco lapidação brilhante
+100045;Colar Veneziano em Aço Cirúrgico com Pingente Cruz;Colar;Unissex;Aço Cirúrgico;50cm;10/03/2025;35,50;119,90;15;30;Aço 316L cirúrgico antialérgico, corrente veneziana 50cm
