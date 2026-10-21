@@ -124,7 +124,7 @@ export default function Layout() {
       : []),
     ...(isAdmin ? [{ to: '/usuarios', label: 'Gestão de Usuários', icon: UserCheck }] : []),
     ...(isAdmin ? [{ to: '/empresa', label: 'Dados da Empresa (Contrato)', icon: Building2 }] : []),
-    { to: '/instalar', label: 'Instalar o App (PWA)', icon: Download },
+    { to: '/instalar', label: 'Instalar o App (PWA)', icon: Download, badgeText: 'App' },
     { to: '/perfil', label: 'Meu Perfil', icon: User },
   ]
 
@@ -375,6 +375,11 @@ export default function Layout() {
                           IA
                         </span>
                       )}
+                      {item.badgeText && (
+                        <span className="ml-1.5 text-[9px] bg-[#7A5C2E] text-white px-1 py-0.2 rounded font-bold uppercase">
+                          {item.badgeText}
+                        </span>
+                      )}{' '}
                     </TooltipContent>
                   </Tooltip>
                 )
@@ -406,6 +411,11 @@ export default function Layout() {
                   {item.highlight && (
                     <span className="text-[10px] bg-[#C6A664] text-white px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wider shrink-0">
                       IA
+                    </span>
+                  )}
+                  {item.badgeText && (
+                    <span className="text-[10px] bg-[#F3EAD8] text-[#7A5C2E] border border-[#C6A664]/50 px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wider shrink-0">
+                      {item.badgeText}
                     </span>
                   )}
                 </NavLink>
@@ -560,6 +570,11 @@ export default function Layout() {
                         <div className="flex items-center gap-3">
                           <Icon className="h-4 w-4" />
                           <span>{item.label}</span>
+                          {item.badgeText && (
+                            <span className="text-[9px] bg-[#F3EAD8] text-[#7A5C2E] border border-[#C6A664]/50 px-1.5 py-0.5 rounded font-bold uppercase">
+                              {item.badgeText}
+                            </span>
+                          )}
                         </div>
                         <ChevronRight className="h-4 w-4 text-[#C6A664]" />
                       </NavLink>

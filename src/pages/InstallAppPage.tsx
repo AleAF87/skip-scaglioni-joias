@@ -144,8 +144,8 @@ export default function InstallAppPage() {
                   Aplicativo Já Instalado!
                 </h3>
                 <p className="text-xs text-emerald-700 mt-0.5">
-                  Você já está executando o Scaglioni Joias em modo aplicativo na sua tela de
-                  início.
+                  Você já está executando o Scaglioni Joias em modo aplicativo na sua tela de início
+                  ou desktop.
                 </p>
               </div>
             </CardContent>
@@ -165,7 +165,8 @@ export default function InstallAppPage() {
                   Pronto para Instalação Rápida
                 </h3>
                 <p className="text-xs text-[#6B655E]">
-                  Seu navegador é 100% compatível com a instalação direta em um clique.
+                  Seu navegador disparou a instalação direta. Clique no botão abaixo para adicionar
+                  aos seus aplicativos.
                 </p>
               </div>
               <Button
@@ -178,7 +179,39 @@ export default function InstallAppPage() {
               </Button>
             </CardContent>
           </Card>
-        ) : null}
+        ) : (
+          <Card className="border-[#E5DFD5] bg-gradient-to-br from-[#FFFFFF] to-[#FDFBF7] shadow-sm max-w-xl mx-auto">
+            <CardContent className="p-6 space-y-4">
+              <div className="flex items-start gap-4">
+                <img
+                  src={LOGO_ICON_URL}
+                  alt="Ícone Scaglioni Joias"
+                  className="h-14 w-14 rounded-2xl shadow-sm border border-[#C6A664]/40 shrink-0"
+                />
+                <div className="space-y-1">
+                  <h3 className="font-serif text-base font-bold text-[#2D2A26]">
+                    Instalação Direta no seu Navegador
+                  </h3>
+                  <p className="text-xs text-[#6B655E]">
+                    No computador (Chrome ou Edge), o navegador exibe o botão de instalação
+                    diretamente na <strong>barra de endereços</strong> ou no menu ⋮.
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-[#F3EAD8]/60 border border-[#C6A664]/40 text-xs text-[#7A5C2E] flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Monitor className="h-4 w-4 text-[#7A5C2E] shrink-0" />
+                  <span>
+                    Procure o ícone de instalação{' '}
+                    <strong>(computador com seta para baixo ou +)</strong> no lado direito da barra
+                    de endereço da URL.
+                  </span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {installSuccess && (
           <div className="p-4 rounded-xl bg-emerald-100 border border-emerald-300 text-emerald-900 text-xs text-center font-medium max-w-xl mx-auto">
@@ -422,11 +455,17 @@ export default function InstallAppPage() {
                       </span>
                       <div>
                         <strong className="block text-[#2D2A26] font-semibold">
-                          Observe o ícone de instalação na barra de endereços (URL)
+                          No Google Chrome ou Microsoft Edge (Windows / Linux / Mac)
                         </strong>
-                        <span className="text-[#6B655E] text-xs">
-                          No canto direito da barra de navegação superior, ao lado da estrelinha de
-                          favoritos, clique no ícone de computador com seta para baixo ou "+".
+                        <span className="text-[#6B655E] text-xs block mt-1">
+                          • <strong>Barra de endereços:</strong> no lado direito da barra onde você
+                          digita a URL, clique no ícone de <em>computador com seta para baixo</em>{' '}
+                          (ou botão <em>"Instalar Scaglioni Joias"</em>).
+                        </span>
+                        <span className="text-[#6B655E] text-xs block mt-0.5">
+                          • <strong>Ou pelo Menu:</strong> clique nos 3 pontinhos verticais (⋮) &gt;{' '}
+                          <em>"Salvar e compartilhar"</em> ou <em>"Apps"</em> &gt;{' '}
+                          <strong>"Instalar Scaglioni Joias..."</strong>.
                         </span>
                       </div>
                     </li>
@@ -437,11 +476,13 @@ export default function InstallAppPage() {
                       </span>
                       <div>
                         <strong className="block text-[#2D2A26] font-semibold">
-                          Ou pelo Menu de 3 Pontinhos do Navegador
+                          No Safari (macOS Sonoma ou mais recente)
                         </strong>
-                        <span className="text-[#6B655E] text-xs">
-                          Clique em Menu (⋮) &gt; "Salvar e compartilhar" / "Apps" &gt; "Instalar
-                          Scaglioni Joias...".
+                        <span className="text-[#6B655E] text-xs block mt-1">
+                          No menu superior do macOS com o Safari aberto, clique em{' '}
+                          <strong>Arquivo</strong> &gt; <strong>"Adicionar ao Dock..."</strong>. O
+                          ícone oficial da Scaglioni Joias ficará no seu Dock como aplicativo
+                          nativo.
                         </span>
                       </div>
                     </li>
@@ -452,11 +493,12 @@ export default function InstallAppPage() {
                       </span>
                       <div>
                         <strong className="block text-[#2D2A26] font-semibold">
-                          Clique em "Instalar"
+                          Confirmação e Atalho na Área de Trabalho
                         </strong>
                         <span className="text-[#6B655E] text-xs">
-                          O app abrirá em uma janela própria dedicada, sem as barras do navegador,
-                          com atalho na sua área de trabalho.
+                          Ao confirmar em "Instalar", o Scaglioni Joias abrirá em janela própria
+                          dedicada, sem as abas do navegador, com o ícone oficial dourado e
+                          desempenho otimizado para PDV e gestão.
                         </span>
                       </div>
                     </li>

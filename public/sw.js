@@ -1,6 +1,17 @@
 // Service Worker básico para permitir instalação PWA (app shell) e offline fallback mínimo
-const CACHE_NAME = 'scaglioni-cache-v1'
-const PRECACHE_URLS = ['/', '/index.html', '/manifest.webmanifest']
+const CACHE_NAME = 'scaglioni-cache-v2'
+const PRECACHE_URLS = [
+  '/',
+  '/index.html',
+  '/manifest.webmanifest',
+  '/favicon.ico',
+  '/favicon-32x32.png',
+  '/favicon-16x16.png',
+  '/icon-192.png',
+  '/icon-512.png',
+  '/icon-maskable.png',
+  '/apple-touch-icon.png',
+]
 
 self.addEventListener('install', (event) => {
   self.skipWaiting()
