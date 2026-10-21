@@ -1,6 +1,7 @@
 import { ConsignmentDocumentSnapshot } from '@/types'
 import { getDocumentTextModel } from './contractTextModel'
 import { formatCurrency, formatDateTime } from './formatters'
+import { LOGO_ICON_URL } from '@/constants/branding'
 
 /**
  * Carrega a biblioteca jsPDF dinamicamente do CDN oficial (jsdelivr/unpkg)
@@ -114,21 +115,32 @@ export async function generateConsignmentContractPdf(params: {
   }
 
   // --- CABEÇALHO DO DOCUMENTO (PÁGINA 1) ---
-  doc.setFillColor(243, 234, 216) // Fundo bege claro da Scaglioni (#F3EAD8)
+  doc.setFillColor(0, 0, 0) // Fundo preto institucional da Scaglioni
   doc.rect(marginLeft, currentY, contentWidth, 24, 'F')
   doc.setDrawColor(198, 166, 100) // Dourado Scaglioni (#C6A664)
   doc.setLineWidth(0.4)
   doc.rect(marginLeft, currentY, contentWidth, 24, 'S')
 
+  // Inserir miniatura do ícone/logo no PDF se disponível
+  try {
+    const logoBase64 = await getBase64ImageFromUrl(LOGO_ICON_URL)
+    if (logoBase64) {
+      doc.addImage(logoBase64, 'PNG', marginLeft + 4, currentY + 3.5, 17, 17)
+    }
+  } catch {
+    /* ignore */
+  }
+
+  const textStartX = marginLeft + 24
   doc.setFont('times', 'bold')
   doc.setFontSize(13)
-  doc.setTextColor(45, 42, 38) // Grafite profundo (#2D2A26)
-  doc.text('SCAGLIONI JOIAS', marginLeft + 5, currentY + 8)
+  doc.setTextColor(198, 166, 100) // Dourado (#C6A664)
+  doc.text('SCAGLIONI JOIAS', textStartX, currentY + 9)
 
   doc.setFont('helvetica', 'normal')
-  doc.setFontSize(8)
-  doc.setTextColor(122, 92, 46)
-  doc.text('ALTA JOALHERIA • CONTRATO ELETRÔNICO DE CONSIGNAÇÃO', marginLeft + 5, currentY + 13)
+  doc.setFontSize(7.5)
+  doc.setTextColor(243, 234, 216)
+  doc.text('ALTA JOALHERIA • CONTRATO ELETRÔNICO DE CONSIGNAÇÃO', textStartX, currentY + 15)
 
   // Status Badge no topo direito
   const badgeText = (statusLabel || model.lista.status || 'PENDENTE DE ASSINATURA').toUpperCase()

@@ -16,9 +16,15 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowe
     return (
       <div className="flex h-screen w-full items-center justify-center bg-[#FDFBF7]">
         <div className="flex flex-col items-center gap-3">
-          <div className="h-10 w-10 animate-spin rounded-full border-4 border-[#C6A664] border-t-transparent" />
+          <div className="bg-black p-3 rounded-2xl shadow-md border border-[#C6A664]/50 animate-pulse">
+            <img
+              src="/logo-scaglioni-icon.png"
+              alt="Scaglioni Joias"
+              className="h-10 w-10 object-contain"
+            />
+          </div>
           <p className="font-serif text-lg text-[#2D2A26]">Scaglioni Joias</p>
-          <span className="text-sm text-[#6B655E]">Carregando acesso...</span>
+          <span className="text-xs text-[#6B655E]">Carregando acesso seguro...</span>
         </div>
       </div>
     )

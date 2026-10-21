@@ -20,6 +20,7 @@ import {
   ChevronRight,
   ZoomIn,
 } from 'lucide-react'
+import { LOGO_ICON_URL } from '@/constants/branding'
 
 export default function CatalogVitrine() {
   const [products, setProducts] = useState<Product[]>([])
@@ -109,8 +110,8 @@ export default function CatalogVitrine() {
           </p>
         </div>
 
-        <div className="h-14 w-14 rounded-2xl bg-[#C6A664]/20 border border-[#C6A664]/40 flex items-center justify-center text-[#7A5C2E] shrink-0">
-          <Store className="h-7 w-7" />
+        <div className="h-16 w-16 rounded-2xl bg-black border border-[#C6A664]/50 p-2 flex items-center justify-center shrink-0 shadow-md">
+          <img src={LOGO_ICON_URL} alt="Scaglioni Joias" className="w-full h-full object-contain" />
         </div>
       </div>
 
@@ -227,10 +228,14 @@ export default function CatalogVitrine() {
                       </button>
                     </>
                   ) : (
-                    <div className="flex flex-col items-center justify-center text-[#C6A664]/60">
-                      <Gem className="h-12 w-12 stroke-[1.5]" />
-                      <span className="text-[10px] uppercase font-bold tracking-wider mt-2">
-                        Scaglioni
+                    <div className="flex flex-col items-center justify-center p-4">
+                      <img
+                        src={LOGO_ICON_URL}
+                        alt="Scaglioni Joias"
+                        className="h-12 w-12 rounded-xl object-contain opacity-85 mb-1"
+                      />
+                      <span className="text-[10px] uppercase font-bold tracking-wider text-[#7A5C2E]">
+                        Scaglioni Joias
                       </span>
                     </div>
                   )}

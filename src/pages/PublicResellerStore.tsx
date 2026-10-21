@@ -23,6 +23,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { ImageLightbox } from '@/components/ImageLightbox'
 import { toast } from 'sonner'
+import { LOGO_FULL_URL, LOGO_ICON_URL } from '@/constants/branding'
 
 export default function PublicResellerStore() {
   const { resellerId } = useParams<{ resellerId: string }>()
@@ -121,8 +122,8 @@ export default function PublicResellerStore() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-[#FDFBF7] flex flex-col items-center justify-center p-4">
-        <div className="h-12 w-12 rounded-2xl bg-gradient-to-tr from-[#7A5C2E] to-[#C6A664] flex items-center justify-center text-white animate-pulse shadow-md mb-3">
-          <Sparkles className="h-6 w-6" />
+        <div className="bg-black p-3 rounded-2xl shadow-md border border-[#C6A664]/50 mb-3 animate-pulse">
+          <img src={LOGO_ICON_URL} alt="Scaglioni Joias" className="h-12 w-12 object-contain" />
         </div>
         <p className="font-serif text-lg font-bold text-[#2D2A26]">Scaglioni Joias</p>
         <p className="text-xs text-[#6B655E] mt-1">Carregando catálogo da revendedora...</p>
@@ -149,19 +150,18 @@ export default function PublicResellerStore() {
 
   return (
     <div className="min-h-screen bg-[#FDFBF7] text-[#2D2A26] flex flex-col">
-      {/* Top Banner & Header */}
-      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-[#E5DFD5] shadow-xs">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-[#7A5C2E] via-[#C6A664] to-[#E8D5A3] flex items-center justify-center text-white shadow-xs">
-              <Sparkles className="h-4 w-4" />
-            </div>
-            <div>
-              <span className="font-serif font-bold text-base text-[#2D2A26] tracking-tight block leading-tight">
-                Scaglioni Joias
-              </span>
-              <span className="text-[10px] text-[#7A5C2E] font-medium uppercase tracking-wider block">
-                Vitrine Exclusiva
+      {/* Top Banner & Header com a logo oficial completa */}
+      <header className="sticky top-0 z-40 bg-[#000000] border-b border-[#333333] shadow-md">
+        <div className="max-w-6xl mx-auto px-4 py-2.5 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <img
+              src={LOGO_FULL_URL}
+              alt="Scaglioni Joias"
+              className="h-9 sm:h-10 w-auto max-w-[190px] sm:max-w-[240px] object-contain"
+            />
+            <div className="hidden sm:block border-l border-[#C6A664]/40 pl-3">
+              <span className="text-[10px] text-[#C6A664] font-semibold uppercase tracking-wider block leading-tight">
+                Vitrine Exclusiva de Joias
               </span>
             </div>
           </div>
@@ -311,8 +311,14 @@ export default function PublicResellerStore() {
                         />
                       ) : (
                         <div className="flex flex-col items-center justify-center text-[#A8A196] p-4 text-center">
-                          <Gem className="h-8 w-8 text-[#C6A664]/60 mb-1" />
-                          <span className="text-[10px]">Scaglioni Joias</span>
+                          <img
+                            src={LOGO_ICON_URL}
+                            alt="Scaglioni Joias"
+                            className="h-10 w-10 rounded-lg object-contain mb-1 opacity-80"
+                          />
+                          <span className="text-[10px] text-[#7A5C2E] font-medium">
+                            Scaglioni Joias
+                          </span>
                         </div>
                       )}
 
@@ -388,17 +394,18 @@ export default function PublicResellerStore() {
         )}
       </main>
 
-      {/* Footer */}
-      <footer className="bg-white border-t border-[#E5DFD5] py-6 px-4 mt-auto">
-        <div className="max-w-6xl mx-auto text-center space-y-2">
-          <div className="flex items-center justify-center gap-2">
-            <div className="h-6 w-6 rounded-md bg-[#C6A664] flex items-center justify-center text-white text-xs font-serif font-bold">
-              S
-            </div>
-            <span className="font-serif font-bold text-sm text-[#2D2A26]">Scaglioni Joias</span>
+      {/* Footer com logo institucional */}
+      <footer className="bg-[#000000] border-t border-[#333333] py-6 px-4 mt-auto text-white">
+        <div className="max-w-6xl mx-auto text-center space-y-3">
+          <div className="flex justify-center">
+            <img
+              src={LOGO_FULL_URL}
+              alt="Scaglioni Joias"
+              className="h-8 w-auto max-w-[180px] object-contain"
+            />
           </div>
-          <p className="text-[11px] text-[#6B655E]">
-            Catálogo virtual exclusivo de {reseller.name} • Joias e Semijoias Finas
+          <p className="text-[11px] text-[#C6A664]">
+            Catálogo virtual exclusivo de {reseller.name} • Alta Joalheria & Consignação
           </p>
         </div>
       </footer>

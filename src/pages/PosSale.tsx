@@ -9,6 +9,7 @@ import {
   normalizeCurrencyValue,
 } from '@/lib/formatters'
 import { ImageLightbox } from '@/components/ImageLightbox'
+import { LOGO_ICON_URL } from '@/constants/branding'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -1074,7 +1075,16 @@ export default function PosSale() {
           {completedSale && (
             <div className="receipt-print-area space-y-4 text-xs font-mono border border-dashed border-[#E5DFD5] p-5 rounded-xl bg-[#FFFFFF]">
               <div className="text-center pb-2 border-b border-[#2D2A26]/30">
-                <h2 className="font-serif text-lg font-bold uppercase tracking-wider text-[#2D2A26]">
+                <div className="flex justify-center mb-1">
+                  <div className="bg-black p-1.5 rounded-lg inline-block">
+                    <img
+                      src={LOGO_ICON_URL}
+                      alt="Scaglioni Joias"
+                      className="h-8 w-8 object-contain"
+                    />
+                  </div>
+                </div>
+                <h2 className="font-serif text-base font-bold uppercase tracking-wider text-[#2D2A26]">
                   Scaglioni Joias
                 </h2>
                 <p className="text-[10px] text-[#6B655E]">ALTA JOALHERIA & CONIGNAÇÃO</p>

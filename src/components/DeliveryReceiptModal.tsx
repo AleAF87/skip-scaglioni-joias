@@ -3,6 +3,7 @@ import { Printer, X, Sparkles, CheckCircle2, Calendar, User, Package } from 'luc
 import { Button } from '@/components/ui/button'
 import { ResellerDelivery } from '@/types'
 import { formatCurrency, formatDateTime } from '@/lib/formatters'
+import { LOGO_ICON_URL } from '@/constants/branding'
 
 interface DeliveryReceiptModalProps {
   delivery: ResellerDelivery | null
@@ -63,16 +64,20 @@ export const DeliveryReceiptModal: React.FC<DeliveryReceiptModalProps> = ({
           {/* Brand header */}
           <div className="flex items-start justify-between border-b border-[#E5DFD5] pb-5">
             <div>
-              <div className="flex items-center gap-2">
-                <div className="h-8 w-8 rounded-lg bg-gradient-to-tr from-[#7A5C2E] via-[#C6A664] to-[#E8D5A3] flex items-center justify-center text-white font-serif font-bold text-sm">
-                  S
+              <div className="flex items-center gap-3">
+                <div className="bg-black p-1.5 rounded-xl border border-[#C6A664]/50 shrink-0">
+                  <img
+                    src={LOGO_ICON_URL}
+                    alt="Scaglioni Joias"
+                    className="h-10 w-10 object-contain"
+                  />
                 </div>
                 <div>
                   <h1 className="font-serif text-xl font-bold tracking-tight text-[#2D2A26]">
                     Scaglioni Joias
                   </h1>
                   <p className="text-[11px] text-[#6B655E] uppercase tracking-wider font-medium">
-                    Alta Joalheria • Estoque Próprio de Vendedora
+                    Alta Joalheria • Comprovante Oficial de Entrega
                   </p>
                 </div>
               </div>

@@ -28,6 +28,7 @@ import ResellerPosSale from '@/pages/ResellerPosSale'
 import ResellerReturnsAndIssues from '@/pages/ResellerReturnsAndIssues'
 import ResellerFinancial from '@/pages/ResellerFinancial'
 import PublicResellerStore from '@/pages/PublicResellerStore'
+import InstallAppPage from '@/pages/InstallAppPage'
 
 export default function App() {
   return (
@@ -40,6 +41,7 @@ export default function App() {
           <Route path="/recuperar-senha" element={<ForgotPasswordPage />} />
           <Route path="/solicitar-revendedor" element={<ResellerRequestPage />} />
           <Route path="/loja/:resellerId" element={<PublicResellerStore />} />
+          <Route path="/instalar" element={<InstallAppPage />} />
 
           {/* Authenticated Root under Layout */}
           <Route

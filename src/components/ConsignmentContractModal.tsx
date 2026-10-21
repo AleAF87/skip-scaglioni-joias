@@ -15,6 +15,7 @@ import {
 } from '@/services/consignmentDocumentService'
 import { generateConsignmentContractPdf } from '@/lib/pdfContractGenerator'
 import { TouchSignaturePad } from '@/components/TouchSignaturePad'
+import { LOGO_FULL_URL, LOGO_ICON_URL } from '@/constants/branding'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -331,11 +332,17 @@ export const ConsignmentContractModal: React.FC<ConsignmentContractModalProps> =
             </div>
           )}
 
-          {/* TÍTULO */}
-          <div className="text-center space-y-2 border-b border-[#E5DFD5] pb-6">
-            <span className="text-xs uppercase tracking-widest font-sans font-bold text-[#7A5C2E]">
-              Scaglioni Joias • Alta Joalheria
-            </span>
+          {/* TÍTULO COM LOGOTIPO OFICIAL */}
+          <div className="text-center space-y-3 border-b border-[#E5DFD5] pb-6">
+            <div className="flex justify-center">
+              <div className="bg-black p-3.5 rounded-xl border border-[#C6A664]/40 inline-flex items-center justify-center max-w-[220px]">
+                <img
+                  src={LOGO_FULL_URL}
+                  alt="Scaglioni Joias"
+                  className="h-10 w-auto object-contain"
+                />
+              </div>
+            </div>
             <h1 className="font-serif text-xl md:text-2xl font-bold tracking-tight text-[#2D2A26] uppercase">
               {model.titulo}
             </h1>
@@ -802,13 +809,12 @@ export const ConsignmentContractModal: React.FC<ConsignmentContractModalProps> =
                     Área de Assinatura Digital da Contratante
                   </span>
 
-                  <div className="h-16 border border-[#E5DFD5] bg-white rounded-lg flex flex-col items-center justify-center p-2 mb-3 text-center">
-                    <span className="font-serif font-bold text-sm text-[#7A5C2E]">
-                      Scaglioni Joias
-                    </span>
-                    <span className="text-[9px] text-[#6B655E] uppercase tracking-wider">
-                      Autenticação de Emissão Digital
-                    </span>
+                  <div className="h-16 border border-[#E5DFD5] bg-black rounded-lg flex items-center justify-center p-2 mb-3 text-center">
+                    <img
+                      src={LOGO_FULL_URL}
+                      alt="Scaglioni Joias"
+                      className="h-9 w-auto max-w-[160px] object-contain"
+                    />
                   </div>
 
                   <div className="text-[11px] space-y-0.5 text-[#2D2A26]">

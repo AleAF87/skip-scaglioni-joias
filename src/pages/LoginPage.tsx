@@ -5,9 +5,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Sparkles, Lock, Mail, ArrowRight, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { Lock, Mail, ArrowRight, AlertCircle, Smartphone } from 'lucide-react'
 import { toast } from 'sonner'
 import { APP_VERSION } from '@/version'
+import { LOGO_FULL_URL } from '@/constants/branding'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -43,14 +44,15 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-[#FDFBF7] flex items-center justify-center p-4">
       <div className="w-full max-w-md space-y-6">
-        {/* Brand Header */}
-        <div className="text-center space-y-2">
-          <div className="h-16 w-16 mx-auto rounded-2xl bg-gradient-to-tr from-[#7A5C2E] via-[#C6A664] to-[#E8D5A3] flex items-center justify-center text-white shadow-lg">
-            <Sparkles className="h-8 w-8" />
+        {/* Brand Header com a Logo Oficial da Marca */}
+        <div className="text-center space-y-3">
+          <div className="inline-flex items-center justify-center bg-[#000000] p-4 sm:p-5 rounded-2xl shadow-xl border border-[#C6A664]/40 mx-auto max-w-[280px]">
+            <img
+              src={LOGO_FULL_URL}
+              alt="Scaglioni Joias"
+              className="w-full h-auto max-h-20 sm:max-h-24 object-contain"
+            />
           </div>
-          <h1 className="font-serif text-3xl font-bold tracking-tight text-[#2D2A26]">
-            Scaglioni Joias
-          </h1>
           <p className="text-xs uppercase tracking-widest text-[#7A5C2E] font-semibold">
             Sistema de Gestão & Consignação
           </p>
@@ -129,6 +131,15 @@ export default function LoginPage() {
               >
                 Solicitar Cadastro de Revendedor <ArrowRight className="h-3.5 w-3.5 ml-1" />
               </Link>
+              <div>
+                <Link
+                  to="/instalar"
+                  className="inline-flex items-center gap-1.5 text-xs text-[#6B655E] hover:text-[#7A5C2E] font-medium transition-colors mt-1"
+                >
+                  <Smartphone className="h-3.5 w-3.5 text-[#C6A664]" />
+                  <span>Instalar Aplicativo no Celular / PC</span>
+                </Link>
+              </div>
             </div>
           </CardContent>
         </Card>
