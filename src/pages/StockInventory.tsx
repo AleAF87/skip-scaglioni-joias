@@ -1,7 +1,13 @@
 import React, { useState, useEffect } from 'react'
 import { productService } from '@/services/productService'
 import { Product, ProductType, ProductMaterial, ProductSize } from '@/types'
-import { formatCurrency, formatDate, getFileUrl, normalizeCurrencyValue } from '@/lib/formatters'
+import {
+  formatCurrency,
+  formatDate,
+  getFileUrl,
+  getProductDisplayPhoto,
+  normalizeCurrencyValue,
+} from '@/lib/formatters'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -829,10 +835,7 @@ export default function StockInventory() {
                   const isSelected = selectedIds.includes(p.id)
                   const isEditingThisQty = editingQtyId === p.id
                   const isLowStock = p.quantity <= (p.minimum_quantity || 3)
-                  const photo =
-                    p.photos && p.photos.length > 0
-                      ? getFileUrl('products', p.id, p.photos[0])
-                      : null
+                  const photo = getProductDisplayPhoto(p)
                   const hasPhoto = Boolean(photo)
 
                   return (

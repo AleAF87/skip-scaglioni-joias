@@ -59,6 +59,8 @@ export interface Product {
   minimum_quantity?: number
   observations?: string
   photos?: string[]
+  import_image_path?: string
+  image_url?: string
   status: 'available' | 'unavailable'
   created: string
   updated: string

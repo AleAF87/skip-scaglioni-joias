@@ -7,7 +7,7 @@ import {
   AppSettings,
 } from '@/types'
 import { valorPorExtenso } from '@/lib/numberToWords'
-import { getFileUrl } from '@/lib/formatters'
+import { getFileUrl, getProductDisplayPhoto } from '@/lib/formatters'
 
 /**
  * Utilitário para gerar SHA-256 no browser
@@ -53,7 +53,9 @@ export function buildDocumentSnapshot(params: {
       type_name: it.type_name || '',
       material_name: it.material_name || '',
       size_name: it.size_name || '',
-      photo_url: it.photo_url || (it.photo ? getFileUrl('products', it.product_id, it.photo) : ''),
+      photo_url:
+        it.photo_url ||
+        (it.photo ? getFileUrl('products', it.product_id, it.photo) : (it as any).image_url || ''),
       quantity: qty,
       selling_price: unitPrice,
       subtotal: qty * unitPrice,

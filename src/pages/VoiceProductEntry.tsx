@@ -4,6 +4,7 @@ import { Product, ProductType, ProductMaterial, ProductSize } from '@/types'
 import {
   formatCurrency,
   getFileUrl,
+  getProductDisplayPhoto,
   normalizeCurrencyValue,
   normalizeCurrencyText,
 } from '@/lib/formatters'
@@ -1908,10 +1909,7 @@ export default function VoiceProductEntry() {
                 </thead>
                 <tbody className="divide-y divide-[#E5DFD5]">
                   {recentProducts.map((p) => {
-                    const photo =
-                      p.photos && p.photos.length > 0
-                        ? getFileUrl('products', p.id, p.photos[0])
-                        : null
+                    const photo = getProductDisplayPhoto(p)
                     const hasPhoto = Boolean(photo)
 
                     return (

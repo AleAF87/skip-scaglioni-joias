@@ -16,7 +16,7 @@ import {
 } from 'lucide-react'
 import { resellerStockService } from '@/services/resellerStockService'
 import { Reseller, ResellerStockItem, Product } from '@/types'
-import { formatCurrency, getFileUrl } from '@/lib/formatters'
+import { formatCurrency, getFileUrl, getProductDisplayPhoto } from '@/lib/formatters'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -285,10 +285,7 @@ export default function PublicResellerStore() {
               const prod = it.expand?.product
               if (!prod) return null
               const price = it.selling_price || prod.selling_price || 0
-              const photoUrl =
-                prod.photos && prod.photos.length > 0
-                  ? getFileUrl('products', prod.id, prod.photos[0])
-                  : null
+              const photoUrl = getProductDisplayPhoto(prod)
 
               const waLink = getWhatsAppLink(prod, price)
 

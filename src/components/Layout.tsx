@@ -24,6 +24,7 @@ import {
   PanelLeftOpen,
   Download,
   Zap,
+  FileSpreadsheet,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -123,6 +124,16 @@ export default function Layout() {
       ? [{ to: '/revendedores', label: 'Revendedores', icon: Users2 }]
       : []),
     ...(isAdmin ? [{ to: '/usuarios', label: 'Gestão de Usuários', icon: UserCheck }] : []),
+    ...(isAdmin
+      ? [
+          {
+            to: '/importar-produtos',
+            label: 'Importar Produtos',
+            icon: FileSpreadsheet,
+            badgeText: 'Novo',
+          },
+        ]
+      : []),
     ...(isAdmin ? [{ to: '/empresa', label: 'Dados da Empresa (Contrato)', icon: Building2 }] : []),
     { to: '/instalar', label: 'Instalar o App (PWA)', icon: Download, badgeText: 'App' },
     { to: '/perfil', label: 'Meu Perfil', icon: User },

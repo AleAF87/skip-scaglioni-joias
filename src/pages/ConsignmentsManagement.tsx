@@ -3,7 +3,13 @@ import { resellerService } from '@/services/resellerService'
 import { productService } from '@/services/productService'
 import { useAuth } from '@/contexts/AuthContext'
 import { ConsignmentList, Product, Reseller, ConsignmentItem, AppSettings } from '@/types'
-import { formatCurrency, formatDate, formatDateTime, getFileUrl } from '@/lib/formatters'
+import {
+  formatCurrency,
+  formatDate,
+  formatDateTime,
+  getFileUrl,
+  getProductDisplayPhoto,
+} from '@/lib/formatters'
 import { ImageLightbox } from '@/components/ImageLightbox'
 import { companySettingsService } from '@/services/companySettingsService'
 import { consignmentDocumentService } from '@/services/consignmentDocumentService'
@@ -169,10 +175,7 @@ export default function ConsignmentsManagement() {
         prev.map((it) => (it.product_id === prod.id ? { ...it, quantity: it.quantity + 1 } : it)),
       )
     } else {
-      const photoUrl =
-        prod.photos && prod.photos.length > 0
-          ? getFileUrl('products', prod.id, prod.photos[0])
-          : undefined
+      const photoUrl = getProductDisplayPhoto(prod) || undefined
 
       setSelectedItemsForConsign((prev) => [
         ...prev,

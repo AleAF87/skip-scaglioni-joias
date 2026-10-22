@@ -212,6 +212,67 @@ export const productService = {
     })
   },
 
+  async clearAllProductsAndStock(confirmation: string) {
+    return pb.send<{
+      success: boolean
+      message: string
+      deleted: {
+        products: number
+        reseller_stock_items: number
+        reseller_issues: number
+      }
+    }>('/backend/v1/products/import/clear-all', {
+      method: 'POST',
+      body: JSON.stringify({ confirmation }),
+    })
+  },
+
+  async importProductsBatch(
+    items: Array<{
+      code: string
+      description: string
+      quantity: number
+      selling_price: number
+      invested_value: number
+      image_url?: string
+      import_image_path?: string
+    }>,
+  ) {
+    return pb.send<{
+      success: boolean
+      imported: number
+      updated: number
+      skipped: number
+      total_received: number
+      errors: Array<{ index: number; code?: string; description?: string; error: string }>
+    }>('/backend/v1/products/import/batch', {
+      method: 'POST',
+      body: JSON.stringify({ items }),
+    })
+  },
+
+  async getImportImageMap() {
+    return pb.send<{
+      total: number
+      items: Array<{
+        id: string
+        code: string
+        description: string
+        import_image_path: string
+        image_url: string
+        photos: string[]
+      }>
+    }>('/backend/v1/products/import/image-map', {
+      method: 'GET',
+    })
+  },
+
+  async uploadProductPhoto(productId: string, file: File | Blob, filename: string) {
+    const formData = new FormData()
+    formData.append('photos', file, filename)
+    return pb.collection('products').update<Product>(productId, formData)
+  },
+
   async updateBatch(ids: string[], updates: Partial<Product>) {
     const promises = ids.map((id) => pb.collection('products').update(id, updates))
     return Promise.all(promises)

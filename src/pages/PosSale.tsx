@@ -6,6 +6,7 @@ import {
   formatCurrency,
   formatDateTime,
   getFileUrl,
+  getProductDisplayPhoto,
   normalizeCurrencyValue,
 } from '@/lib/formatters'
 import { ImageLightbox } from '@/components/ImageLightbox'
@@ -520,10 +521,7 @@ export default function PosSale() {
                   {filteredProducts.length > 0 && (
                     <div className="divide-y divide-[#E5DFD5] border border-[#E5DFD5] rounded-xl bg-[#FDFBF7] overflow-hidden shadow-sm max-h-60 overflow-y-auto">
                       {filteredProducts.map((p) => {
-                        const photo =
-                          p.photos && p.photos.length > 0
-                            ? getFileUrl('products', p.id, p.photos[0])
-                            : null
+                        const photo = getProductDisplayPhoto(p)
                         const hasPhoto = Boolean(photo)
 
                         return (

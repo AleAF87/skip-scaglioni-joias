@@ -136,6 +136,23 @@ export function formatDateTime(dateString?: string | null): string {
 
 export function getFileUrl(collectionName: string, recordId: string, fileName?: string): string {
   if (!fileName) return ''
+  // If fileName is already a full URL (fallback from image_url)
+  if (fileName.startsWith('http://') || fileName.startsWith('https://')) {
+    return fileName
+  }
   const base = import.meta.env.VITE_POCKETBASE_URL || ''
   return `${base}/api/files/${collectionName}/${recordId}/${fileName}`
+}
+
+export function getProductDisplayPhoto(
+  product?: { photos?: string[]; image_url?: string; id?: string } | null,
+): string {
+  if (!product) return ''
+  if (product.photos && product.photos.length > 0 && product.id) {
+    return getFileUrl('products', product.id, product.photos[0])
+  }
+  if (product.image_url) {
+    return product.image_url
+  }
+  return ''
 }

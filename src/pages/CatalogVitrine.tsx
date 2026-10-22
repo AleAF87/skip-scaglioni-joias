@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { productService } from '@/services/productService'
 import { Product, ProductType, ProductMaterial } from '@/types'
-import { formatCurrency, getFileUrl } from '@/lib/formatters'
+import { formatCurrency, getFileUrl, getProductDisplayPhoto } from '@/lib/formatters'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -194,8 +194,7 @@ export default function CatalogVitrine() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
           {products.map((p) => {
-            const photoUrl =
-              p.photos && p.photos.length > 0 ? getFileUrl('products', p.id, p.photos[0]) : null
+            const photoUrl = getProductDisplayPhoto(p)
 
             return (
               <Card
@@ -332,6 +331,19 @@ export default function CatalogVitrine() {
                           selectedProduct.id,
                           selectedProduct.photos[activePhotoIndex],
                         )}
+                        alt={selectedProduct.description}
+                        className="w-full h-full object-contain"
+                      />
+                      <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white">
+                        <span className="px-3 py-1.5 rounded-full bg-black/60 text-xs font-semibold flex items-center gap-1.5">
+                          <ZoomIn className="h-4 w-4" /> Ampliar Imagem
+                        </span>
+                      </div>
+                    </>
+                  ) : selectedProduct.image_url ? (
+                    <>
+                      <img
+                        src={selectedProduct.image_url}
                         alt={selectedProduct.description}
                         className="w-full h-full object-contain"
                       />

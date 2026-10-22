@@ -19,6 +19,7 @@ import ConsignmentsManagement from '@/pages/ConsignmentsManagement'
 import ResellersManagement from '@/pages/ResellersManagement'
 import UsersManagement from '@/pages/UsersManagement'
 import UserProfile from '@/pages/UserProfile'
+import ImportProductsPage from '@/pages/ImportProductsPage'
 import CompanySettingsPage from '@/pages/CompanySettingsPage'
 import NotFound from '@/pages/NotFound'
 
@@ -145,6 +146,16 @@ export default function App() {
               element={
                 <ProtectedRoute allowedRoles={['admin']}>
                   <UsersManagement />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Importação de Produtos (Admin only) */}
+            <Route
+              path="importar-produtos"
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <ImportProductsPage />
                 </ProtectedRoute>
               }
             />

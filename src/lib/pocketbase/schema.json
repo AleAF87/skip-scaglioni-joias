@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-21T15:03:15.043Z",
+  "generatedAt": "2026-10-22T15:04:34.289Z",
   "collections": [
     {
       "name": "users",
@@ -529,6 +529,18 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "import_image_path",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "image_url",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
