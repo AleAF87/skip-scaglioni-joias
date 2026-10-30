@@ -1,6 +1,6 @@
-// Hooks para o Novo Cadastro de Produtos, Importador Tecson, Importador Scaglioni e Conciliação Manual
+// Hook para importação de produtos Tecson e Scaglioni com conciliação manual e idempotência
 
-// 1. Limpeza geral com segurança (atualizado para incluir tabelas filhas)
+// 1. Limpeza geral com segurança
 routerAdd(
   'POST',
   '/backend/v1/products/import/clear-all',
@@ -193,7 +193,6 @@ routerAdd(
             : ''
           const nomeProduto = (item.nome_produto || nomeOriginal).trim()
 
-          // Validação básica da linha
           if (!idTecson && !codProdTecson && !codBarrasTecson && !nomeProduto) {
             ignoredCount++
             lineReports.push({
@@ -217,7 +216,6 @@ routerAdd(
             : ''
 
           try {
-            // 1. Verificar se já existe pelo id_tecson (chave primária de reimportação)
             let existing = null
             if (idTecson) {
               try {
@@ -225,7 +223,6 @@ routerAdd(
               } catch (_) {}
             }
             if (!existing && codBarrasTecson) {
-              // Fallback por código de barras se id_tecson ausente
               try {
                 existing = txApp.findFirstRecordByData(
                   'products',
@@ -236,7 +233,6 @@ routerAdd(
             }
 
             if (existing) {
-              // Reimportação: verificar conflitos com valores locais que foram alterados
               const localNome =
                 existing.getString('nome_produto') || existing.getString('description')
               const localPreco = existing.getFloat('selling_price')
@@ -255,7 +251,6 @@ routerAdd(
               }
 
               if (!isDryRun) {
-                // Atualizar dados de origem sem sobrescrever edição local se houver preferência
                 existing.set('id_tecson', idTecson)
                 existing.set('codigo_produto_tecson', codProdTecson)
                 existing.set('codigo_barras_tecson', codBarrasTecson)
@@ -299,7 +294,7 @@ routerAdd(
                   existing.set('codigo_barras_pai_bruto', String(item.codigo_barras_pai_bruto))
                 }
 
-                // Saldo inicial não deve duplicar em reimportação: atualiza ou cria o registro único de initial_stocks
+                // Saldo inicial não deve duplicar em reimportação
                 const initStockFilter = "product = '" + existing.id + "' && origem = 'Tecson'"
                 const existInitStocks = txApp.findRecordsByFilter(
                   'initial_stocks',
@@ -325,7 +320,6 @@ routerAdd(
                   txApp.save(initRec)
                 }
 
-                // Se não houve vendas/entregas registradas ainda, quantidade = saldoInicialQty
                 if (existing.getInt('quantity') === 0 && saldoInicialQty > 0) {
                   existing.set('quantity', saldoInicialQty)
                   existing.set('status', 'available')
@@ -343,7 +337,6 @@ routerAdd(
                 product_id: existing.id,
               })
             } else {
-              // Novo produto Tecson
               if (!isDryRun) {
                 const ts = new Date().getTime().toString().slice(-6)
                 const rand1 = Math.floor(1000 + Math.random() * 9000).toString()
@@ -396,7 +389,6 @@ routerAdd(
 
                 txApp.save(newProd)
 
-                // Criar registro de saldo inicial na coleção initial_stocks
                 const initRec = new Record(initStockCol)
                 initRec.set('product', newProd.id)
                 initRec.set('origem', 'Tecson')
@@ -407,7 +399,6 @@ routerAdd(
                 initRec.set('is_ativo', true)
                 txApp.save(initRec)
 
-                // Se houver imagem remota válida, registra na galeria product_images
                 if (imageUrl) {
                   const imgRec = new Record(imagesCol)
                   imgRec.set('product', newProd.id)
@@ -439,7 +430,6 @@ routerAdd(
           }
         }
 
-        // Se for dry_run, força rollback lançando erro especial tratado
         if (isDryRun) {
           throw new Error('DRY_RUN_COMPLETED')
         }
@@ -460,13 +450,13 @@ routerAdd(
       ignored: ignoredCount,
       conflicts,
       image_failures: imageFailures,
-      sample_reports: lineReports.slice(0, 50),
+      sample_reports: lineReports.slice(0, 100),
     })
   },
   $apis.requireAuth(),
 )
 
-// 3. IMPORTADOR SCAGLIONI (Idempotente, com dryRun e detecção de marcas/categorias)
+// 3. IMPORTADOR SCAGLIONI (Idempotente por (origem=Scaglioni, id_scaglioni), com dryRun, proteção contra sobrescrita manual e relatório completo)
 routerAdd(
   'POST',
   '/backend/v1/products/import/scaglioni',
@@ -516,25 +506,32 @@ routerAdd(
             : ''
           const nomeProduto = (item.nome_produto || item.nome || nomeOriginal).trim()
 
+          // Linha vazia ou sem identificadores nem nome
           if (!idScaglioni && !skuScaglioni && !nomeProduto) {
             ignoredCount++
             lineReports.push({
               index: i,
               status: 'ignored',
-              reason: 'Linha sem ID Scaglioni nem nome.',
+              reason: 'Linha sem ID Scaglioni nem nome de produto.',
             })
             continue
           }
 
           const precoVenda = Math.max(0, parseFloat(item.preco_venda || item.preco) || 0)
-          const precoPromo =
+
+          // Preco promocional: vazio permanece vazio (null), nunca zero
+          let precoPromo = null
+          if (
             item.preco_promocional !== undefined &&
             item.preco_promocional !== null &&
-            item.preco_promocional !== ''
-              ? Math.max(0, parseFloat(item.preco_promocional) || 0)
-              : null
+            String(item.preco_promocional).trim() !== ''
+          ) {
+            const parsedPromo = parseFloat(item.preco_promocional)
+            if (!isNaN(parsedPromo) && parsedPromo > 0) {
+              precoPromo = parsedPromo
+            }
+          }
 
-          // Validação: preco_promocional deve ser menor que preco_venda quando preenchido
           if (precoPromo !== null && precoPromo >= precoVenda && precoVenda > 0) {
             conflicts.push({
               index: i,
@@ -547,24 +544,90 @@ routerAdd(
 
           const saldoInicialQty = Math.max(
             0,
-            parseInt(item.estoque || item.quantidade_estoques, 10) || 0,
+            parseInt(item.estoque || item.quantidade || item.saldo_inicial_scaglioni, 10) || 0,
           )
+
+          // Descrição com preservação integral de parágrafos/quebras de linha
           const descricao = item.descricao ? String(item.descricao) : ''
+
           const altura = parseFloat(item.altura_cm) || null
           const largura = parseFloat(item.largura_cm) || null
           const comprimento = parseFloat(item.comprimento_cm) || null
           const peso = parseFloat(item.peso_g) || null
-          const estadoAtivoEcommerce = item.ativo !== undefined ? !!item.ativo : true
-          const destaqueEcommerce = !!item.destaque
-          const createdAtScaglioni = item.created_at ? String(item.created_at) : ''
-          const updatedAtScaglioni = item.updated_at ? String(item.updated_at) : ''
+
+          // ativo: estado observado no e-commerce (não confundir com ativo_interno)
+          // Se booleano já veio no payload ou string 'true'/'false'
+          let estadoAtivoEcommerce = true
+          if (typeof item.ativo === 'boolean') {
+            estadoAtivoEcommerce = item.ativo
+          } else if (typeof item.estado_ativo_ecommerce === 'boolean') {
+            estadoAtivoEcommerce = item.estado_ativo_ecommerce
+          } else if (item.ativo !== undefined && item.ativo !== null) {
+            const s = String(item.ativo).trim().toLowerCase()
+            estadoAtivoEcommerce = s === 'true' || s === '1' || s === 'sim'
+          }
+
+          const destaqueEcommerce =
+            item.destaque === true ||
+            item.destaque === 'true' ||
+            item.destaque_ecommerce === true ||
+            item.destaque_ecommerce === 'true'
+
+          const createdAtScaglioni = item.created_at ? String(item.created_at).trim() : ''
+          const updatedAtScaglioni = item.updated_at ? String(item.updated_at).trim() : ''
+
           const imagemPrincipal =
             item.imagem_url || item.image_url
               ? String(item.imagem_url || item.image_url).trim()
               : ''
-          const urlsGaleria = Array.isArray(item.urls_imagens) ? item.urls_imagens : []
 
-          // Mapear ou criar Marca
+          // Galeria em ordem, sem duplicar a imagem principal
+          let rawUrlsGaleria = []
+          if (Array.isArray(item.urls_imagens)) {
+            rawUrlsGaleria = item.urls_imagens
+          } else if (typeof item.urls_imagens === 'string' && item.urls_imagens.trim()) {
+            rawUrlsGaleria = item.urls_imagens.split('|').map((u) => u.trim())
+          }
+
+          const urlsGaleria = []
+          const seenGalleryUrls = new Set()
+          if (imagemPrincipal) {
+            seenGalleryUrls.add(imagemPrincipal)
+          }
+
+          for (const rawUrl of rawUrlsGaleria) {
+            const cleanU = String(rawUrl || '').trim()
+            if (cleanU && !seenGalleryUrls.has(cleanU)) {
+              seenGalleryUrls.add(cleanU)
+              urlsGaleria.push(cleanU)
+            }
+          }
+
+          // Validação / registro de falhas de imagem com URLs malformadas
+          if (imagemPrincipal && !imagemPrincipal.startsWith('http')) {
+            imageFailures.push({
+              index: i,
+              code: skuScaglioni || idScaglioni,
+              name: nomeProduto,
+              url: imagemPrincipal,
+              type: 'principal',
+              reason: 'URL não inicia com protocolo http/https válido.',
+            })
+          }
+          for (const extraU of urlsGaleria) {
+            if (extraU && !extraU.startsWith('http')) {
+              imageFailures.push({
+                index: i,
+                code: skuScaglioni || idScaglioni,
+                name: nomeProduto,
+                url: extraU,
+                type: 'galeria',
+                reason: 'URL de galeria não inicia com protocolo http/https válido.',
+              })
+            }
+          }
+
+          // Vincular ou criar Marca
           let brandRecord = null
           const brandName = item.marca ? String(item.marca).trim() : ''
           if (brandName) {
@@ -574,65 +637,214 @@ routerAdd(
               if (!isDryRun) {
                 brandRecord = new Record(brandsCol)
                 brandRecord.set('name', brandName)
+                const brandSlug = brandName
+                  .toLowerCase()
+                  .normalize('NFD')
+                  .replace(/[\u0300-\u036f]/g, '')
+                  .replace(/[^a-z0-9]+/g, '-')
+                  .replace(/^-+|-+$/g, '')
+                brandRecord.set('slug', brandSlug)
                 txApp.save(brandRecord)
               }
             }
           }
 
-          // Verificar reimportação: Chave = id_scaglioni
-          let existing = null
-          if (idScaglioni) {
-            try {
-              existing = txApp.findFirstRecordByData('products', 'id_scaglioni', idScaglioni)
-            } catch (_) {}
-          }
-          if (!existing && skuScaglioni) {
-            try {
-              existing = txApp.findFirstRecordByData('products', 'sku_scaglioni', skuScaglioni)
-            } catch (_) {}
-          }
+          try {
+            // Chave de reimportação idempotente: (origem=Scaglioni, id_scaglioni)
+            let existing = null
+            if (idScaglioni) {
+              try {
+                existing = txApp.findFirstRecordByData('products', 'id_scaglioni', idScaglioni)
+              } catch (_) {}
+            }
+            if (!existing && skuScaglioni) {
+              try {
+                existing = txApp.findFirstRecordByData('products', 'sku_scaglioni', skuScaglioni)
+              } catch (_) {}
+            }
 
-          if (existing) {
-            // Reimportação Scaglioni
-            if (!isDryRun) {
-              existing.set('id_scaglioni', idScaglioni)
-              existing.set('sku_scaglioni', skuScaglioni)
-              existing.set('slug_scaglioni', slugScaglioni)
-              existing.set(
-                'nome_original_scaglioni',
-                nomeOriginal || existing.getString('nome_original_scaglioni'),
-              )
-              existing.set(
-                'created_at_scaglioni',
-                createdAtScaglioni || existing.getString('created_at_scaglioni'),
-              )
-              existing.set(
-                'updated_at_scaglioni',
-                updatedAtScaglioni || existing.getString('updated_at_scaglioni'),
-              )
-              existing.set('estado_ativo_ecommerce', estadoAtivoEcommerce)
-              existing.set('destaque_ecommerce', destaqueEcommerce)
-              if (descricao && !existing.getString('description'))
-                existing.set('description', descricao)
-              if (brandRecord) existing.set('marca_id', brandRecord.id)
+            if (existing) {
+              // REIMPORTAÇÃO IDEMPOTENTE:
+              // Verificar conflitos de edição manual para NUNCA sobrescrever silenciosamente
+              const localNome =
+                existing.getString('nome_produto') || existing.getString('description')
+              const localPreco = existing.getFloat('selling_price')
+              const localDesc = existing.getString('description')
 
-              // Saldo inicial Scaglioni não duplica
-              const initStockFilter = "product = '" + existing.id + "' && origem = 'Scaglioni'"
-              const existInitStocks = txApp.findRecordsByFilter(
-                'initial_stocks',
-                initStockFilter,
-                '',
-                1,
-                0,
-              )
-              if (existInitStocks.length > 0) {
-                const initRec = existInitStocks[0]
-                initRec.set('quantidade', saldoInicialQty)
-                initRec.set('id_origem', idScaglioni)
-                txApp.save(initRec)
-              } else {
+              if (localNome && nomeProduto && localNome !== nomeProduto) {
+                conflicts.push({
+                  index: i,
+                  product_id: existing.getString('produto_id') || existing.id,
+                  code: skuScaglioni || idScaglioni,
+                  field: 'nome_produto',
+                  local_value: localNome,
+                  origin_value: nomeProduto,
+                  reason: 'Nome local alterado manualmente difere do valor de origem Scaglioni.',
+                })
+              }
+              if (localPreco > 0 && precoVenda > 0 && Math.abs(localPreco - precoVenda) > 0.01) {
+                conflicts.push({
+                  index: i,
+                  product_id: existing.getString('produto_id') || existing.id,
+                  code: skuScaglioni || idScaglioni,
+                  field: 'preco_venda',
+                  local_value: localPreco,
+                  origin_value: precoVenda,
+                  reason: 'Preço local alterado manualmente difere do valor de origem Scaglioni.',
+                })
+              }
+
+              if (!isDryRun) {
+                // Atualiza campos de rastreabilidade de origem sem sobrescrever edições manuais
+                existing.set('id_scaglioni', idScaglioni)
+                existing.set('sku_scaglioni', skuScaglioni)
+                // Preservar o slug existente se já houver
+                if (!existing.getString('slug') && slugScaglioni) {
+                  existing.set('slug', slugScaglioni)
+                }
+                existing.set('slug_scaglioni', slugScaglioni)
+                existing.set(
+                  'nome_original_scaglioni',
+                  nomeOriginal || existing.getString('nome_original_scaglioni'),
+                )
+                existing.set(
+                  'created_at_scaglioni',
+                  createdAtScaglioni || existing.getString('created_at_scaglioni'),
+                )
+                existing.set(
+                  'updated_at_scaglioni',
+                  updatedAtScaglioni || existing.getString('updated_at_scaglioni'),
+                )
+                existing.set('estado_ativo_ecommerce', estadoAtivoEcommerce)
+                existing.set('destaque_ecommerce', destaqueEcommerce)
+
+                // Preserva descrição se editada manualmente; preenche se estiver vazia
+                if (descricao && (!localDesc || localDesc === localNome)) {
+                  existing.set('description', descricao)
+                }
+
+                if (brandRecord) {
+                  existing.set('marca_id', brandRecord.id)
+                }
+                if (altura) existing.set('altura_cm', altura)
+                if (largura) existing.set('largura_cm', largura)
+                if (comprimento) existing.set('comprimento_cm', comprimento)
+                if (peso) existing.set('peso_g', peso)
+
+                // Saldo inicial Scaglioni: idempotente — atualiza o registro único existente em initial_stocks
+                const initStockFilter = "product = '" + existing.id + "' && origem = 'Scaglioni'"
+                const existInitStocks = txApp.findRecordsByFilter(
+                  'initial_stocks',
+                  initStockFilter,
+                  '',
+                  1,
+                  0,
+                )
+                if (existInitStocks.length > 0) {
+                  const initRec = existInitStocks[0]
+                  initRec.set('quantidade', saldoInicialQty)
+                  initRec.set('id_origem', idScaglioni)
+                  initRec.set('localizacao', 'A definir')
+                  txApp.save(initRec)
+                } else {
+                  const initRec = new Record(initStockCol)
+                  initRec.set('product', existing.id)
+                  initRec.set('origem', 'Scaglioni')
+                  initRec.set('id_origem', idScaglioni)
+                  initRec.set('quantidade', saldoInicialQty)
+                  initRec.set('localizacao', 'A definir')
+                  initRec.set('data_registro', new Date().toISOString())
+                  initRec.set('is_ativo', true)
+                  txApp.save(initRec)
+                }
+
+                // Não duplicar imagens da galeria: verifica se já existem
+                if (imagemPrincipal) {
+                  const existImgs = txApp.findRecordsByFilter(
+                    'product_images',
+                    "product = '" +
+                      existing.id +
+                      "' && image_url = '" +
+                      imagemPrincipal.replace(/'/g, "''") +
+                      "'",
+                    '',
+                    1,
+                    0,
+                  )
+                  if (existImgs.length === 0) {
+                    const imgRec = new Record(imagesCol)
+                    imgRec.set('product', existing.id)
+                    imgRec.set('image_url', imagemPrincipal)
+                    imgRec.set('is_principal', true)
+                    imgRec.set('sort_order', 1)
+                    imgRec.set('origem', 'Scaglioni')
+                    txApp.save(imgRec)
+                  }
+                }
+
+                txApp.save(existing)
+              }
+
+              updatedCount++
+              lineReports.push({
+                index: i,
+                status: 'updated',
+                code: skuScaglioni || idScaglioni,
+                name: nomeProduto,
+                product_id: existing.id,
+              })
+            } else {
+              // NOVO PRODUTO SCAGLIONI
+              if (!isDryRun) {
+                const ts = new Date().getTime().toString().slice(-6)
+                const rand1 = Math.floor(1000 + Math.random() * 9000).toString()
+                const produtoId = 'PROD-' + ts + '-' + rand1
+                const rand2 = Math.floor(100000 + Math.random() * 900000).toString()
+                const skuInterno = 'SCG-' + rand2
+
+                const newProd = new Record(productsCol)
+                newProd.set('produto_id', produtoId)
+                newProd.set('sku_interno', skuInterno)
+                newProd.set('nome_produto', nomeProduto)
+                newProd.set('nome_original_scaglioni', nomeOriginal || nomeProduto)
+                newProd.set('description', descricao || nomeProduto)
+                // code do sistema é único: utiliza SKU Scaglioni se disponível, ou SKU interno
+                newProd.set('code', skuScaglioni || skuInterno)
+                newProd.set('slug', slugScaglioni || '')
+                newProd.set('slug_scaglioni', slugScaglioni)
+                newProd.set('id_scaglioni', idScaglioni)
+                newProd.set('sku_scaglioni', skuScaglioni)
+                newProd.set('selling_price', precoVenda)
+                if (precoPromo !== null) {
+                  newProd.set('preco_promocional', precoPromo)
+                }
+                if (altura) newProd.set('altura_cm', altura)
+                if (largura) newProd.set('largura_cm', largura)
+                if (comprimento) newProd.set('comprimento_cm', comprimento)
+                if (peso) newProd.set('peso_g', peso)
+
+                newProd.set('quantity', saldoInicialQty)
+                newProd.set('status', saldoInicialQty > 0 ? 'available' : 'unavailable')
+                newProd.set('ativo_interno', true)
+                // produtos com origem e-commerce preservam vínculo de publicação
+                newProd.set('publicar_no_ecommerce', estadoAtivoEcommerce)
+                newProd.set('estado_ativo_ecommerce', estadoAtivoEcommerce)
+                newProd.set('destaque_ecommerce', destaqueEcommerce)
+                newProd.set('created_at_scaglioni', createdAtScaglioni)
+                newProd.set('updated_at_scaglioni', updatedAtScaglioni)
+                newProd.set('image_url', imagemPrincipal)
+                if (item.arquivos_imagens) {
+                  newProd.set('import_image_path', String(item.arquivos_imagens).trim())
+                }
+                if (brandRecord) {
+                  newProd.set('marca_id', brandRecord.id)
+                }
+
+                txApp.save(newProd)
+
+                // Criar Saldo Inicial Scaglioni (localização: 'A definir')
                 const initRec = new Record(initStockCol)
-                initRec.set('product', existing.id)
+                initRec.set('product', newProd.id)
                 initRec.set('origem', 'Scaglioni')
                 initRec.set('id_origem', idScaglioni)
                 initRec.set('quantidade', saldoInicialQty)
@@ -640,128 +852,90 @@ routerAdd(
                 initRec.set('data_registro', new Date().toISOString())
                 initRec.set('is_ativo', true)
                 txApp.save(initRec)
-              }
 
-              txApp.save(existing)
-            }
+                // Associar imagens: imagem_url (principal) e urls_imagens (galeria sem duplicar principal)
+                let sortOrder = 1
+                if (imagemPrincipal) {
+                  const imgRec = new Record(imagesCol)
+                  imgRec.set('product', newProd.id)
+                  imgRec.set('image_url', imagemPrincipal)
+                  imgRec.set('is_principal', true)
+                  imgRec.set('sort_order', sortOrder++)
+                  imgRec.set('origem', 'Scaglioni')
+                  txApp.save(imgRec)
+                }
 
-            updatedCount++
-            lineReports.push({
-              index: i,
-              status: 'updated',
-              code: skuScaglioni || idScaglioni,
-              name: nomeProduto,
-              product_id: existing.id,
-            })
-          } else {
-            // Novo produto Scaglioni
-            if (!isDryRun) {
-              const ts = new Date().getTime().toString().slice(-6)
-              const rand1 = Math.floor(1000 + Math.random() * 9000).toString()
-              const produtoId = 'PROD-' + ts + '-' + rand1
-              const rand2 = Math.floor(100000 + Math.random() * 900000).toString()
-              const skuInterno = 'SCG-' + rand2
+                for (const extraUrl of urlsGaleria) {
+                  if (extraUrl && extraUrl !== imagemPrincipal) {
+                    const extraRec = new Record(imagesCol)
+                    extraRec.set('product', newProd.id)
+                    extraRec.set('image_url', extraUrl)
+                    extraRec.set('is_principal', false)
+                    extraRec.set('sort_order', sortOrder++)
+                    extraRec.set('origem', 'Scaglioni')
+                    txApp.save(extraRec)
+                  }
+                }
 
-              const newProd = new Record(productsCol)
-              newProd.set('produto_id', produtoId)
-              newProd.set('sku_interno', skuInterno)
-              newProd.set('nome_produto', nomeProduto)
-              newProd.set('description', descricao || nomeProduto)
-              newProd.set('code', skuScaglioni || skuInterno)
-              newProd.set('slug', slugScaglioni || '')
-              newProd.set('slug_scaglioni', slugScaglioni)
-              newProd.set('id_scaglioni', idScaglioni)
-              newProd.set('sku_scaglioni', skuScaglioni)
-              newProd.set('nome_original_scaglioni', nomeOriginal)
-              newProd.set('selling_price', precoVenda)
-              if (precoPromo !== null) newProd.set('preco_promocional', precoPromo)
-              if (altura) newProd.set('altura_cm', altura)
-              if (largura) newProd.set('largura_cm', largura)
-              if (comprimento) newProd.set('comprimento_cm', comprimento)
-              if (peso) newProd.set('peso_g', peso)
-              newProd.set('quantity', saldoInicialQty)
-              newProd.set('status', saldoInicialQty > 0 ? 'available' : 'unavailable')
-              newProd.set('ativo_interno', true)
-              newProd.set('publicar_no_ecommerce', estadoAtivoEcommerce)
-              newProd.set('estado_ativo_ecommerce', estadoAtivoEcommerce)
-              newProd.set('destaque_ecommerce', destaqueEcommerce)
-              newProd.set('created_at_scaglioni', createdAtScaglioni)
-              newProd.set('updated_at_scaglioni', updatedAtScaglioni)
-              newProd.set('image_url', imagemPrincipal)
-              if (brandRecord) newProd.set('marca_id', brandRecord.id)
+                // Mapear Categorias
+                let catsToLink = []
+                if (Array.isArray(item.categorias)) {
+                  catsToLink = item.categorias
+                } else if (typeof item.categorias === 'string' && item.categorias.trim()) {
+                  catsToLink = item.categorias.split('|').map((c) => c.trim())
+                } else if (item.categoria) {
+                  catsToLink = [String(item.categoria).trim()]
+                }
 
-              txApp.save(newProd)
+                const catPrincipalTarget =
+                  item.categoria_principal || (catsToLink.length > 0 ? catsToLink[0] : null)
 
-              // Criar saldo inicial Scaglioni
-              const initRec = new Record(initStockCol)
-              initRec.set('product', newProd.id)
-              initRec.set('origem', 'Scaglioni')
-              initRec.set('id_origem', idScaglioni)
-              initRec.set('quantidade', saldoInicialQty)
-              initRec.set('localizacao', 'A definir')
-              initRec.set('data_registro', new Date().toISOString())
-              initRec.set('is_ativo', true)
-              txApp.save(initRec)
+                for (const catName of catsToLink) {
+                  const cleanCat = String(catName || '').trim()
+                  if (!cleanCat) continue
 
-              // Mapear Galeria de Imagens
-              let sortOrder = 1
-              if (imagemPrincipal) {
-                const imgRec = new Record(imagesCol)
-                imgRec.set('product', newProd.id)
-                imgRec.set('image_url', imagemPrincipal)
-                imgRec.set('is_principal', true)
-                imgRec.set('sort_order', sortOrder++)
-                imgRec.set('origem', 'Scaglioni')
-                txApp.save(imgRec)
-              }
-              for (const extraUrl of urlsGaleria) {
-                if (extraUrl && extraUrl !== imagemPrincipal) {
-                  const extraRec = new Record(imagesCol)
-                  extraRec.set('product', newProd.id)
-                  extraRec.set('image_url', String(extraUrl).trim())
-                  extraRec.set('is_principal', false)
-                  extraRec.set('sort_order', sortOrder++)
-                  extraRec.set('origem', 'Scaglioni')
-                  txApp.save(extraRec)
+                  let catRecord = null
+                  try {
+                    catRecord = txApp.findFirstRecordByData('product_categories', 'name', cleanCat)
+                  } catch (_) {
+                    catRecord = new Record(catsCol)
+                    catRecord.set('name', cleanCat)
+                    const catSlug = cleanCat
+                      .toLowerCase()
+                      .normalize('NFD')
+                      .replace(/[\u0300-\u036f]/g, '')
+                      .replace(/[^a-z0-9]+/g, '-')
+                      .replace(/^-+|-+$/g, '')
+                    catRecord.set('slug', catSlug)
+                    txApp.save(catRecord)
+                  }
+
+                  try {
+                    const link = new Record(linksCol)
+                    link.set('product', newProd.id)
+                    link.set('category', catRecord.id)
+                    link.set('is_principal', cleanCat === catPrincipalTarget)
+                    txApp.save(link)
+                  } catch (_) {}
                 }
               }
 
-              // Mapear Categorias
-              const catsToLink = Array.isArray(item.categorias)
-                ? item.categorias
-                : item.categoria
-                  ? [item.categoria]
-                  : []
-              const categoriaPrincipalName =
-                item.categoria_principal || (catsToLink.length > 0 ? catsToLink[0] : null)
-
-              for (const catName of catsToLink) {
-                if (!catName) continue
-                let catRecord = null
-                try {
-                  catRecord = txApp.findFirstRecordByData('product_categories', 'name', catName)
-                } catch (_) {
-                  catRecord = new Record(catsCol)
-                  catRecord.set('name', catName)
-                  txApp.save(catRecord)
-                }
-
-                try {
-                  const link = new Record(linksCol)
-                  link.set('product', newProd.id)
-                  link.set('category', catRecord.id)
-                  link.set('is_principal', catName === categoriaPrincipalName)
-                  txApp.save(link)
-                } catch (_) {}
-              }
+              createdCount++
+              lineReports.push({
+                index: i,
+                status: 'created',
+                code: skuScaglioni || idScaglioni,
+                name: nomeProduto,
+              })
             }
-
-            createdCount++
+          } catch (rowErr) {
+            ignoredCount++
             lineReports.push({
               index: i,
-              status: 'created',
+              status: 'error',
               code: skuScaglioni || idScaglioni,
               name: nomeProduto,
+              reason: rowErr.message || 'Erro ao processar item',
             })
           }
         }
@@ -786,14 +960,13 @@ routerAdd(
       ignored: ignoredCount,
       conflicts,
       image_failures: imageFailures,
-      sample_reports: lineReports.slice(0, 50),
+      sample_reports: lineReports.slice(0, 100),
     })
   },
   $apis.requireAuth(),
 )
 
 // 4. CONCILIAÇÃO MANUAL / ASSOCIAÇÃO TECSON <-> SCAGLIONI
-// Regra mandatória do item 2 e 5: NÃO somar automaticamente; exigir escolha do saldo inicial antes de concluir.
 routerAdd(
   'POST',
   '/backend/v1/products/associate-manual',
@@ -830,7 +1003,6 @@ routerAdd(
         const prodTecson = txApp.findRecordById('products', tecson_product_id)
         const prodScaglioni = txApp.findRecordById('products', scaglioni_product_id)
 
-        // Buscar saldos iniciais de ambos
         const tecsonInitStocks = txApp.findRecordsByFilter(
           'initial_stocks',
           "product = '" + tecson_product_id + "' && origem = 'Tecson'",
@@ -857,7 +1029,7 @@ routerAdd(
 
         const finalInitialQty = chosen_initial_stock_origin === 'Tecson' ? qtyTecson : qtyScaglioni
 
-        // Mesclar dados Scaglioni no registro Tecson (mantendo o produto_id do registro principal)
+        // Mesclar dados Scaglioni no registro Tecson unificado
         prodTecson.set('id_scaglioni', prodScaglioni.getString('id_scaglioni'))
         prodTecson.set('sku_scaglioni', prodScaglioni.getString('sku_scaglioni'))
         prodTecson.set('slug_scaglioni', prodScaglioni.getString('slug_scaglioni'))
@@ -888,13 +1060,11 @@ routerAdd(
           prodTecson.set('marca_id', prodScaglioni.getString('marca_id'))
         }
 
-        // Definir a quantidade final conforme a escolha explícita do usuário
         prodTecson.set('quantity', finalInitialQty)
         prodTecson.set('status', finalInitialQty > 0 ? 'available' : 'unavailable')
 
         txApp.save(prodTecson)
 
-        // Transferir categorias e imagens do Scaglioni para o registro Tecson unificado
         try {
           txApp
             .db()
@@ -913,7 +1083,6 @@ routerAdd(
             .execute()
         } catch (_) {}
 
-        // Atualizar initial_stocks: manter ambos os registros para histórico, mas apenas o escolhido como is_ativo = true
         if (tecsonInitStocks.length > 0) {
           const tRec = tecsonInitStocks[0]
           tRec.set('is_ativo', chosen_initial_stock_origin === 'Tecson')
@@ -926,7 +1095,6 @@ routerAdd(
           txApp.save(sRec)
         }
 
-        // Excluir o registro duplicado do Scaglioni
         txApp.delete(prodScaglioni)
         unifiedRecord = prodTecson
       })
