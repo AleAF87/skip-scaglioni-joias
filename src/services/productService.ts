@@ -23,7 +23,9 @@ export const productService = {
 
     if (params?.search) {
       const q = params.search.replace(/'/g, "\\'")
-      filters.push(`(code ~ '${q}' || description ~ '${q}')`)
+      filters.push(
+        `(code ~ '${q}' || description ~ '${q}' || nome_produto ~ '${q}' || codigo_barras ~ '${q}' || codigo_barras_tecson ~ '${q}' || codigo_produto_tecson ~ '${q}' || id_tecson ~ '${q}' || id_scaglioni ~ '${q}' || sku_scaglioni ~ '${q}')`,
+      )
     }
     // Single or multi types
     if (params?.types && params.types.length > 0) {
@@ -69,13 +71,101 @@ export const productService = {
     return pb.collection('products').getList<Product>(page, perPage, {
       filter: filterStr,
       sort: params?.sort || '-created',
-      expand: 'type,material,size',
+      expand: 'type,material,size,marca_id',
     })
   },
 
   async getProductById(id: string) {
     return pb.collection('products').getOne<Product>(id, {
-      expand: 'type,material,size',
+      expand: 'type,material,size,marca_id',
+    })
+  },
+
+  async getProductFullDetails(id: string) {
+    const product = await pb.collection('products').getOne<Product>(id, {
+      expand: 'type,material,size,marca_id',
+    })
+    const [initialStocks, images, categories] = await Promise.all([
+      pb
+        .collection('initial_stocks')
+        .getFullList({
+          filter: `product = '${id}'`,
+          sort: '-created',
+        })
+        .catch(() => []),
+      pb
+        .collection('product_images')
+        .getFullList({
+          filter: `product = '${id}'`,
+          sort: 'sort_order',
+        })
+        .catch(() => []),
+      pb
+        .collection('product_category_links')
+        .getFullList({
+          filter: `product = '${id}'`,
+          expand: 'category',
+        })
+        .catch(() => []),
+    ])
+    return {
+      product,
+      initialStocks,
+      images,
+      categories,
+    }
+  },
+
+  async associateManual(
+    tecsonProductId: string,
+    scaglioniProductId: string,
+    chosenOrigin: 'Tecson' | 'Scaglioni',
+  ) {
+    return pb.send<{
+      success: boolean
+      message: string
+      product: any
+    }>('/backend/v1/products/associate-manual', {
+      method: 'POST',
+      body: JSON.stringify({
+        tecson_product_id: tecsonProductId,
+        scaglioni_product_id: scaglioniProductId,
+        chosen_initial_stock_origin: chosenOrigin,
+      }),
+    })
+  },
+
+  async importTecsonBatch(items: any[], dryRun: boolean) {
+    return pb.send<{
+      success: boolean
+      dry_run: boolean
+      total_received: number
+      created: number
+      updated: number
+      ignored: number
+      conflicts: any[]
+      image_failures: any[]
+      sample_reports: any[]
+    }>('/backend/v1/products/import/tecson', {
+      method: 'POST',
+      body: JSON.stringify({ items, dry_run: dryRun }),
+    })
+  },
+
+  async importScaglioniBatch(items: any[], dryRun: boolean) {
+    return pb.send<{
+      success: boolean
+      dry_run: boolean
+      total_received: number
+      created: number
+      updated: number
+      ignored: number
+      conflicts: any[]
+      image_failures: any[]
+      sample_reports: any[]
+    }>('/backend/v1/products/import/scaglioni', {
+      method: 'POST',
+      body: JSON.stringify({ items, dry_run: dryRun }),
     })
   },
 

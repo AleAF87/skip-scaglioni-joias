@@ -44,30 +44,168 @@ export interface ProductSize {
   updated?: string
 }
 
+export interface Brand {
+  id: string
+  name: string
+  slug?: string
+  created?: string
+  updated?: string
+}
+
+export interface ProductCategory {
+  id: string
+  name: string
+  slug?: string
+  created?: string
+  updated?: string
+}
+
+export interface ProductCategoryLink {
+  id: string
+  product: string
+  category: string
+  is_principal?: boolean
+  expand?: {
+    category?: ProductCategory
+  }
+}
+
+export interface ProductImage {
+  id: string
+  product: string
+  image_url?: string
+  file?: string
+  is_principal?: boolean
+  sort_order?: number
+  origem?: string
+  created?: string
+  updated?: string
+}
+
+export interface ProductVariation {
+  id: string
+  product: string
+  sku: string
+  attributes?: Record<string, string | number>
+  price?: number
+  quantity?: number
+  image_url?: string
+  created?: string
+  updated?: string
+}
+
+export interface ProductPriceHistory {
+  id: string
+  product: string
+  preco_venda_anterior?: number
+  preco_venda_novo?: number
+  preco_promocional_anterior?: number
+  preco_promocional_novo?: number
+  responsavel?: string
+  motivo?: string
+  created: string
+}
+
+export interface InitialStock {
+  id: string
+  product: string
+  origem: 'Tecson' | 'Scaglioni' | 'Manual' | string
+  id_origem?: string
+  quantidade: number
+  localizacao?: string
+  data_registro?: string
+  is_ativo?: boolean
+  detalhes_distribuicao?: {
+    loja_fisica?: number
+    revendedora_id?: string
+    revendedora_nome?: string
+    revendedora_qty?: number
+    expedicao?: number
+  }
+  created?: string
+  updated?: string
+}
+
 export interface Product {
   id: string
-  code: string
+  // Identificador novo interno e códigos
+  produto_id?: string
+  sku_interno?: string
+  code: string // código legado e compatibilidade
+  codigo_barras?: string // texto preservando zeros
+
+  // Dados principais
+  nome_produto?: string
   description: string
+  fornecedor?: string
+  marca_id?: string
+
+  // Valores e dimensões
+  selling_price: number // preco_venda
+  preco_promocional?: number
+  custo_unitario?: number
+  invested_value?: number // compatibilidade interna
+  altura_cm?: number
+  largura_cm?: number
+  comprimento_cm?: number
+  peso_g?: number
+
+  // Status e canais
+  ativo_interno?: boolean
+  publicar_no_ecommerce?: boolean
+  destaque_ecommerce?: boolean
+  slug?: string
+  status: 'available' | 'unavailable'
+
+  // Estoque (calculado a partir de saldo inicial + movimentações)
+  quantity: number
+  minimum_quantity?: number
+
+  // Identificadores de Origem Tecson
+  id_tecson?: string
+  codigo_produto_tecson?: string
+  codigo_barras_tecson?: string
+  nome_original_tecson?: string
+  data_inclusao_tecson?: string
+
+  // Identificadores de Origem Scaglioni
+  id_scaglioni?: string
+  sku_scaglioni?: string
+  slug_scaglioni?: string
+  nome_original_scaglioni?: string
+  created_at_scaglioni?: string
+  updated_at_scaglioni?: string
+  estado_ativo_ecommerce?: boolean
+
+  // Campos brutos auxiliares
+  tipo_produto_bruto?: string
+  variacao_resumo_bruto?: string
+  nome_produto_pai_bruto?: string
+  cod_produto_pai_bruto?: string
+  codigo_barras_pai_bruto?: string
+
+  // Legados / Imagens diretas
   type?: string
   target_audience?: 'feminino' | 'masculino' | 'unissex' | ''
   material?: string
   size?: string
   entry_date?: string
-  invested_value?: number
-  selling_price: number
-  quantity: number
-  minimum_quantity?: number
   observations?: string
   photos?: string[]
   import_image_path?: string
   image_url?: string
-  status: 'available' | 'unavailable'
+
   created: string
   updated: string
   expand?: {
     type?: ProductType
     material?: ProductMaterial
     size?: ProductSize
+    marca_id?: Brand
+    'product_category_links(product)'?: ProductCategoryLink[]
+    'product_images(product)'?: ProductImage[]
+    'product_variations(product)'?: ProductVariation[]
+    'initial_stocks(product)'?: InitialStock[]
   }
 }
 

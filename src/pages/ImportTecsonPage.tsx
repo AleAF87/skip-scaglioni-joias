@@ -1,0 +1,728 @@
+import React, { useState, useRef } from 'react'
+import {
+  Upload,
+  FileSpreadsheet,
+  CheckCircle2,
+  AlertTriangle,
+  Play,
+  RotateCcw,
+  Eye,
+  Info,
+  Layers,
+  Image,
+  Tag,
+  Hash,
+  Barcode,
+  Search,
+} from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Progress } from '@/components/ui/progress'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { toast } from '@/hooks/use-toast'
+import { productService } from '@/services/productService'
+import { formatCurrency } from '@/lib/formatters'
+import { decodeFileTolerant, parseCsvRows } from '@/lib/csvParser'
+
+// Mapeamento explícito de colunas Tecson
+const TECSON_COLUMN_MAP: Record<string, string> = {
+  id: 'id_tecson',
+  id_edicao: 'lote_bruto_ignorado',
+  data_inclusao: 'data_inclusao_tecson',
+  imagem: 'image_url',
+  url_imagem: 'image_url',
+  arquivo_imagem: 'import_image_path',
+  nome: 'nome_produto',
+  cod_produto: 'codigo_produto_tecson',
+  codigo_produto: 'codigo_produto_tecson',
+  fornecedor: 'fornecedor',
+  codigo_barras: 'codigo_barras_tecson',
+  quant_em_estoques: 'quantidade_estoques',
+  quantidade_estoques: 'quantidade_estoques',
+  r$_venda: 'preco_venda',
+  r_venda: 'preco_venda',
+  preco_venda: 'preco_venda',
+  r$_custo: 'custo_unitario',
+  r_custo: 'custo_unitario',
+  preco_custo: 'custo_unitario',
+  r$_venda_em_estoques: 'valor_venda_estoques_conferencia',
+  r$_custo_em_estoques: 'valor_custo_estoques_conferencia',
+  tipo_produto: 'tipo_produto_bruto',
+  variacao_resumo: 'variacao_resumo_bruto',
+  nome_produto_pai: 'nome_produto_pai_bruto',
+  cod_produto_pai: 'cod_produto_pai_bruto',
+  codigo_barras_pai: 'codigo_barras_pai_bruto',
+  busca_grade: 'busca_grade_ignorado',
+  options: 'options_ignorado',
+}
+
+interface ParsedTecsonRow {
+  index: number
+  id_tecson: string
+  codigo_produto_tecson: string
+  codigo_barras_tecson: string
+  nome_produto: string
+  nome_original_tecson: string
+  data_inclusao_tecson: string
+  fornecedor: string
+  preco_venda: number
+  custo_unitario: number
+  quantidade_estoques: number
+  image_url: string
+  import_image_path: string
+  tipo_produto_bruto: string
+  variacao_resumo_bruto: string
+  nome_produto_pai_bruto: string
+  cod_produto_pai_bruto: string
+  codigo_barras_pai_bruto: string
+  raw_mapped: Record<string, any>
+  unrecognized_columns: string[]
+  validation_errors: string[]
+}
+
+export function ImportTecsonPage() {
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [csvFile, setCsvFile] = useState<File | null>(null)
+  const [parsedRows, setParsedRows] = useState<ParsedTecsonRow[]>([])
+  const [unrecognizedColumns, setUnrecognizedColumns] = useState<string[]>([])
+  const [ignoredColumnsReport, setIgnoredColumnsReport] = useState<string[]>([])
+  const [isParsing, setIsParsing] = useState(false)
+  const [isProcessing, setIsProcessing] = useState(false)
+  const [progress, setProgress] = useState(0)
+  const [runResult, setRunResult] = useState<any | null>(null)
+  const [activeTab, setActiveTab] = useState<'preview' | 'validation' | 'report'>('preview')
+  const [searchTerm, setSearchTerm] = useState('')
+
+  // Extrair src de tag <img> se houver
+  const extractImgSrc = (val: string): string => {
+    if (!val) return ''
+    const match = val.match(/<img[^>]+src=["']([^"']+)["']/i)
+    if (match && match[1]) {
+      return match[1].trim()
+    }
+    return val.trim()
+  }
+
+  // Parsear número monetário brasileiro
+  const parseBrazilianNumber = (val: any): number => {
+    if (typeof val === 'number') return val
+    if (!val) return 0
+    let str = String(val)
+      .trim()
+      .replace(/R\$\s*/gi, '')
+      .replace(/\s+/g, '')
+    if (str.includes(',') && str.includes('.')) {
+      str = str.replace(/\./g, '').replace(',', '.')
+    } else if (str.includes(',')) {
+      str = str.replace(',', '.')
+    }
+    const n = parseFloat(str)
+    return isNaN(n) ? 0 : n
+  }
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setCsvFile(file)
+    setIsParsing(true)
+    setRunResult(null)
+    setParsedRows([])
+    setUnrecognizedColumns([])
+    setIgnoredColumnsReport([])
+
+    try {
+      const decoded = await decodeFileTolerant(file)
+      const text = typeof decoded === 'string' ? decoded : decoded.text
+      const rawMatrix = parseCsvRows(text)
+
+      if (rawMatrix.length < 2) {
+        toast({
+          title: 'Arquivo vazio ou sem cabeçalho',
+          description: 'O CSV fornecido não contém linhas de produtos válidas.',
+          variant: 'destructive',
+        })
+        setIsParsing(false)
+        return
+      }
+
+      const rawHeaders = rawMatrix[0]
+      const ignoredCols: string[] = []
+      const unrecCols: string[] = []
+
+      // Normalizar headers
+      const headerMapping: Record<number, { targetField: string; original: string }> = {}
+
+      rawHeaders.forEach((header, idx) => {
+        const cleanHeader = header
+          .trim()
+          .toLowerCase()
+          .replace(/[\s\-_]+/g, '_')
+        const target = TECSON_COLUMN_MAP[cleanHeader]
+
+        if (target) {
+          headerMapping[idx] = { targetField: target, original: header }
+          if (target.endsWith('_ignorado')) {
+            ignoredCols.push(`${header} (${target})`)
+          }
+        } else {
+          unrecCols.push(header)
+        }
+      })
+
+      setUnrecognizedColumns(Array.from(new Set(unrecCols)))
+      setIgnoredColumnsReport(Array.from(new Set(ignoredCols)))
+
+      const parsed: ParsedTecsonRow[] = []
+
+      for (let r = 1; r < rawMatrix.length; r++) {
+        const row = rawMatrix[r]
+        if (row.length === 0 || (row.length === 1 && !row[0].trim())) continue
+
+        const mapped: Record<string, any> = {}
+        row.forEach((cellVal, colIdx) => {
+          const mapInfo = headerMapping[colIdx]
+          if (mapInfo) {
+            mapped[mapInfo.targetField] = cellVal.trim()
+          }
+        })
+
+        const idTecson = mapped['id_tecson'] ? String(mapped['id_tecson']).trim() : ''
+        const codProd = mapped['codigo_produto_tecson']
+          ? String(mapped['codigo_produto_tecson']).trim()
+          : ''
+        const codBarras = mapped['codigo_barras_tecson']
+          ? String(mapped['codigo_barras_tecson']).trim()
+          : ''
+        const nomeOriginal = mapped['nome_produto'] ? String(mapped['nome_produto']).trim() : ''
+        const nomeTrim = nomeOriginal
+
+        const rawImg = mapped['image_url'] || ''
+        const cleanImg = extractImgSrc(rawImg)
+
+        const precoVenda = parseBrazilianNumber(mapped['preco_venda'])
+        const custo = parseBrazilianNumber(mapped['custo_unitario'])
+        const quant = parseInt(mapped['quantidade_estoques'], 10) || 0
+
+        const validationErrors: string[] = []
+        if (!idTecson && !codProd && !codBarras && !nomeTrim) {
+          validationErrors.push('Linha sem identificador Tecson nem nome')
+        }
+
+        parsed.push({
+          index: r,
+          id_tecson: idTecson,
+          codigo_produto_tecson: codProd,
+          codigo_barras_tecson: codBarras,
+          nome_produto: nomeTrim,
+          nome_original_tecson: nomeOriginal,
+          data_inclusao_tecson: mapped['data_inclusao_tecson'] || '',
+          fornecedor: mapped['fornecedor'] || '',
+          preco_venda: precoVenda,
+          custo_unitario: custo,
+          quantidade_estoques: quant,
+          image_url: cleanImg,
+          import_image_path: mapped['import_image_path'] || '',
+          tipo_produto_bruto: mapped['tipo_produto_bruto'] || '',
+          variacao_resumo_bruto: mapped['variacao_resumo_bruto'] || '',
+          nome_produto_pai_bruto: mapped['nome_produto_pai_bruto'] || '',
+          cod_produto_pai_bruto: mapped['cod_produto_pai_bruto'] || '',
+          codigo_barras_pai_bruto: mapped['codigo_barras_pai_bruto'] || '',
+          raw_mapped: mapped,
+          unrecognized_columns: unrecCols,
+          validation_errors: validationErrors,
+        })
+      }
+
+      setParsedRows(parsed)
+      toast({
+        title: 'Arquivo Tecson carregado',
+        description: `${parsed.length} produtos mapeados com sucesso.`,
+      })
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao ler arquivo',
+        description: err.message || 'Falha ao processar CSV do Tecson.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsParsing(false)
+    }
+  }
+
+  const handleExecuteImport = async (dryRun: boolean) => {
+    if (parsedRows.length === 0) return
+
+    setIsProcessing(true)
+    setProgress(10)
+
+    try {
+      // Preparar payload mantendo preservação estrita de zeros e tipos
+      const payloadItems = parsedRows.map((r) => ({
+        id_tecson: r.id_tecson,
+        codigo_produto_tecson: r.codigo_produto_tecson,
+        codigo_barras_tecson: r.codigo_barras_tecson,
+        nome_produto: r.nome_produto,
+        nome_original_tecson: r.nome_original_tecson,
+        data_inclusao_tecson: r.data_inclusao_tecson,
+        fornecedor: r.fornecedor,
+        preco_venda: r.preco_venda,
+        custo_unitario: r.custo_unitario,
+        quantidade_estoques: r.quantidade_estoques,
+        image_url: r.image_url,
+        import_image_path: r.import_image_path,
+        tipo_produto_bruto: r.tipo_produto_bruto,
+        variacao_resumo_bruto: r.variacao_resumo_bruto,
+        nome_produto_pai_bruto: r.nome_produto_pai_bruto,
+        cod_produto_pai_bruto: r.cod_produto_pai_bruto,
+        codigo_barras_pai_bruto: r.codigo_barras_pai_bruto,
+      }))
+
+      setProgress(40)
+      const res = await productService.importTecsonBatch(payloadItems, dryRun)
+      setProgress(100)
+      setRunResult(res)
+      setActiveTab('report')
+
+      toast({
+        title: dryRun ? 'Teste executado (dry-run)' : 'Importação Tecson concluída',
+        description: `${res.created} criados, ${res.updated} atualizados, ${res.ignored} ignorados.${
+          res.conflicts?.length ? ` (${res.conflicts.length} conflitos identificados)` : ''
+        }`,
+      })
+    } catch (err: any) {
+      toast({
+        title: 'Falha na importação',
+        description: err.message || 'Ocorreu um erro ao enviar o lote para o backend.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  const filteredPreview = parsedRows.filter((r) => {
+    if (!searchTerm) return true
+    const s = searchTerm.toLowerCase()
+    return (
+      r.nome_produto.toLowerCase().includes(s) ||
+      r.codigo_barras_tecson.toLowerCase().includes(s) ||
+      r.codigo_produto_tecson.toLowerCase().includes(s) ||
+      r.id_tecson.toLowerCase().includes(s)
+    )
+  })
+
+  return (
+    <div className="container mx-auto px-4 py-6 max-w-7xl space-y-6">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b pb-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-300">
+              Origem Tecson
+            </Badge>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">Importar Tecson</h1>
+          </div>
+          <p className="text-sm text-slate-500 mt-1">
+            Importação independente e idempotente do catálogo legado Tecson com saldo inicial e
+            códigos originais
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            accept=".csv,text/csv"
+            className="hidden"
+          />
+          <Button
+            variant="outline"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isParsing || isProcessing}
+          >
+            <FileSpreadsheet className="w-4 h-4 mr-2 text-emerald-600" />
+            {csvFile ? 'Trocar Arquivo CSV' : 'Selecionar CSV Tecson'}
+          </Button>
+
+          {parsedRows.length > 0 && (
+            <>
+              <Button
+                variant="outline"
+                onClick={() => handleExecuteImport(true)}
+                disabled={isProcessing}
+                className="border-amber-400 text-amber-900 hover:bg-amber-50"
+              >
+                <Eye className="w-4 h-4 mr-2" />
+                Testar sem Gravar (Dry-Run)
+              </Button>
+              <Button
+                onClick={() => handleExecuteImport(false)}
+                disabled={isProcessing}
+                className="bg-emerald-700 hover:bg-emerald-800 text-white"
+              >
+                <Play className="w-4 h-4 mr-2" />
+                Importar em Lote
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Regras e avisos vinculativos */}
+      <Alert className="bg-amber-50/60 border-amber-200">
+        <Info className="h-4 w-4 text-amber-700" />
+        <AlertTitle className="text-amber-900 font-semibold text-sm">
+          Regras de Negócio — Origem Tecson
+        </AlertTitle>
+        <AlertDescription className="text-xs text-amber-800/90 mt-1 space-y-1">
+          <p>
+            • <strong>Idempotência:</strong> O mesmo arquivo pode ser reimportado sem duplicar
+            produtos, imagens ou saldos iniciais (chave de reimportação = <code>id_tecson</code>).
+          </p>
+          <p>
+            • <strong>Preservação de Zeros:</strong> O código de barras Tecson é importado
+            exatamente como texto (ex: <code>0789000000000</code>).
+          </p>
+          <p>
+            • <strong>Publicação e Descrição:</strong> Produtos Tecson iniciam com{' '}
+            <code>publicar_no_ecommerce = false</code> e descrição vazia/pendente de revisão.
+          </p>
+          <p>
+            • <strong>Saldo Inicial:</strong> Registrado na localização "A definir", sendo o estoque
+            atual calculado automaticamente.
+          </p>
+        </AlertDescription>
+      </Alert>
+
+      {/* Alerta de colunas não reconhecidas ou ignoradas intencionalmente */}
+      {(unrecognizedColumns.length > 0 || ignoredColumnsReport.length > 0) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {unrecognizedColumns.length > 0 && (
+            <Alert variant="destructive" className="bg-red-50 border-red-200 text-red-900">
+              <AlertTriangle className="h-4 w-4 text-red-600" />
+              <AlertTitle className="text-sm font-semibold">
+                Colunas não reconhecidas no CSV
+              </AlertTitle>
+              <AlertDescription className="text-xs mt-1">
+                {unrecognizedColumns.join(', ')} — Não foram descartadas silenciosamente e estão
+                listadas para conferência.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {ignoredColumnsReport.length > 0 && (
+            <Alert className="bg-slate-50 border-slate-200 text-slate-800">
+              <Layers className="h-4 w-4 text-slate-600" />
+              <AlertTitle className="text-sm font-semibold">
+                Campos ignorados conforme especificação
+              </AlertTitle>
+              <AlertDescription className="text-xs mt-1">
+                {ignoredColumnsReport.join(', ')} (auxiliares de HTML antigo ou lote de edição).
+              </AlertDescription>
+            </Alert>
+          )}
+        </div>
+      )}
+
+      {isProcessing && (
+        <Card>
+          <CardContent className="pt-6">
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm">
+                <span>Processando produtos Tecson...</span>
+                <span>{progress}%</span>
+              </div>
+              <Progress value={progress} />
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Relatório de Execução quando disponível */}
+      {runResult && (
+        <Card className="border-emerald-200 bg-emerald-50/20">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                <CardTitle className="text-lg">
+                  {runResult.dry_run
+                    ? 'Resultado do Teste (Sem Gravação)'
+                    : 'Resultado da Importação'}
+                </CardTitle>
+              </div>
+              <Badge className={runResult.dry_run ? 'bg-amber-600' : 'bg-emerald-600'}>
+                {runResult.dry_run ? 'SIMULAÇÃO' : 'GRAVADO NO BANCO'}
+              </Badge>
+            </div>
+            <CardDescription>
+              Total analisado: {runResult.total_received} itens recebidos
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+              <div className="bg-white p-3 rounded-lg border">
+                <span className="text-xs text-slate-500 uppercase font-semibold">
+                  Criados Novos
+                </span>
+                <p className="text-2xl font-bold text-emerald-600">{runResult.created}</p>
+              </div>
+              <div className="bg-white p-3 rounded-lg border">
+                <span className="text-xs text-slate-500 uppercase font-semibold">
+                  Atualizados (Idempotente)
+                </span>
+                <p className="text-2xl font-bold text-blue-600">{runResult.updated}</p>
+              </div>
+              <div className="bg-white p-3 rounded-lg border">
+                <span className="text-xs text-slate-500 uppercase font-semibold">
+                  Ignorados/Inválidos
+                </span>
+                <p className="text-2xl font-bold text-slate-500">{runResult.ignored}</p>
+              </div>
+              <div className="bg-white p-3 rounded-lg border">
+                <span className="text-xs text-slate-500 uppercase font-semibold">
+                  Conflitos de Edição
+                </span>
+                <p className="text-2xl font-bold text-amber-600">
+                  {runResult.conflicts?.length || 0}
+                </p>
+              </div>
+            </div>
+
+            {runResult.conflicts?.length > 0 && (
+              <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs">
+                <p className="font-semibold text-amber-900 mb-1">
+                  Aviso de Conflitos Detectados na Reimportação:
+                </p>
+                <p className="text-amber-800">
+                  {runResult.conflicts.length} produto(s) possuem alterações locais manuais que
+                  diferem do CSV. A edição manual foi preservada com segurança.
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Tabs com Prévia e Validação */}
+      {parsedRows.length > 0 && (
+        <Tabs value={activeTab} onValueChange={(v: any) => setActiveTab(v)} className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <TabsList>
+              <TabsTrigger value="preview">Prévia Mapeada ({parsedRows.length})</TabsTrigger>
+              <TabsTrigger value="validation">Validação de Campos</TabsTrigger>
+              {runResult && <TabsTrigger value="report">Relatório por Linha</TabsTrigger>}
+            </TabsList>
+
+            <div className="relative w-full sm:w-72">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Buscar por nome, barras, cód..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-9 pr-3 py-1.5 text-xs border rounded-md"
+              />
+            </div>
+          </div>
+
+          <TabsContent value="preview" className="space-y-4">
+            <div className="rounded-md border bg-white overflow-x-auto max-h-[500px]">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-50 text-slate-700 sticky top-0 border-b">
+                  <tr>
+                    <th className="p-2.5">#</th>
+                    <th className="p-2.5">ID Tecson</th>
+                    <th className="p-2.5">Cód. Barras (Texto)</th>
+                    <th className="p-2.5">Nome do Produto</th>
+                    <th className="p-2.5">Fornecedor</th>
+                    <th className="p-2.5 text-right">Preço Venda</th>
+                    <th className="p-2.5 text-right">Custo Unit.</th>
+                    <th className="p-2.5 text-center">Saldo Inicial</th>
+                    <th className="p-2.5 text-center">Imagem</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {filteredPreview.slice(0, 100).map((row) => (
+                    <tr key={row.index} className="hover:bg-slate-50/70">
+                      <td className="p-2.5 text-slate-400 font-mono">{row.index}</td>
+                      <td className="p-2.5 font-mono text-slate-700">{row.id_tecson || '—'}</td>
+                      <td className="p-2.5 font-mono font-semibold text-emerald-800">
+                        {row.codigo_barras_tecson || '—'}
+                      </td>
+                      <td
+                        className="p-2.5 max-w-xs truncate font-medium text-slate-900"
+                        title={row.nome_produto}
+                      >
+                        {row.nome_produto || '—'}
+                      </td>
+                      <td className="p-2.5 text-slate-600">{row.fornecedor || '—'}</td>
+                      <td className="p-2.5 text-right font-semibold text-slate-800">
+                        {formatCurrency(row.preco_venda)}
+                      </td>
+                      <td className="p-2.5 text-right text-slate-500">
+                        {formatCurrency(row.custo_unitario)}
+                      </td>
+                      <td className="p-2.5 text-center">
+                        <Badge variant="outline" className="font-mono">
+                          {row.quantidade_estoques} un
+                        </Badge>
+                      </td>
+                      <td className="p-2.5 text-center">
+                        {row.image_url ? (
+                          <div className="inline-flex items-center gap-1 text-emerald-600">
+                            <Image className="w-3.5 h-3.5" />
+                            <span className="text-[10px]">URL</span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-300">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {filteredPreview.length > 100 && (
+              <p className="text-xs text-slate-500 text-center">
+                Mostrando os primeiros 100 de {filteredPreview.length} produtos.
+              </p>
+            )}
+          </TabsContent>
+
+          <TabsContent value="validation" className="space-y-4">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Mapeamento de Origem Tecson → Destino</CardTitle>
+                <CardDescription>
+                  Garantia de conversão estrita sem preenchimentos presumidos
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3 text-xs">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="p-3 bg-slate-50 rounded border">
+                    <p className="font-semibold text-slate-800">ID / id → id_tecson</p>
+                    <p className="text-slate-600 mt-0.5">
+                      Chave primária de reimportação idempotente.
+                    </p>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded border">
+                    <p className="font-semibold text-slate-800">
+                      CODIGO_BARRAS → codigo_barras_tecson
+                    </p>
+                    <p className="text-slate-600 mt-0.5">
+                      Armazenado como texto com zeros à esquerda preservados.
+                    </p>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded border">
+                    <p className="font-semibold text-slate-800">
+                      QUANT_EM_ESTOQUES → initial_stocks
+                    </p>
+                    <p className="text-slate-600 mt-0.5">
+                      Registrado como Saldo Inicial (localização 'A definir').
+                    </p>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded border">
+                    <p className="font-semibold text-slate-800">R$_CUSTO → custo_unitario</p>
+                    <p className="text-slate-600 mt-0.5">
+                      Custo interno, nunca exposto em canais públicos.
+                    </p>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded border">
+                    <p className="font-semibold text-slate-800">publicar_no_ecommerce = false</p>
+                    <p className="text-slate-600 mt-0.5">
+                      Produtos Tecson não sobem direto no e-commerce.
+                    </p>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded border">
+                    <p className="font-semibold text-slate-800">Campos Omitidos sem Presunção</p>
+                    <p className="text-slate-600 mt-0.5">
+                      Descrição, Marca e Categoria permanecem vazios/pendentes.
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {runResult && (
+            <TabsContent value="report" className="space-y-4">
+              <div className="rounded-md border bg-white overflow-x-auto max-h-[500px]">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-slate-50 text-slate-700 sticky top-0 border-b">
+                    <tr>
+                      <th className="p-2.5">Linha</th>
+                      <th className="p-2.5">Status</th>
+                      <th className="p-2.5">Código/Barras</th>
+                      <th className="p-2.5">Nome</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {runResult.sample_reports?.map((rep: any, idx: number) => (
+                      <tr key={idx} className="hover:bg-slate-50/70">
+                        <td className="p-2.5 font-mono text-slate-400">{rep.index}</td>
+                        <td className="p-2.5">
+                          <Badge
+                            variant={
+                              rep.status === 'created'
+                                ? 'default'
+                                : rep.status === 'updated'
+                                  ? 'secondary'
+                                  : 'destructive'
+                            }
+                            className={
+                              rep.status === 'created'
+                                ? 'bg-emerald-600'
+                                : rep.status === 'updated'
+                                  ? 'bg-blue-600'
+                                  : ''
+                            }
+                          >
+                            {rep.status}
+                          </Badge>
+                        </td>
+                        <td className="p-2.5 font-mono">{rep.code || '—'}</td>
+                        <td className="p-2.5 font-medium">{rep.name || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </TabsContent>
+          )}
+        </Tabs>
+      )}
+
+      {/* Estado vazio */}
+      {parsedRows.length === 0 && !isParsing && (
+        <Card className="border-dashed py-12 text-center">
+          <CardContent className="space-y-4">
+            <div className="mx-auto w-12 h-12 rounded-full bg-amber-50 flex items-center justify-center text-amber-700">
+              <Upload className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="text-base font-semibold text-slate-900">
+                Selecione o arquivo CSV do Tecson
+              </h3>
+              <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+                Aceita colunas originais do Tecson (ID_EDICAO, DATA_INCLUSAO, IMAGEM, COD_PRODUTO,
+                CODIGO_BARRAS, QUANT_EM_ESTOQUES, R$_VENDA, etc).
+              </p>
+            </div>
+            <Button
+              onClick={() => fileInputRef.current?.click()}
+              className="bg-amber-700 hover:bg-amber-800 text-white"
+            >
+              <FileSpreadsheet className="w-4 h-4 mr-2" />
+              Procurar Arquivo CSV
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  )
+}

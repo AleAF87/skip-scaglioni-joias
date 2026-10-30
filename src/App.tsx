@@ -20,6 +20,8 @@ import ResellersManagement from '@/pages/ResellersManagement'
 import UsersManagement from '@/pages/UsersManagement'
 import UserProfile from '@/pages/UserProfile'
 import ImportProductsPage from '@/pages/ImportProductsPage'
+import { ImportTecsonPage } from '@/pages/ImportTecsonPage'
+import { ImportScaglioniPage } from '@/pages/ImportScaglioniPage'
 import CompanySettingsPage from '@/pages/CompanySettingsPage'
 import NotFound from '@/pages/NotFound'
 
@@ -57,14 +59,29 @@ export default function App() {
 
             {/* Dashboard (Admin & Operator) */}
             <Route
-              path="dashboard"
+              path="/importar-produtos"
               element={
-                <ProtectedRoute allowedRoles={['admin', 'operator']}>
-                  <Dashboard />
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <ImportTecsonPage />
                 </ProtectedRoute>
               }
             />
-
+            <Route
+              path="/importar-tecson"
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <ImportTecsonPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/importar-scaglioni"
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <ImportScaglioniPage />
+                </ProtectedRoute>
+              }
+            />
             {/* Voice Product Entry (Mobile-first anchor screen) */}
             <Route
               path="voz"

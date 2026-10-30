@@ -894,8 +894,13 @@ export default function StockInventory() {
 
                       <td className="py-3 px-4">
                         <span className="font-mono text-xs font-bold text-[#7A5C2E] block">
-                          {p.code}
+                          {p.codigo_barras || p.codigo_barras_tecson || p.code}
                         </span>
+                        {p.codigo_barras && p.code && p.codigo_barras !== p.code && (
+                          <span className="font-mono text-[10px] text-slate-400 block">
+                            SKU: {p.code}
+                          </span>
+                        )}
                       </td>
 
                       {/* Ordem obrigatória: Tipo, Material, Perfil, Tamanho, Descrição */}
@@ -1297,23 +1302,19 @@ export default function StockInventory() {
               </div>
 
               <div>
-                <Label className="text-xs font-semibold">Quantidade em Estoque *</Label>
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold">Quantidade Atual (Calculada)</Label>
+                  <span className="text-[10px] text-amber-700 bg-amber-50 px-1 rounded border border-amber-200">
+                    Não editável direto
+                  </span>
+                </div>
                 <Input
                   type="number"
                   min="0"
-                  required
+                  disabled
                   value={editForm.quantity}
-                  onChange={(e) => {
-                    const newQtyStr = e.target.value
-                    const newQty = parseInt(newQtyStr, 10) || 0
-                    const thirtyPercent = Math.max(1, Math.round(newQty * 0.3))
-                    setEditForm({
-                      ...editForm,
-                      quantity: newQtyStr,
-                      minimum_quantity: editForm.minimum_quantity || thirtyPercent.toString(),
-                    })
-                  }}
-                  className="mt-1 font-bold"
+                  title="A quantidade atual é calculada a partir do saldo inicial + movimentações (vendas e transferências)"
+                  className="mt-1 font-bold bg-slate-50 cursor-not-allowed"
                 />
               </div>
 

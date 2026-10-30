@@ -127,10 +127,14 @@ export default function Layout() {
     ...(isAdmin
       ? [
           {
-            to: '/importar-produtos',
-            label: 'Importar Produtos',
+            to: '/importar-tecson',
+            label: 'Importar Tecson',
             icon: FileSpreadsheet,
-            badgeText: 'Novo',
+          },
+          {
+            to: '/importar-scaglioni',
+            label: 'Importar Scaglioni',
+            icon: FileSpreadsheet,
           },
         ]
       : []),
