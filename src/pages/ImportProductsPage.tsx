@@ -48,11 +48,7 @@ export function ImportProductsPage() {
   const [safetyPhrase, setSafetyPhrase] = useState('')
   const [isProcessingImport, setIsProcessingImport] = useState(false)
   const [importProgressText, setImportProgressText] = useState('')
-  const [clearResult, setClearResult] = useState<{
-    products: number
-    reseller_stock_items: number
-    reseller_issues: number
-  } | null>(null)
+  const [clearResult, setClearResult] = useState<Record<string, number> | null>(null)
   const [dbImportResult, setDbImportResult] = useState<{
     imported: number
     updated: number
@@ -644,12 +640,14 @@ export function ImportProductsPage() {
                       htmlFor="clearCheck"
                       className="font-bold text-red-900 text-sm cursor-pointer block"
                     >
-                      Apagar TODOS os produtos e movimentações existentes antes de importar
+                      Apagar TODOS os produtos, vendas, consignações e movimentações existentes
+                      antes de importar
                     </label>
                     <p className="text-xs text-red-700 mt-0.5">
                       Você escolheu limpar o banco para começar com a nova base do sistema antigo.
-                      Isto apagará produtos de teste, estoques de revendedoras anteriores e
-                      pendências relacionadas.
+                      Isto apagará produtos de teste, vendas (loja e revendedoras), listas de
+                      consignação, documentos de listas, estoques em revendedoras, entregas e
+                      pendências financeiras.
                     </p>
                   </div>
                 </div>

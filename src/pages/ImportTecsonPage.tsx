@@ -295,9 +295,14 @@ export function ImportTecsonPage() {
       setClearChecked(false)
       setSafetyPhrase('')
 
+      const totalRemoved = Object.values(res.deleted || {}).reduce(
+        (acc: number, val: any) => acc + (typeof val === 'number' ? val : 0),
+        0,
+      )
+
       toast({
         title: 'Limpeza concluída com sucesso',
-        description: `${res.deleted.products ?? 0} produtos e registros vinculados foram apagados definitivamente.`,
+        description: `${res.deleted.products ?? 0} produtos e ${totalRemoved} registros vinculados (vendas, listas, movimentações) foram apagados definitivamente.`,
       })
     } catch (err: any) {
       console.error('Erro na limpeza do banco:', err)
@@ -810,8 +815,8 @@ export function ImportTecsonPage() {
                     </Badge>
                   </div>
                   <CardDescription className="text-xs text-red-700 mt-0.5">
-                    Apagar todos os produtos, saldos iniciais, movimentações e estoques com
-                    revendedoras antes de importar
+                    Apagar todos os produtos, vendas (loja e revendedoras), listas de consignação,
+                    entregas, comissões/financeiro e estoques antes de importar
                   </CardDescription>
                 </div>
               </div>
@@ -854,14 +859,22 @@ export function ImportTecsonPage() {
                   <ul className="list-disc list-inside space-y-0.5 pl-1">
                     <li>Todos os produtos cadastrados</li>
                     <li>Saldos iniciais de estoque</li>
+                    <li>Vendas do PDV da loja e Vendas do PDV de revendedoras</li>
+                    <li>Listas de consignação e seus contratos/documentos vinculados</li>
+                    <li>Entregas/recebimentos de revendedoras (incluindo assinaturas)</li>
+                    <li>Pendências financeiras, extravios e devoluções de revendedoras</li>
                     <li>Produtos em posse ou estoque de revendedoras</li>
                     <li>
                       Movimentações de estoque, histórico de preços, links de categorias e imagens
                     </li>
                   </ul>
+                  <p className="pt-1 text-slate-700">
+                    <strong>Preservados intactos:</strong> Usuários, cadastros auxiliares (marcas,
+                    categorias, tipos, materiais, tamanhos) e configurações da empresa.
+                  </p>
                   <p className="pt-1 font-semibold text-red-950">
-                    Utilize esta opção quando desejar zerar a base de produtos para recomeçar a
-                    importação do zero.
+                    Utilize esta opção quando desejar zerar tudo relacionado a produtos, vendas e
+                    consignações para recomeçar a base do zero.
                   </p>
                 </AlertDescription>
               </Alert>
@@ -881,12 +894,12 @@ export function ImportTecsonPage() {
                       htmlFor="clearTecsonCheck"
                       className="font-bold text-red-950 text-xs sm:text-sm cursor-pointer block"
                     >
-                      Estou ciente e confirmo que desejo apagar TODOS os produtos e movimentações
-                      existentes
+                      Estou ciente e confirmo que desejo apagar TODOS os produtos, vendas,
+                      consignações e registros derivados
                     </label>
                     <p className="text-xs text-red-700 mt-0.5">
-                      Esta ação não pode ser desfeita. Todos os dados de produtos e estoques
-                      vinculados serão removidos.
+                      Esta ação não pode ser desfeita. Todos os dados de produtos, vendas (loja e
+                      revendedoras), listas e financeiro/estoque de revendedoras serão removidos.
                     </p>
                   </div>
                 </div>
@@ -938,12 +951,16 @@ export function ImportTecsonPage() {
 
               {/* Resultado da limpeza se executada nesta sessão */}
               {clearResult && (
-                <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-xs space-y-2">
+                <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-xs space-y-3">
                   <div className="flex items-center gap-2 text-emerald-800 font-bold">
                     <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                    <span>Banco de produtos limpo com sucesso!</span>
+                    <span>Limpeza total executada com sucesso!</span>
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-center">
+                  <p className="text-[11px] text-emerald-900">
+                    Todos os produtos, vendas, listas e registros vinculados foram apagados
+                    definitivamente:
+                  </p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-2 pt-1 text-center">
                     <div className="bg-white p-2 rounded border border-emerald-200">
                       <span className="text-emerald-700 font-bold block text-base">
                         {clearResult.products ?? 0}
@@ -952,23 +969,69 @@ export function ImportTecsonPage() {
                     </div>
                     <div className="bg-white p-2 rounded border border-emerald-200">
                       <span className="text-emerald-700 font-bold block text-base">
-                        {clearResult.initial_stocks ?? 0}
+                        {clearResult.sales ?? 0}
                       </span>
-                      <span className="text-[10px] text-slate-500 uppercase">Saldos Iniciais</span>
+                      <span className="text-[10px] text-slate-500 uppercase">Vendas Loja</span>
+                    </div>
+                    <div className="bg-white p-2 rounded border border-emerald-200">
+                      <span className="text-emerald-700 font-bold block text-base">
+                        {clearResult.reseller_sales ?? 0}
+                      </span>
+                      <span className="text-[10px] text-slate-500 uppercase">
+                        Vendas Revendedora
+                      </span>
+                    </div>
+                    <div className="bg-white p-2 rounded border border-emerald-200">
+                      <span className="text-emerald-700 font-bold block text-base">
+                        {clearResult.consignment_lists ?? 0}
+                      </span>
+                      <span className="text-[10px] text-slate-500 uppercase">
+                        Listas Consignação
+                      </span>
+                    </div>
+                    <div className="bg-white p-2 rounded border border-emerald-200">
+                      <span className="text-emerald-700 font-bold block text-base">
+                        {clearResult.consignment_documents ?? 0}
+                      </span>
+                      <span className="text-[10px] text-slate-500 uppercase">
+                        Contratos Assinados
+                      </span>
+                    </div>
+                    <div className="bg-white p-2 rounded border border-emerald-200">
+                      <span className="text-emerald-700 font-bold block text-base">
+                        {clearResult.reseller_deliveries ?? 0}
+                      </span>
+                      <span className="text-[10px] text-slate-500 uppercase">
+                        Entregas Revendedora
+                      </span>
                     </div>
                     <div className="bg-white p-2 rounded border border-emerald-200">
                       <span className="text-emerald-700 font-bold block text-base">
                         {clearResult.reseller_stock_items ?? 0}
                       </span>
                       <span className="text-[10px] text-slate-500 uppercase">
-                        Estoque Revendedoras
+                        Estoque Revendedora
                       </span>
                     </div>
                     <div className="bg-white p-2 rounded border border-emerald-200">
                       <span className="text-emerald-700 font-bold block text-base">
                         {clearResult.reseller_issues ?? 0}
                       </span>
-                      <span className="text-[10px] text-slate-500 uppercase">Pendências</span>
+                      <span className="text-[10px] text-slate-500 uppercase">
+                        Pendências / Extravios
+                      </span>
+                    </div>
+                    <div className="bg-white p-2 rounded border border-emerald-200">
+                      <span className="text-emerald-700 font-bold block text-base">
+                        {clearResult.reseller_returns ?? 0}
+                      </span>
+                      <span className="text-[10px] text-slate-500 uppercase">Devoluções</span>
+                    </div>
+                    <div className="bg-white p-2 rounded border border-emerald-200">
+                      <span className="text-emerald-700 font-bold block text-base">
+                        {clearResult.initial_stocks ?? 0}
+                      </span>
+                      <span className="text-[10px] text-slate-500 uppercase">Saldos Iniciais</span>
                     </div>
                   </div>
                 </div>

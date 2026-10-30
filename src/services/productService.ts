@@ -307,9 +307,20 @@ export const productService = {
       success: boolean
       message: string
       deleted: {
-        products: number
-        reseller_stock_items: number
-        reseller_issues: number
+        sales?: number
+        reseller_sales?: number
+        consignment_documents?: number
+        consignment_lists?: number
+        reseller_deliveries?: number
+        reseller_returns?: number
+        reseller_stock_items?: number
+        reseller_issues?: number
+        initial_stocks?: number
+        product_category_links?: number
+        product_images?: number
+        product_variations?: number
+        product_price_history?: number
+        products?: number
       }
     }>('/backend/v1/products/import/clear-all', {
       method: 'POST',

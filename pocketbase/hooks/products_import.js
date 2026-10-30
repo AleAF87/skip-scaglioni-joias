@@ -23,6 +23,12 @@ routerAdd(
     }
 
     let deletedCounts = {
+      sales: 0,
+      reseller_sales: 0,
+      consignment_documents: 0,
+      consignment_lists: 0,
+      reseller_deliveries: 0,
+      reseller_returns: 0,
       reseller_stock_items: 0,
       reseller_issues: 0,
       initial_stocks: 0,
@@ -35,21 +41,65 @@ routerAdd(
 
     try {
       $app.runInTransaction((txApp) => {
+        // 1. Vendas da loja
         try {
-          const resStock = txApp.db().newQuery('DELETE FROM reseller_stock_items').execute()
-          deletedCounts.reseller_stock_items = resStock?.rowsAffected ? resStock.rowsAffected() : 0
+          const resSales = txApp.db().newQuery('DELETE FROM sales').execute()
+          deletedCounts.sales = resSales?.rowsAffected ? resSales.rowsAffected() : 0
         } catch (_) {}
 
+        // 2. Vendas de revendedoras (PDV Revendedora)
+        try {
+          const resResellerSales = txApp.db().newQuery('DELETE FROM reseller_sales').execute()
+          deletedCounts.reseller_sales = resResellerSales?.rowsAffected
+            ? resResellerSales.rowsAffected()
+            : 0
+        } catch (_) {}
+
+        // 3. Documentos / contratos de listas de consignação
+        try {
+          const resDocs = txApp.db().newQuery('DELETE FROM consignment_documents').execute()
+          deletedCounts.consignment_documents = resDocs?.rowsAffected ? resDocs.rowsAffected() : 0
+        } catch (_) {}
+
+        // 4. Listas de consignação
+        try {
+          const resConsign = txApp.db().newQuery('DELETE FROM consignment_lists').execute()
+          deletedCounts.consignment_lists = resConsign?.rowsAffected ? resConsign.rowsAffected() : 0
+        } catch (_) {}
+
+        // 5. Entregas / recebimentos de revendedora
+        try {
+          const resDeliveries = txApp.db().newQuery('DELETE FROM reseller_deliveries').execute()
+          deletedCounts.reseller_deliveries = resDeliveries?.rowsAffected
+            ? resDeliveries.rowsAffected()
+            : 0
+        } catch (_) {}
+
+        // 6. Pendências financeiras / extravios / avulsas de revendedoras
         try {
           const resIssues = txApp.db().newQuery('DELETE FROM reseller_issues').execute()
           deletedCounts.reseller_issues = resIssues?.rowsAffected ? resIssues.rowsAffected() : 0
         } catch (_) {}
 
+        // 7. Devoluções / acertos de revendedoras
+        try {
+          const resReturns = txApp.db().newQuery('DELETE FROM reseller_returns').execute()
+          deletedCounts.reseller_returns = resReturns?.rowsAffected ? resReturns.rowsAffected() : 0
+        } catch (_) {}
+
+        // 8. Estoque em posse de revendedoras
+        try {
+          const resStock = txApp.db().newQuery('DELETE FROM reseller_stock_items').execute()
+          deletedCounts.reseller_stock_items = resStock?.rowsAffected ? resStock.rowsAffected() : 0
+        } catch (_) {}
+
+        // 9. Saldos iniciais de produtos
         try {
           const resInit = txApp.db().newQuery('DELETE FROM initial_stocks').execute()
           deletedCounts.initial_stocks = resInit?.rowsAffected ? resInit.rowsAffected() : 0
         } catch (_) {}
 
+        // 10. Links produto <-> categoria
         try {
           const resLinks = txApp.db().newQuery('DELETE FROM product_category_links').execute()
           deletedCounts.product_category_links = resLinks?.rowsAffected
@@ -57,28 +107,32 @@ routerAdd(
             : 0
         } catch (_) {}
 
+        // 11. Imagens de produtos
         try {
           const resImgs = txApp.db().newQuery('DELETE FROM product_images').execute()
           deletedCounts.product_images = resImgs?.rowsAffected ? resImgs.rowsAffected() : 0
         } catch (_) {}
 
+        // 12. Variações de produtos
         try {
           const resVars = txApp.db().newQuery('DELETE FROM product_variations').execute()
           deletedCounts.product_variations = resVars?.rowsAffected ? resVars.rowsAffected() : 0
         } catch (_) {}
 
+        // 13. Histórico de preços
         try {
           const resHist = txApp.db().newQuery('DELETE FROM product_price_history').execute()
           deletedCounts.product_price_history = resHist?.rowsAffected ? resHist.rowsAffected() : 0
         } catch (_) {}
 
+        // 14. Produtos principais
         const resProducts = txApp.db().newQuery('DELETE FROM products').execute()
         deletedCounts.products = resProducts?.rowsAffected ? resProducts.rowsAffected() : 0
       })
 
       return e.json(200, {
         success: true,
-        message: 'Produtos e registros relacionados limpos com sucesso.',
+        message: 'Produtos, vendas, consignações e registros relacionados limpos com sucesso.',
         deleted: deletedCounts,
       })
     } catch (err) {
