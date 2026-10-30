@@ -87,9 +87,7 @@ export default function Layout() {
 
   // Demais itens de navegação
   const navItems = [
-    ...(canManageInternal
-      ? [{ to: '/dashboard', label: 'Painel Geral', icon: LayoutDashboard }]
-      : []),
+    ...(canManageInternal ? [{ to: '/', label: 'Painel Geral', icon: LayoutDashboard }] : []),
     ...(canManageInternal
       ? [{ to: '/voz', label: 'Cadastro por Voz', icon: Mic, highlight: true }]
       : []),
@@ -146,7 +144,7 @@ export default function Layout() {
   // Mobile Bottom bar items (focused on mobile-first navigation)
   const mobileBottomItems = [
     ...(canManageInternal
-      ? [{ to: '/dashboard', label: 'Painel', icon: LayoutDashboard }]
+      ? [{ to: '/', label: 'Painel', icon: LayoutDashboard }]
       : [{ to: '/revendedora/estoque-entregas', label: 'Estoque', icon: PackageCheck }]),
     ...(canManageInternal
       ? [{ to: '/pdv', label: 'PDV', icon: ShoppingCart }]
@@ -207,7 +205,7 @@ export default function Layout() {
             {sidebarCollapsed ? (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <NavLink to="/dashboard" className="block focus:outline-hidden">
+                  <NavLink to="/" className="block focus:outline-hidden">
                     <img
                       src={LOGO_ICON_URL}
                       alt="Scaglioni Joias"
@@ -220,7 +218,7 @@ export default function Layout() {
                 </TooltipContent>
               </Tooltip>
             ) : (
-              <NavLink to="/dashboard" className="block focus:outline-hidden">
+              <NavLink to="/" className="block focus:outline-hidden">
                 <img
                   src={LOGO_FULL_URL}
                   alt="Scaglioni Joias"
@@ -476,7 +474,7 @@ export default function Layout() {
         <div className="flex-1 flex flex-col min-w-0 pb-20 lg:pb-0">
           {/* Mobile Header com a logo oficial */}
           <header className="lg:hidden sticky top-0 z-40 bg-[#000000] border-b border-[#333333] px-4 py-2.5 flex items-center justify-between shadow-md">
-            <NavLink to="/dashboard" className="flex items-center">
+            <NavLink to="/" className="flex items-center">
               <img
                 src={LOGO_FULL_URL}
                 alt="Scaglioni Joias"

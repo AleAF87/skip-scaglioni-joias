@@ -55,17 +55,17 @@ export default function App() {
               </ProtectedRoute>
             }
           >
-            <Route index element={<Navigate to="/dashboard" replace />} />
-
-            {/* Dashboard (Admin & Operator) */}
+            {/* Dashboard / Painel Executivo (Admin & Operator) */}
             <Route
-              path="/importar-produtos"
+              index
               element={
-                <ProtectedRoute allowedRoles={['admin']}>
-                  <ImportTecsonPage />
+                <ProtectedRoute allowedRoles={['admin', 'operator']}>
+                  <Dashboard />
                 </ProtectedRoute>
               }
             />
+            <Route path="dashboard" element={<Navigate to="/" replace />} />
+
             <Route
               path="/importar-tecson"
               element={
