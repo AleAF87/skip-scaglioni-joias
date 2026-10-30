@@ -216,102 +216,189 @@ routerAdd(
             ? String(item.data_inclusao_tecson).trim()
             : ''
 
-          // 1. Verificar se já existe pelo id_tecson (chave primária de reimportação)
-          let existing = null
-          if (idTecson) {
-            try {
-              existing = txApp.findFirstRecordByData('products', 'id_tecson', idTecson)
-            } catch (_) {}
-          }
-          if (!existing && codBarrasTecson) {
-            // Fallback por código de barras se id_tecson ausente
-            try {
-              existing = txApp.findFirstRecordByData(
-                'products',
-                'codigo_barras_tecson',
-                codBarrasTecson,
-              )
-            } catch (_) {}
-          }
-
-          if (existing) {
-            // Reimportação: verificar conflitos com valores locais que foram alterados
-            const localNome =
-              existing.getString('nome_produto') || existing.getString('description')
-            const localPreco = existing.getFloat('selling_price')
-            const hasConflict =
-              (localNome && nomeProduto && localNome !== nomeProduto) ||
-              (localPreco > 0 && precoVenda > 0 && Math.abs(localPreco - precoVenda) > 0.01)
-
-            if (hasConflict) {
-              conflicts.push({
-                index: i,
-                product_id: existing.getString('produto_id') || existing.id,
-                field: localNome !== nomeProduto ? 'nome' : 'preco_venda',
-                local_value: localNome !== nomeProduto ? localNome : localPreco,
-                origin_value: localNome !== nomeProduto ? nomeProduto : precoVenda,
-              })
+          try {
+            // 1. Verificar se já existe pelo id_tecson (chave primária de reimportação)
+            let existing = null
+            if (idTecson) {
+              try {
+                existing = txApp.findFirstRecordByData('products', 'id_tecson', idTecson)
+              } catch (_) {}
+            }
+            if (!existing && codBarrasTecson) {
+              // Fallback por código de barras se id_tecson ausente
+              try {
+                existing = txApp.findFirstRecordByData(
+                  'products',
+                  'codigo_barras_tecson',
+                  codBarrasTecson,
+                )
+              } catch (_) {}
             }
 
-            if (!isDryRun) {
-              // Atualizar dados de origem sem sobrescrever edição local se houver preferência
-              existing.set('id_tecson', idTecson)
-              existing.set('codigo_produto_tecson', codProdTecson)
-              existing.set('codigo_barras_tecson', codBarrasTecson)
-              existing.set(
-                'nome_original_tecson',
-                nomeOriginal || existing.getString('nome_original_tecson'),
-              )
-              existing.set(
-                'data_inclusao_tecson',
-                dataInclusao || existing.getString('data_inclusao_tecson'),
-              )
-              if (fornecedor && !existing.getString('fornecedor')) {
-                existing.set('fornecedor', fornecedor)
-              }
-              if (custoUnitario > 0 && !existing.getFloat('custo_unitario')) {
-                existing.set('custo_unitario', custoUnitario)
-                existing.set('invested_value', custoUnitario)
-              }
-              if (importImagePath && !existing.getString('import_image_path')) {
-                existing.set('import_image_path', importImagePath)
-              }
-              if (imageUrl && !existing.getString('image_url')) {
-                existing.set('image_url', imageUrl)
-              }
-              if (item.variacao_resumo_bruto) {
-                existing.set('variacao_resumo_bruto', String(item.variacao_resumo_bruto))
-              }
-              if (item.tipo_produto_bruto && !existing.getString('tipo_produto_bruto')) {
-                existing.set('tipo_produto_bruto', String(item.tipo_produto_bruto))
-              }
-              if (item.nome_produto_pai_bruto && !existing.getString('nome_produto_pai_bruto')) {
-                existing.set('nome_produto_pai_bruto', String(item.nome_produto_pai_bruto))
-              }
-              if (item.cod_produto_pai_bruto && !existing.getString('cod_produto_pai_bruto')) {
-                existing.set('cod_produto_pai_bruto', String(item.cod_produto_pai_bruto))
-              }
-              if (item.codigo_barras_pai_bruto && !existing.getString('codigo_barras_pai_bruto')) {
-                existing.set('codigo_barras_pai_bruto', String(item.codigo_barras_pai_bruto))
+            if (existing) {
+              // Reimportação: verificar conflitos com valores locais que foram alterados
+              const localNome =
+                existing.getString('nome_produto') || existing.getString('description')
+              const localPreco = existing.getFloat('selling_price')
+              const hasConflict =
+                (localNome && nomeProduto && localNome !== nomeProduto) ||
+                (localPreco > 0 && precoVenda > 0 && Math.abs(localPreco - precoVenda) > 0.01)
+
+              if (hasConflict) {
+                conflicts.push({
+                  index: i,
+                  product_id: existing.getString('produto_id') || existing.id,
+                  field: localNome !== nomeProduto ? 'nome' : 'preco_venda',
+                  local_value: localNome !== nomeProduto ? localNome : localPreco,
+                  origin_value: localNome !== nomeProduto ? nomeProduto : precoVenda,
+                })
               }
 
-              // Saldo inicial não deve duplicar em reimportação: atualiza ou cria o registro único de initial_stocks
-              const initStockFilter = "product = '" + existing.id + "' && origem = 'Tecson'"
-              const existInitStocks = txApp.findRecordsByFilter(
-                'initial_stocks',
-                initStockFilter,
-                '',
-                1,
-                0,
-              )
-              if (existInitStocks.length > 0) {
-                const initRec = existInitStocks[0]
-                initRec.set('quantidade', saldoInicialQty)
-                initRec.set('id_origem', idTecson)
-                txApp.save(initRec)
-              } else {
+              if (!isDryRun) {
+                // Atualizar dados de origem sem sobrescrever edição local se houver preferência
+                existing.set('id_tecson', idTecson)
+                existing.set('codigo_produto_tecson', codProdTecson)
+                existing.set('codigo_barras_tecson', codBarrasTecson)
+                existing.set(
+                  'nome_original_tecson',
+                  nomeOriginal || existing.getString('nome_original_tecson'),
+                )
+                existing.set(
+                  'data_inclusao_tecson',
+                  dataInclusao || existing.getString('data_inclusao_tecson'),
+                )
+                if (fornecedor && !existing.getString('fornecedor')) {
+                  existing.set('fornecedor', fornecedor)
+                }
+                if (custoUnitario > 0 && !existing.getFloat('custo_unitario')) {
+                  existing.set('custo_unitario', custoUnitario)
+                  existing.set('invested_value', custoUnitario)
+                }
+                if (importImagePath && !existing.getString('import_image_path')) {
+                  existing.set('import_image_path', importImagePath)
+                }
+                if (imageUrl && !existing.getString('image_url')) {
+                  existing.set('image_url', imageUrl)
+                }
+                if (item.variacao_resumo_bruto) {
+                  existing.set('variacao_resumo_bruto', String(item.variacao_resumo_bruto))
+                }
+                if (item.tipo_produto_bruto && !existing.getString('tipo_produto_bruto')) {
+                  existing.set('tipo_produto_bruto', String(item.tipo_produto_bruto))
+                }
+                if (item.nome_produto_pai_bruto && !existing.getString('nome_produto_pai_bruto')) {
+                  existing.set('nome_produto_pai_bruto', String(item.nome_produto_pai_bruto))
+                }
+                if (item.cod_produto_pai_bruto && !existing.getString('cod_produto_pai_bruto')) {
+                  existing.set('cod_produto_pai_bruto', String(item.cod_produto_pai_bruto))
+                }
+                if (
+                  item.codigo_barras_pai_bruto &&
+                  !existing.getString('codigo_barras_pai_bruto')
+                ) {
+                  existing.set('codigo_barras_pai_bruto', String(item.codigo_barras_pai_bruto))
+                }
+
+                // Saldo inicial não deve duplicar em reimportação: atualiza ou cria o registro único de initial_stocks
+                const initStockFilter = "product = '" + existing.id + "' && origem = 'Tecson'"
+                const existInitStocks = txApp.findRecordsByFilter(
+                  'initial_stocks',
+                  initStockFilter,
+                  '',
+                  1,
+                  0,
+                )
+                if (existInitStocks.length > 0) {
+                  const initRec = existInitStocks[0]
+                  initRec.set('quantidade', saldoInicialQty)
+                  initRec.set('id_origem', idTecson)
+                  txApp.save(initRec)
+                } else {
+                  const initRec = new Record(initStockCol)
+                  initRec.set('product', existing.id)
+                  initRec.set('origem', 'Tecson')
+                  initRec.set('id_origem', idTecson)
+                  initRec.set('quantidade', saldoInicialQty)
+                  initRec.set('localizacao', 'A definir')
+                  initRec.set('data_registro', new Date().toISOString())
+                  initRec.set('is_ativo', true)
+                  txApp.save(initRec)
+                }
+
+                // Se não houve vendas/entregas registradas ainda, quantidade = saldoInicialQty
+                if (existing.getInt('quantity') === 0 && saldoInicialQty > 0) {
+                  existing.set('quantity', saldoInicialQty)
+                  existing.set('status', 'available')
+                }
+
+                txApp.save(existing)
+              }
+
+              updatedCount++
+              lineReports.push({
+                index: i,
+                status: 'updated',
+                code: codBarrasTecson || codProdTecson,
+                name: nomeProduto,
+                product_id: existing.id,
+              })
+            } else {
+              // Novo produto Tecson
+              if (!isDryRun) {
+                const ts = new Date().getTime().toString().slice(-6)
+                const rand1 = Math.floor(1000 + Math.random() * 9000).toString()
+                const produtoId = 'PROD-' + ts + '-' + rand1
+                const rand2 = Math.floor(100000 + Math.random() * 900000).toString()
+                const skuInterno = 'SCG-' + rand2
+
+                const newProd = new Record(productsCol)
+                newProd.set('produto_id', produtoId)
+                newProd.set('sku_interno', skuInterno)
+                newProd.set('nome_produto', nomeProduto)
+                newProd.set(
+                  'description',
+                  nomeProduto || codBarrasTecson || codProdTecson || 'Produto Tecson',
+                )
+                newProd.set('code', codBarrasTecson || codProdTecson || skuInterno)
+                newProd.set('codigo_barras', codBarrasTecson)
+                newProd.set('id_tecson', idTecson)
+                newProd.set('codigo_produto_tecson', codProdTecson)
+                newProd.set('codigo_barras_tecson', codBarrasTecson)
+                newProd.set('nome_original_tecson', nomeOriginal)
+                newProd.set('data_inclusao_tecson', dataInclusao)
+                newProd.set('fornecedor', fornecedor)
+                newProd.set('selling_price', precoVenda)
+                newProd.set('custo_unitario', custoUnitario)
+                newProd.set('invested_value', custoUnitario)
+                newProd.set(
+                  'quantity',
+                  typeof saldoInicialQty === 'number' && !isNaN(saldoInicialQty)
+                    ? saldoInicialQty
+                    : 0,
+                )
+                newProd.set('status', saldoInicialQty > 0 ? 'available' : 'unavailable')
+                newProd.set('ativo_interno', true)
+                newProd.set('publicar_no_ecommerce', false)
+                newProd.set('destaque_ecommerce', false)
+                newProd.set('image_url', imageUrl)
+                newProd.set('import_image_path', importImagePath)
+
+                if (item.tipo_produto_bruto)
+                  newProd.set('tipo_produto_bruto', String(item.tipo_produto_bruto))
+                if (item.variacao_resumo_bruto)
+                  newProd.set('variacao_resumo_bruto', String(item.variacao_resumo_bruto))
+                if (item.nome_produto_pai_bruto)
+                  newProd.set('nome_produto_pai_bruto', String(item.nome_produto_pai_bruto))
+                if (item.cod_produto_pai_bruto)
+                  newProd.set('cod_produto_pai_bruto', String(item.cod_produto_pai_bruto))
+                if (item.codigo_barras_pai_bruto)
+                  newProd.set('codigo_barras_pai_bruto', String(item.codigo_barras_pai_bruto))
+
+                txApp.save(newProd)
+
+                // Criar registro de saldo inicial na coleção initial_stocks
                 const initRec = new Record(initStockCol)
-                initRec.set('product', existing.id)
+                initRec.set('product', newProd.id)
                 initRec.set('origem', 'Tecson')
                 initRec.set('id_origem', idTecson)
                 initRec.set('quantidade', saldoInicialQty)
@@ -319,100 +406,35 @@ routerAdd(
                 initRec.set('data_registro', new Date().toISOString())
                 initRec.set('is_ativo', true)
                 txApp.save(initRec)
+
+                // Se houver imagem remota válida, registra na galeria product_images
+                if (imageUrl) {
+                  const imgRec = new Record(imagesCol)
+                  imgRec.set('product', newProd.id)
+                  imgRec.set('image_url', imageUrl)
+                  imgRec.set('is_principal', true)
+                  imgRec.set('sort_order', 1)
+                  imgRec.set('origem', 'Tecson')
+                  txApp.save(imgRec)
+                }
               }
 
-              // Se não houve vendas/entregas registradas ainda, quantidade = saldoInicialQty
-              if (existing.getInt('quantity') === 0 && saldoInicialQty > 0) {
-                existing.set('quantity', saldoInicialQty)
-                existing.set('status', 'available')
-              }
-
-              txApp.save(existing)
+              createdCount++
+              lineReports.push({
+                index: i,
+                status: 'created',
+                code: codBarrasTecson || codProdTecson,
+                name: nomeProduto,
+              })
             }
-
-            updatedCount++
+          } catch (rowErr) {
+            ignoredCount++
             lineReports.push({
               index: i,
-              status: 'updated',
+              status: 'error',
               code: codBarrasTecson || codProdTecson,
               name: nomeProduto,
-              product_id: existing.id,
-            })
-          } else {
-            // Novo produto Tecson
-            if (!isDryRun) {
-              const ts = new Date().getTime().toString().slice(-6)
-              const rand1 = Math.floor(1000 + Math.random() * 9000).toString()
-              const produtoId = 'PROD-' + ts + '-' + rand1
-              const rand2 = Math.floor(100000 + Math.random() * 900000).toString()
-              const skuInterno = 'SCG-' + rand2
-
-              const newProd = new Record(productsCol)
-              newProd.set('produto_id', produtoId)
-              newProd.set('sku_interno', skuInterno)
-              newProd.set('nome_produto', nomeProduto)
-              newProd.set('description', nomeProduto)
-              newProd.set('code', codBarrasTecson || codProdTecson || skuInterno)
-              newProd.set('codigo_barras', codBarrasTecson)
-              newProd.set('id_tecson', idTecson)
-              newProd.set('codigo_produto_tecson', codProdTecson)
-              newProd.set('codigo_barras_tecson', codBarrasTecson)
-              newProd.set('nome_original_tecson', nomeOriginal)
-              newProd.set('data_inclusao_tecson', dataInclusao)
-              newProd.set('fornecedor', fornecedor)
-              newProd.set('selling_price', precoVenda)
-              newProd.set('custo_unitario', custoUnitario)
-              newProd.set('invested_value', custoUnitario)
-              newProd.set('quantity', saldoInicialQty)
-              newProd.set('status', saldoInicialQty > 0 ? 'available' : 'unavailable')
-              newProd.set('ativo_interno', true)
-              newProd.set('publicar_no_ecommerce', false)
-              newProd.set('destaque_ecommerce', false)
-              newProd.set('image_url', imageUrl)
-              newProd.set('import_image_path', importImagePath)
-
-              if (item.tipo_produto_bruto)
-                newProd.set('tipo_produto_bruto', String(item.tipo_produto_bruto))
-              if (item.variacao_resumo_bruto)
-                newProd.set('variacao_resumo_bruto', String(item.variacao_resumo_bruto))
-              if (item.nome_produto_pai_bruto)
-                newProd.set('nome_produto_pai_bruto', String(item.nome_produto_pai_bruto))
-              if (item.cod_produto_pai_bruto)
-                newProd.set('cod_produto_pai_bruto', String(item.cod_produto_pai_bruto))
-              if (item.codigo_barras_pai_bruto)
-                newProd.set('codigo_barras_pai_bruto', String(item.codigo_barras_pai_bruto))
-
-              txApp.save(newProd)
-
-              // Criar registro de saldo inicial na coleção initial_stocks
-              const initRec = new Record(initStockCol)
-              initRec.set('product', newProd.id)
-              initRec.set('origem', 'Tecson')
-              initRec.set('id_origem', idTecson)
-              initRec.set('quantidade', saldoInicialQty)
-              initRec.set('localizacao', 'A definir')
-              initRec.set('data_registro', new Date().toISOString())
-              initRec.set('is_ativo', true)
-              txApp.save(initRec)
-
-              // Se houver imagem remota válida, registra na galeria product_images
-              if (imageUrl) {
-                const imgRec = new Record(imagesCol)
-                imgRec.set('product', newProd.id)
-                imgRec.set('image_url', imageUrl)
-                imgRec.set('is_principal', true)
-                imgRec.set('sort_order', 1)
-                imgRec.set('origem', 'Tecson')
-                txApp.save(imgRec)
-              }
-            }
-
-            createdCount++
-            lineReports.push({
-              index: i,
-              status: 'created',
-              code: codBarrasTecson || codProdTecson,
-              name: nomeProduto,
+              reason: rowErr.message || 'Erro ao processar item',
             })
           }
         }

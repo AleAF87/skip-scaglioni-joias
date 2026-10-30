@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-30T21:09:25.658Z",
+  "generatedAt": "2026-10-30T21:53:52.728Z",
   "collections": [
     {
       "name": "users",
@@ -482,13 +482,13 @@
         {
           "name": "selling_price",
           "type": "number",
-          "required": true,
+          "required": false,
           "system": false
         },
         {
           "name": "quantity",
           "type": "number",
-          "required": true,
+          "required": false,
           "system": false
         },
         {

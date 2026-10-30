@@ -17,6 +17,7 @@ import {
   Trash2,
   ChevronDown,
   ChevronUp,
+  Loader2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -117,6 +118,7 @@ export function ImportTecsonPage() {
   const [ignoredColumnsReport, setIgnoredColumnsReport] = useState<IgnoredColumnRuleItem[]>([])
   const [isParsing, setIsParsing] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
+  const [processingStatus, setProcessingStatus] = useState<string>('')
   const [progress, setProgress] = useState(0)
   const [runResult, setRunResult] = useState<any | null>(null)
   const [activeTab, setActiveTab] = useState<'preview' | 'validation' | 'report'>('preview')
@@ -351,11 +353,11 @@ export function ImportTecsonPage() {
     if (parsedRows.length === 0) return
 
     setIsProcessing(true)
-    setProgress(10)
+    setProgress(5)
 
     try {
       // Preparar payload mantendo preservação estrita de zeros e tipos
-      const payloadItems = parsedRows.map((r) => ({
+      const allPayloadItems = parsedRows.map((r) => ({
         id_tecson: r.id_tecson,
         codigo_produto_tecson: r.codigo_produto_tecson,
         codigo_barras_tecson: r.codigo_barras_tecson,
@@ -375,26 +377,76 @@ export function ImportTecsonPage() {
         codigo_barras_pai_bruto: r.codigo_barras_pai_bruto,
       }))
 
-      setProgress(40)
-      const res = await productService.importTecsonBatch(payloadItems, dryRun)
+      // Processar em chunks de 50 itens para garantir alta tolerância a timeouts e feedback visual progressivo
+      const CHUNK_SIZE = 50
+      const totalItems = allPayloadItems.length
+      let accumulatedResult = {
+        success: true,
+        dry_run: dryRun,
+        total_received: totalItems,
+        created: 0,
+        updated: 0,
+        ignored: 0,
+        conflicts: [] as any[],
+        image_failures: [] as any[],
+        sample_reports: [] as any[],
+      }
+
+      for (let offset = 0; offset < totalItems; offset += CHUNK_SIZE) {
+        const chunk = allPayloadItems.slice(offset, offset + CHUNK_SIZE)
+        const chunkEnd = Math.min(offset + chunk.length, totalItems)
+        setProcessingStatus(`Processando itens ${offset + 1} a ${chunkEnd} de ${totalItems}...`)
+        const chunkRes = await productService.importTecsonBatch(chunk, dryRun)
+
+        accumulatedResult.created += chunkRes.created || 0
+        accumulatedResult.updated += chunkRes.updated || 0
+        accumulatedResult.ignored += chunkRes.ignored || 0
+        if (chunkRes.conflicts && chunkRes.conflicts.length > 0) {
+          accumulatedResult.conflicts.push(...chunkRes.conflicts)
+        }
+        if (chunkRes.image_failures && chunkRes.image_failures.length > 0) {
+          accumulatedResult.image_failures.push(...chunkRes.image_failures)
+        }
+        if (chunkRes.sample_reports && chunkRes.sample_reports.length > 0) {
+          // Ajustar índice de linha
+          const adjustedReports = chunkRes.sample_reports.map((sr: any) => ({
+            ...sr,
+            index: typeof sr.index === 'number' ? sr.index + offset : sr.index,
+          }))
+          accumulatedResult.sample_reports.push(...adjustedReports)
+        }
+
+        const currentPct = Math.min(95, Math.round(((offset + chunk.length) / totalItems) * 100))
+        setProgress(currentPct)
+      }
+
       setProgress(100)
-      setRunResult(res)
+      setProcessingStatus('Concluído!')
+      setRunResult(accumulatedResult)
       setActiveTab('report')
 
       toast({
         title: dryRun ? 'Teste executado (dry-run)' : 'Importação Tecson concluída',
-        description: `${res.created} criados, ${res.updated} atualizados, ${res.ignored} ignorados.${
-          res.conflicts?.length ? ` (${res.conflicts.length} conflitos identificados)` : ''
+        description: `${accumulatedResult.created} criados, ${accumulatedResult.updated} atualizados, ${accumulatedResult.ignored} ignorados.${
+          accumulatedResult.conflicts?.length
+            ? ` (${accumulatedResult.conflicts.length} conflitos identificados)`
+            : ''
         }`,
       })
     } catch (err: any) {
+      console.error('Erro na importação:', err)
+      const errorMsg =
+        err?.data?.error ||
+        err?.message ||
+        'Ocorreu um erro ao enviar o lote para o backend. Verifique a conexão e o formato dos dados.'
       toast({
         title: 'Falha na importação',
-        description: err.message || 'Ocorreu um erro ao enviar o lote para o backend.',
+        description: errorMsg,
         variant: 'destructive',
       })
     } finally {
       setIsProcessing(false)
+      setProcessingStatus('')
     }
   }
 
@@ -451,16 +503,24 @@ export function ImportTecsonPage() {
                 disabled={isProcessing}
                 className="border-amber-400 text-amber-900 hover:bg-amber-50"
               >
-                <Eye className="w-4 h-4 mr-2" />
+                {isProcessing ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Eye className="w-4 h-4 mr-2" />
+                )}
                 Testar sem Gravar (Dry-Run)
               </Button>
               <Button
                 onClick={() => handleExecuteImport(false)}
                 disabled={isProcessing}
-                className="bg-emerald-700 hover:bg-emerald-800 text-white"
+                className="bg-emerald-700 hover:bg-emerald-800 text-white font-semibold"
               >
-                <Play className="w-4 h-4 mr-2" />
-                Importar em Lote
+                {isProcessing ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Play className="w-4 h-4 mr-2" />
+                )}
+                {isProcessing ? 'Importando...' : 'Importar em Lote'}
               </Button>
             </>
           )}
@@ -553,14 +613,19 @@ export function ImportTecsonPage() {
       )}
 
       {isProcessing && (
-        <Card>
+        <Card className="border-emerald-300 bg-emerald-50/40">
           <CardContent className="pt-6">
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span>Processando produtos Tecson...</span>
-                <span>{progress}%</span>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-sm">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin text-emerald-700" />
+                  <span className="font-medium text-emerald-950">
+                    {processingStatus || 'Processando produtos Tecson...'}
+                  </span>
+                </div>
+                <span className="font-mono font-bold text-emerald-800">{progress}%</span>
               </div>
-              <Progress value={progress} />
+              <Progress value={progress} className="h-2.5" />
             </div>
           </CardContent>
         </Card>

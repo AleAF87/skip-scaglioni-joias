@@ -271,10 +271,17 @@ export default function StockInventory() {
 
   // Lightbox opener
   const handleOpenLightbox = (p: Product, initialIdx: number = 0) => {
-    if (!p.photos || p.photos.length === 0) return
-    const urls = p.photos.map((photoName) => getFileUrl('products', p.id, photoName))
+    const urls: string[] = []
+    if (p.photos && p.photos.length > 0) {
+      urls.push(...p.photos.map((photoName) => getFileUrl('products', p.id, photoName)))
+    } else if (p.image_url) {
+      urls.push(p.image_url)
+    }
+    if (urls.length === 0) return
     setLightboxPhotos(urls)
-    setLightboxTitle(`${p.code} — ${p.description}`)
+    setLightboxTitle(
+      `${p.code || p.codigo_barras || ''} — ${p.description || p.nome_produto || ''}`,
+    )
     setLightboxIndex(initialIdx)
     setLightboxOpen(true)
   }
