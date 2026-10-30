@@ -14,6 +14,9 @@ import {
   Hash,
   Barcode,
   Search,
+  Trash2,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -21,7 +24,10 @@ import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { toast } from '@/hooks/use-toast'
+import { useAuth } from '@/contexts/AuthContext'
 import { productService } from '@/services/productService'
 import { formatCurrency } from '@/lib/formatters'
 import { decodeFileTolerant, parseCsvRows } from '@/lib/csvParser'
@@ -83,6 +89,7 @@ interface ParsedTecsonRow {
 }
 
 export function ImportTecsonPage() {
+  const { isAdmin } = useAuth()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [csvFile, setCsvFile] = useState<File | null>(null)
   const [parsedRows, setParsedRows] = useState<ParsedTecsonRow[]>([])
@@ -94,6 +101,13 @@ export function ImportTecsonPage() {
   const [runResult, setRunResult] = useState<any | null>(null)
   const [activeTab, setActiveTab] = useState<'preview' | 'validation' | 'report'>('preview')
   const [searchTerm, setSearchTerm] = useState('')
+
+  // Estado da seção de limpeza total do banco
+  const [clearChecked, setClearChecked] = useState(false)
+  const [safetyPhrase, setSafetyPhrase] = useState('')
+  const [isClearing, setIsClearing] = useState(false)
+  const [clearResult, setClearResult] = useState<any | null>(null)
+  const [isClearSectionOpen, setIsClearSectionOpen] = useState(false)
 
   // Extrair src de tag <img> se houver
   const extractImgSrc = (val: string): string => {
@@ -249,6 +263,51 @@ export function ImportTecsonPage() {
       })
     } finally {
       setIsParsing(false)
+    }
+  }
+
+  const handleExecuteClearAll = async () => {
+    if (!clearChecked) {
+      toast({
+        title: 'Confirmação necessária',
+        description:
+          'Marque a caixa de seleção para confirmar que deseja apagar todos os produtos.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    if (safetyPhrase.trim() !== 'APAGAR_TUDO_DEFINITIVAMENTE') {
+      toast({
+        title: 'Frase de segurança incorreta',
+        description: 'Digite exatamente APAGAR_TUDO_DEFINITIVAMENTE para autorizar a limpeza.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setIsClearing(true)
+    setClearResult(null)
+
+    try {
+      const res = await productService.clearAllProductsAndStock('APAGAR_TUDO_DEFINITIVAMENTE')
+      setClearResult(res.deleted)
+      setClearChecked(false)
+      setSafetyPhrase('')
+
+      toast({
+        title: 'Limpeza concluída com sucesso',
+        description: `${res.deleted.products ?? 0} produtos e registros vinculados foram apagados definitivamente.`,
+      })
+    } catch (err: any) {
+      console.error('Erro na limpeza do banco:', err)
+      toast({
+        title: 'Falha na limpeza do banco',
+        description: err.message || 'Ocorreu um erro ao executar a limpeza no backend.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsClearing(false)
     }
   }
 
@@ -721,6 +780,201 @@ export function ImportTecsonPage() {
               Procurar Arquivo CSV
             </Button>
           </CardContent>
+        </Card>
+      )}
+
+      {/* ========================================================
+          ZONA DE LIMPEZA TOTAL DO BANCO (APENAS ADMINISTRADOR)
+      ======================================================== */}
+      {isAdmin && (
+        <Card className="border-red-200 bg-red-50/20 shadow-xs">
+          <CardHeader
+            className="pb-3 cursor-pointer select-none"
+            onClick={() => setIsClearSectionOpen((prev) => !prev)}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="h-8 w-8 rounded-full bg-red-100 flex items-center justify-center text-red-700">
+                  <Trash2 className="h-4 w-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-base font-bold text-red-950">
+                      Limpeza Total do Banco de Produtos
+                    </CardTitle>
+                    <Badge
+                      variant="destructive"
+                      className="text-[10px] uppercase font-bold tracking-wider"
+                    >
+                      Apenas Administrador
+                    </Badge>
+                  </div>
+                  <CardDescription className="text-xs text-red-700 mt-0.5">
+                    Apagar todos os produtos, saldos iniciais, movimentações e estoques com
+                    revendedoras antes de importar
+                  </CardDescription>
+                </div>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-red-800 hover:bg-red-100/60"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setIsClearSectionOpen((prev) => !prev)
+                }}
+              >
+                {isClearSectionOpen ? (
+                  <>
+                    <span className="text-xs mr-1">Recolher</span>
+                    <ChevronUp className="h-4 w-4" />
+                  </>
+                ) : (
+                  <>
+                    <span className="text-xs mr-1">Expandir</span>
+                    <ChevronDown className="h-4 w-4" />
+                  </>
+                )}
+              </Button>
+            </div>
+          </CardHeader>
+
+          {isClearSectionOpen && (
+            <CardContent className="space-y-4 pt-2 border-t border-red-200/60">
+              {/* Aviso Crítico */}
+              <Alert variant="destructive" className="bg-red-100/60 border-red-300 text-red-950">
+                <AlertTriangle className="h-4 w-4 text-red-700" />
+                <AlertTitle className="text-xs font-bold uppercase tracking-wider">
+                  Aviso: Ação Definitiva e Irreversível
+                </AlertTitle>
+                <AlertDescription className="text-xs text-red-900 mt-1 space-y-1">
+                  <p>
+                    Esta operação excluirá <strong>permanentemente</strong> do banco de dados:
+                  </p>
+                  <ul className="list-disc list-inside space-y-0.5 pl-1">
+                    <li>Todos os produtos cadastrados</li>
+                    <li>Saldos iniciais de estoque</li>
+                    <li>Produtos em posse ou estoque de revendedoras</li>
+                    <li>
+                      Movimentações de estoque, histórico de preços, links de categorias e imagens
+                    </li>
+                  </ul>
+                  <p className="pt-1 font-semibold text-red-950">
+                    Utilize esta opção quando desejar zerar a base de produtos para recomeçar a
+                    importação do zero.
+                  </p>
+                </AlertDescription>
+              </Alert>
+
+              {/* Checkbox de Confirmação */}
+              <div className="p-4 rounded-xl bg-white border border-red-200 space-y-3">
+                <div className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    id="clearTecsonCheck"
+                    checked={clearChecked}
+                    onChange={(e) => setClearChecked(e.target.checked)}
+                    className="mt-1 h-4 w-4 rounded border-red-300 text-red-700 focus:ring-red-400"
+                  />
+                  <div>
+                    <label
+                      htmlFor="clearTecsonCheck"
+                      className="font-bold text-red-950 text-xs sm:text-sm cursor-pointer block"
+                    >
+                      Estou ciente e confirmo que desejo apagar TODOS os produtos e movimentações
+                      existentes
+                    </label>
+                    <p className="text-xs text-red-700 mt-0.5">
+                      Esta ação não pode ser desfeita. Todos os dados de produtos e estoques
+                      vinculados serão removidos.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Campo de frase de segurança */}
+                {clearChecked && (
+                  <div className="pt-3 border-t border-red-100 space-y-2">
+                    <Label
+                      htmlFor="safetyPhraseInput"
+                      className="text-xs font-bold text-red-950 block"
+                    >
+                      Dupla Confirmação de Segurança:
+                    </Label>
+                    <p className="text-[11px] text-red-800">
+                      Para evitar exclusões acidentais, digite exatamente:{' '}
+                      <strong className="font-mono bg-red-50 px-1.5 py-0.5 rounded border border-red-300 text-red-900">
+                        APAGAR_TUDO_DEFINITIVAMENTE
+                      </strong>
+                    </p>
+                    <Input
+                      id="safetyPhraseInput"
+                      value={safetyPhrase}
+                      onChange={(e) => setSafetyPhrase(e.target.value)}
+                      placeholder="Digite a frase de segurança aqui..."
+                      className="bg-white border-red-300 font-mono text-xs text-red-900 focus-visible:ring-red-400"
+                      disabled={isClearing}
+                    />
+
+                    <div className="flex justify-end pt-2">
+                      <Button
+                        onClick={handleExecuteClearAll}
+                        disabled={
+                          isClearing || safetyPhrase.trim() !== 'APAGAR_TUDO_DEFINITIVAMENTE'
+                        }
+                        variant="destructive"
+                        className="bg-red-700 hover:bg-red-800 text-white font-bold flex items-center gap-2 text-xs"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        <span>
+                          {isClearing
+                            ? 'Apagando banco de produtos...'
+                            : 'Apagar Tudo Definitivamente'}
+                        </span>
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Resultado da limpeza se executada nesta sessão */}
+              {clearResult && (
+                <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-xs space-y-2">
+                  <div className="flex items-center gap-2 text-emerald-800 font-bold">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                    <span>Banco de produtos limpo com sucesso!</span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-center">
+                    <div className="bg-white p-2 rounded border border-emerald-200">
+                      <span className="text-emerald-700 font-bold block text-base">
+                        {clearResult.products ?? 0}
+                      </span>
+                      <span className="text-[10px] text-slate-500 uppercase">Produtos</span>
+                    </div>
+                    <div className="bg-white p-2 rounded border border-emerald-200">
+                      <span className="text-emerald-700 font-bold block text-base">
+                        {clearResult.initial_stocks ?? 0}
+                      </span>
+                      <span className="text-[10px] text-slate-500 uppercase">Saldos Iniciais</span>
+                    </div>
+                    <div className="bg-white p-2 rounded border border-emerald-200">
+                      <span className="text-emerald-700 font-bold block text-base">
+                        {clearResult.reseller_stock_items ?? 0}
+                      </span>
+                      <span className="text-[10px] text-slate-500 uppercase">
+                        Estoque Revendedoras
+                      </span>
+                    </div>
+                    <div className="bg-white p-2 rounded border border-emerald-200">
+                      <span className="text-emerald-700 font-bold block text-base">
+                        {clearResult.reseller_issues ?? 0}
+                      </span>
+                      <span className="text-[10px] text-slate-500 uppercase">Pendências</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          )}
         </Card>
       )}
     </div>
