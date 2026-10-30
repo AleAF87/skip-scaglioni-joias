@@ -53,15 +53,35 @@ const TECSON_COLUMN_MAP: Record<string, string> = {
   r$_custo: 'custo_unitario',
   r_custo: 'custo_unitario',
   preco_custo: 'custo_unitario',
-  r$_venda_em_estoques: 'valor_venda_estoques_conferencia',
-  r$_custo_em_estoques: 'valor_custo_estoques_conferencia',
+  r$_venda_em_estoques: 'valor_venda_estoques_ignorado',
+  r$_custo_em_estoques: 'valor_custo_estoques_ignorado',
+  valor_venda_estoques: 'valor_venda_estoques_ignorado',
+  valor_custo_estoques: 'valor_custo_estoques_ignorado',
   tipo_produto: 'tipo_produto_bruto',
   variacao_resumo: 'variacao_resumo_bruto',
+  variacao: 'variacao_resumo_bruto',
   nome_produto_pai: 'nome_produto_pai_bruto',
   cod_produto_pai: 'cod_produto_pai_bruto',
   codigo_barras_pai: 'codigo_barras_pai_bruto',
   busca_grade: 'busca_grade_ignorado',
   options: 'options_ignorado',
+}
+
+// Motivos descritivos para colunas ignoradas por regra explícita de negócio
+const TECSON_IGNORED_REASONS: Record<string, string> = {
+  valor_venda_estoques_ignorado:
+    'Total calculado (quantidade × preço de venda) — não importável no cadastro',
+  valor_custo_estoques_ignorado:
+    'Total calculado (quantidade × custo unitário) — não importável no cadastro',
+  lote_bruto_ignorado: 'Identificador do lote legado de edição — não importável no cadastro',
+  busca_grade_ignorado: 'Auxiliar de índice do sistema antigo — não utilizado',
+  options_ignorado: 'Opções auxiliares legadas em HTML/JSON — não utilizado',
+}
+
+export interface IgnoredColumnRuleItem {
+  column: string
+  targetField: string
+  reason: string
 }
 
 interface ParsedTecsonRow {
@@ -94,7 +114,7 @@ export function ImportTecsonPage() {
   const [csvFile, setCsvFile] = useState<File | null>(null)
   const [parsedRows, setParsedRows] = useState<ParsedTecsonRow[]>([])
   const [unrecognizedColumns, setUnrecognizedColumns] = useState<string[]>([])
-  const [ignoredColumnsReport, setIgnoredColumnsReport] = useState<string[]>([])
+  const [ignoredColumnsReport, setIgnoredColumnsReport] = useState<IgnoredColumnRuleItem[]>([])
   const [isParsing, setIsParsing] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -163,8 +183,9 @@ export function ImportTecsonPage() {
       }
 
       const rawHeaders = rawMatrix[0]
-      const ignoredCols: string[] = []
+      const ignoredCols: IgnoredColumnRuleItem[] = []
       const unrecCols: string[] = []
+      const seenIgnored = new Set<string>()
 
       // Normalizar headers
       const headerMapping: Record<number, { targetField: string; original: string }> = {}
@@ -179,7 +200,17 @@ export function ImportTecsonPage() {
         if (target) {
           headerMapping[idx] = { targetField: target, original: header }
           if (target.endsWith('_ignorado')) {
-            ignoredCols.push(`${header} (${target})`)
+            const key = `${header.trim()}:${target}`
+            if (!seenIgnored.has(key)) {
+              seenIgnored.add(key)
+              ignoredCols.push({
+                column: header.trim(),
+                targetField: target,
+                reason:
+                  TECSON_IGNORED_REASONS[target] ||
+                  'Campo auxiliar ignorado conforme regra de negócio',
+              })
+            }
           }
         } else {
           unrecCols.push(header)
@@ -187,7 +218,7 @@ export function ImportTecsonPage() {
       })
 
       setUnrecognizedColumns(Array.from(new Set(unrecCols)))
-      setIgnoredColumnsReport(Array.from(new Set(ignoredCols)))
+      setIgnoredColumnsReport(ignoredCols)
 
       const parsed: ParsedTecsonRow[] = []
 
@@ -465,7 +496,7 @@ export function ImportTecsonPage() {
       {/* Alerta de colunas não reconhecidas ou ignoradas intencionalmente */}
       {(unrecognizedColumns.length > 0 || ignoredColumnsReport.length > 0) && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {unrecognizedColumns.length > 0 && (
+          {unrecognizedColumns.length > 0 ? (
             <Alert variant="destructive" className="bg-red-50 border-red-200 text-red-900">
               <AlertTriangle className="h-4 w-4 text-red-600" />
               <AlertTitle className="text-sm font-semibold">
@@ -476,16 +507,45 @@ export function ImportTecsonPage() {
                 listadas para conferência.
               </AlertDescription>
             </Alert>
+          ) : (
+            <Alert className="bg-emerald-50/70 border-emerald-200 text-emerald-950">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+              <AlertTitle className="text-sm font-semibold">
+                Todas as colunas mapeadas com sucesso
+              </AlertTitle>
+              <AlertDescription className="text-xs mt-1 text-emerald-800">
+                Nenhuma coluna não reconhecida. As colunas foram mapeadas diretamente para cadastro,
+                registro bruto de auditoria ou ignoradas por regra explícita de negócio sem
+                bloqueio.
+              </AlertDescription>
+            </Alert>
           )}
 
           {ignoredColumnsReport.length > 0 && (
             <Alert className="bg-slate-50 border-slate-200 text-slate-800">
               <Layers className="h-4 w-4 text-slate-600" />
-              <AlertTitle className="text-sm font-semibold">
-                Campos ignorados conforme especificação
+              <AlertTitle className="text-sm font-semibold flex items-center justify-between">
+                <span>
+                  Colunas ignoradas por regra de mapeamento ({ignoredColumnsReport.length})
+                </span>
+                <Badge variant="secondary" className="text-[10px] bg-slate-200 text-slate-700">
+                  Sem bloqueio
+                </Badge>
               </AlertTitle>
-              <AlertDescription className="text-xs mt-1">
-                {ignoredColumnsReport.join(', ')} (auxiliares de HTML antigo ou lote de edição).
+              <AlertDescription className="text-xs mt-1.5 space-y-1">
+                <p className="text-slate-600 font-medium">
+                  Estas colunas são tratadas por regra definida e não bloqueiam a importação:
+                </p>
+                <div className="space-y-1 pt-1 max-h-36 overflow-y-auto">
+                  {ignoredColumnsReport.map((item, idx) => (
+                    <div key={idx} className="flex items-start gap-1.5 text-[11px] text-slate-700">
+                      <span className="font-mono font-semibold text-slate-900 bg-slate-100 px-1 py-0.5 rounded border border-slate-200 shrink-0">
+                        {item.column}
+                      </span>
+                      <span className="text-slate-500">— {item.reason}</span>
+                    </div>
+                  ))}
+                </div>
               </AlertDescription>
             </Alert>
           )}
@@ -703,9 +763,27 @@ export function ImportTecsonPage() {
                     </p>
                   </div>
                   <div className="p-3 bg-slate-50 rounded border">
+                    <p className="font-semibold text-slate-800">
+                      VARIACAO / variacao_resumo → variacao_resumo_bruto
+                    </p>
+                    <p className="text-slate-600 mt-0.5">
+                      Armazenado apenas no registro bruto de auditoria, sem criar variações de
+                      produto automaticamente.
+                    </p>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded border">
+                    <p className="font-semibold text-slate-800">
+                      valor_venda_estoques / valor_custo_estoques → Ignoradas
+                    </p>
+                    <p className="text-slate-600 mt-0.5">
+                      Totais calculados de estoque: ignorados por regra sem bloquear importação nem
+                      criar campos.
+                    </p>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded border">
                     <p className="font-semibold text-slate-800">Campos Omitidos sem Presunção</p>
                     <p className="text-slate-600 mt-0.5">
-                      Descrição, Marca e Categoria permanecem vazios/pendentes.
+                      Descrição, Marca e Categoria permanecem vazios/pendentes de revisão manual.
                     </p>
                   </div>
                 </div>

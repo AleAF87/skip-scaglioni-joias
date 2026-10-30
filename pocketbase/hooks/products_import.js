@@ -279,6 +279,21 @@ routerAdd(
               if (imageUrl && !existing.getString('image_url')) {
                 existing.set('image_url', imageUrl)
               }
+              if (item.variacao_resumo_bruto) {
+                existing.set('variacao_resumo_bruto', String(item.variacao_resumo_bruto))
+              }
+              if (item.tipo_produto_bruto && !existing.getString('tipo_produto_bruto')) {
+                existing.set('tipo_produto_bruto', String(item.tipo_produto_bruto))
+              }
+              if (item.nome_produto_pai_bruto && !existing.getString('nome_produto_pai_bruto')) {
+                existing.set('nome_produto_pai_bruto', String(item.nome_produto_pai_bruto))
+              }
+              if (item.cod_produto_pai_bruto && !existing.getString('cod_produto_pai_bruto')) {
+                existing.set('cod_produto_pai_bruto', String(item.cod_produto_pai_bruto))
+              }
+              if (item.codigo_barras_pai_bruto && !existing.getString('codigo_barras_pai_bruto')) {
+                existing.set('codigo_barras_pai_bruto', String(item.codigo_barras_pai_bruto))
+              }
 
               // Saldo inicial não deve duplicar em reimportação: atualiza ou cria o registro único de initial_stocks
               const initStockFilter = "product = '" + existing.id + "' && origem = 'Tecson'"
