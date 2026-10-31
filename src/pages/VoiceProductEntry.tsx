@@ -113,6 +113,8 @@ export default function VoiceProductEntry() {
   const [sellingPrice, setSellingPrice] = useState<string>('')
   const [initialQuantity, setInitialQuantity] = useState<string>('')
   const [quantity, setQuantity] = useState<string>('')
+  const [virtualStoreQuantity, setVirtualStoreQuantity] = useState<string>('0')
+  const [virtualStoreQtyError, setVirtualStoreQtyError] = useState<string | null>(null)
   const [minimumQuantity, setMinimumQuantity] = useState<string>('')
   const [observations, setObservations] = useState('')
   const [photos, setPhotos] = useState<File[]>([])
@@ -696,7 +698,6 @@ export default function VoiceProductEntry() {
   // Handle quantity changes: estoque atual / disponível
   const handleQuantityChange = (newQtyStr: string) => {
     setQuantity(newQtyStr)
-    // Se o estoque inicial ainda não estava preenchido, define o inicial com este valor e calcula o mínimo
     if (!initialQuantity) {
       setInitialQuantity(newQtyStr)
       const num = parseInt(newQtyStr, 10)
@@ -704,6 +705,31 @@ export default function VoiceProductEntry() {
         const thirtyPercent = Math.max(1, Math.round(num * 0.3))
         setMinimumQuantity(thirtyPercent.toString())
       }
+    }
+
+    // Valida estoque da loja virtual contra a nova quantidade atual
+    const parsedQty = parseInt(newQtyStr, 10)
+    const parsedVirtual = parseInt(virtualStoreQuantity || '0', 10)
+    if (!isNaN(parsedQty) && !isNaN(parsedVirtual) && parsedVirtual > parsedQty) {
+      setVirtualStoreQtyError(
+        `A quantidade para a loja virtual (${parsedVirtual}) não pode ser maior que o Estoque Atual (${parsedQty}).`,
+      )
+    } else {
+      setVirtualStoreQtyError(null)
+    }
+  }
+
+  // Handle virtual store quantity change
+  const handleVirtualStoreQuantityChange = (valStr: string) => {
+    setVirtualStoreQuantity(valStr)
+    const parsedVirtual = parseInt(valStr || '0', 10)
+    const parsedQty = parseInt(quantity || '0', 10)
+    if (!isNaN(parsedVirtual) && !isNaN(parsedQty) && parsedVirtual > parsedQty) {
+      setVirtualStoreQtyError(
+        `A quantidade para a loja virtual (${parsedVirtual}) não pode ser maior que o Estoque Atual (${parsedQty}).`,
+      )
+    } else {
+      setVirtualStoreQtyError(null)
     }
   }
 
@@ -1079,6 +1105,8 @@ export default function VoiceProductEntry() {
       setSellingPrice('')
       setInitialQuantity('')
       setQuantity('')
+      setVirtualStoreQuantity('0')
+      setVirtualStoreQtyError(null)
       setMinimumQuantity('')
       setObservations('')
       setPhotos([])
@@ -1116,6 +1144,24 @@ export default function VoiceProductEntry() {
       return
     }
 
+    const numVirtualStoreQuantity = parseInt(virtualStoreQuantity || '0', 10)
+    if (isNaN(numVirtualStoreQuantity) || numVirtualStoreQuantity < 0) {
+      toast.error('Informe uma quantidade válida para o estoque da loja virtual.')
+      setVirtualStoreQtyError(
+        'A quantidade da loja virtual deve ser um número maior ou igual a zero.',
+      )
+      return
+    }
+
+    if (numVirtualStoreQuantity > numQuantity) {
+      const errorMsg = `A quantidade da loja virtual (${numVirtualStoreQuantity}) não pode ser maior que o Estoque Atual (${numQuantity}).`
+      setVirtualStoreQtyError(errorMsg)
+      toast.error(errorMsg)
+      return
+    } else {
+      setVirtualStoreQtyError(null)
+    }
+
     setIsSaving(true)
     try {
       const formData = new FormData()
@@ -1131,6 +1177,7 @@ export default function VoiceProductEntry() {
       formData.append('selling_price', normSellingPrice.toFixed(2))
       formData.append('qtde_inicial', numInitialQuantity.toString())
       formData.append('quantity', numQuantity.toString())
+      formData.append('qtde_loja_virtual', numVirtualStoreQuantity.toString())
       if (minimumQuantity) {
         const numMin = parseInt(minimumQuantity, 10)
         if (!isNaN(numMin) && numMin >= 0) {
@@ -1160,6 +1207,8 @@ export default function VoiceProductEntry() {
       setSellingPrice('')
       setInitialQuantity('')
       setQuantity('')
+      setVirtualStoreQuantity('0')
+      setVirtualStoreQtyError(null)
       setMinimumQuantity('')
       setObservations('')
       setPhotos([])
@@ -1788,6 +1837,32 @@ export default function VoiceProductEntry() {
 
                 <div>
                   <div className="flex items-center justify-between">
+                    <Label
+                      htmlFor="virtualStoreQty"
+                      className="text-xs font-semibold text-[#2D2A26]"
+                    >
+                      Estoque Loja Virtual
+                    </Label>
+                    <span className="text-[10px] text-[#2E7D4F] font-medium">Separado</span>
+                  </div>
+                  <Input
+                    id="virtualStoreQty"
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={virtualStoreQuantity}
+                    onChange={(e) => handleVirtualStoreQuantityChange(e.target.value)}
+                    placeholder="0"
+                    className={`mt-1 bg-white font-semibold ${
+                      virtualStoreQtyError
+                        ? 'border-[#B3261E] focus-visible:ring-[#B3261E] text-[#B3261E]'
+                        : 'border-[#2E7D4F]/50 focus-visible:ring-[#2E7D4F] text-[#2E7D4F]'
+                    }`}
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between">
                     <Label htmlFor="minQty" className="text-xs font-semibold text-[#6B655E]">
                       Alerta Estoque Mínimo
                     </Label>
@@ -1805,6 +1880,12 @@ export default function VoiceProductEntry() {
                   />
                 </div>
               </div>
+
+              {virtualStoreQtyError && (
+                <p className="text-xs font-medium text-[#B3261E] flex items-center gap-1 -mt-2">
+                  <span>⚠️</span> {virtualStoreQtyError}
+                </p>
+              )}
 
               {/* Row 4: Observations with Server-side Audio Dictate button */}
               <div>

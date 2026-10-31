@@ -29,6 +29,16 @@ export const resellerStockService = {
     return list
   },
 
+  // Obter estoques daquele produto específico em posse das revendedoras (saldo > 0)
+  async getStockByProduct(productId: string) {
+    const list = await pb.collection('reseller_stock_items').getFullList<ResellerStockItem>({
+      filter: `product = '${productId}' && quantity > 0`,
+      sort: '-quantity',
+      expand: 'reseller',
+    })
+    return list
+  },
+
   // 2. Entregas para revendedoras
   async getDeliveries(params?: { resellerId?: string; status?: string }) {
     const filters: string[] = []

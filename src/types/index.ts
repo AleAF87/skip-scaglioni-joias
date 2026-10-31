@@ -161,6 +161,7 @@ export interface Product {
   // Estoque (calculado a partir de saldo inicial + movimentações)
   quantity: number
   qtde_inicial?: number
+  qtde_loja_virtual?: number
   minimum_quantity?: number
 
   // Origem geral / importação

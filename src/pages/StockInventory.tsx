@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { productService } from '@/services/productService'
-import { Product, ProductType, ProductMaterial, ProductSize } from '@/types'
+import { Product, ProductType, ProductMaterial, ProductSize, ResellerStockItem } from '@/types'
+import { resellerStockService } from '@/services/resellerStockService'
 import {
   formatCurrency,
   formatDate,
@@ -141,6 +142,9 @@ export default function StockInventory() {
   const [editExistingPhotos, setEditExistingPhotos] = useState<string[]>([])
   const [editNewPhotoFiles, setEditNewPhotoFiles] = useState<{ file: File; preview: string }[]>([])
   const [isSavingEdit, setIsSavingEdit] = useState(false)
+  const [productResellerStock, setProductResellerStock] = useState<ResellerStockItem[]>([])
+  const [loadingResellerStock, setLoadingResellerStock] = useState(false)
+  const [editVirtualStoreQtyError, setEditVirtualStoreQtyError] = useState<string | null>(null)
   const [editForm, setEditForm] = useState({
     code: '',
     description: '',
@@ -152,6 +156,7 @@ export default function StockInventory() {
     selling_price: '',
     qtde_inicial: '',
     quantity: '',
+    qtde_loja_virtual: '0',
     minimum_quantity: '',
     observations: '',
     status: 'available',
@@ -447,10 +452,11 @@ export default function StockInventory() {
   }
 
   // Open Edit Product
-  const handleOpenEdit = (p: Product) => {
+  const handleOpenEdit = async (p: Product) => {
     setEditingProduct(p)
     setEditExistingPhotos(p.photos ? [...p.photos] : [])
     setEditNewPhotoFiles([])
+    setEditVirtualStoreQtyError(null)
 
     // Estoque inicial gravado ou fallback sensato para quantity atual em memória (sem gravar no banco antes de salvar)
     const initialStockVal =
@@ -465,6 +471,11 @@ export default function StockInventory() {
         ? p.minimum_quantity.toString()
         : Math.max(1, Math.round(initialStockVal * 0.3)).toString()
 
+    const virtualStoreVal =
+      typeof p.qtde_loja_virtual === 'number' && !isNaN(p.qtde_loja_virtual)
+        ? p.qtde_loja_virtual
+        : 0
+
     setEditForm({
       code: p.code,
       description: p.description,
@@ -476,11 +487,24 @@ export default function StockInventory() {
       selling_price: p.selling_price ? p.selling_price.toString() : '',
       qtde_inicial: initialStockVal.toString(),
       quantity: (p.quantity ?? 0).toString(),
+      qtde_loja_virtual: virtualStoreVal.toString(),
       minimum_quantity: initialMinQty,
       observations: p.observations || '',
       status: p.status || 'available',
     })
     setEditProductModalOpen(true)
+
+    // Carregar estoque desta peça em posse de revendedoras
+    setLoadingResellerStock(true)
+    try {
+      const items = await resellerStockService.getStockByProduct(p.id)
+      setProductResellerStock(items)
+    } catch (err) {
+      console.error('Erro ao carregar estoque em revendedoras para o produto:', err)
+      setProductResellerStock([])
+    } finally {
+      setLoadingResellerStock(false)
+    }
   }
 
   // Edit photo handlers
@@ -527,10 +551,33 @@ export default function StockInventory() {
     e.preventDefault()
     if (!editingProduct) return
 
+    const parsedQty = parseInt(editForm.quantity, 10)
+    const parsedInitQty = parseInt(editForm.qtde_inicial, 10)
+    const parsedVirtualQty = parseInt(editForm.qtde_loja_virtual || '0', 10)
+
+    if (isNaN(parsedQty) || parsedQty < 0) {
+      toast.error('Informe um estoque atual válido.')
+      return
+    }
+
+    if (isNaN(parsedVirtualQty) || parsedVirtualQty < 0) {
+      const msg = 'Informe uma quantidade válida para o Estoque da Loja Virtual.'
+      setEditVirtualStoreQtyError(msg)
+      toast.error(msg)
+      return
+    }
+
+    if (parsedVirtualQty > parsedQty) {
+      const msg = `A quantidade da loja virtual (${parsedVirtualQty}) não pode ser maior que o Estoque Atual (${parsedQty}).`
+      setEditVirtualStoreQtyError(msg)
+      toast.error(msg)
+      return
+    } else {
+      setEditVirtualStoreQtyError(null)
+    }
+
     setIsSavingEdit(true)
     try {
-      const parsedQty = parseInt(editForm.quantity, 10)
-      const parsedInitQty = parseInt(editForm.qtde_inicial, 10)
       const normInvested = normalizeCurrencyValue(editForm.invested_value)
       const normSelling = normalizeCurrencyValue(editForm.selling_price)
 
@@ -551,6 +598,7 @@ export default function StockInventory() {
             ? parsedInitQty
             : (editingProduct.qtde_inicial ?? parsedQty),
         quantity: parsedQty,
+        qtde_loja_virtual: parsedVirtualQty,
         // Preserva o mínimo gravado caso o usuário não tenha alterado manualmente
         minimum_quantity:
           editForm.minimum_quantity && parseInt(editForm.minimum_quantity, 10) > 0
@@ -1799,82 +1847,259 @@ export default function StockInventory() {
               />
             </div>
 
-            {/* Ordem: Valor Investido, Preço de Venda, Estoque Inicial, Estoque Atual e Mínimo */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-              <div>
-                <Label className="text-xs font-semibold">Valor Investido (R$)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={editForm.invested_value}
-                  onChange={(e) => setEditForm({ ...editForm, invested_value: e.target.value })}
-                  className="mt-1"
-                />
-              </div>
-
-              <div>
-                <Label className="text-xs font-semibold">Preço de Venda (R$) *</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  required
-                  value={editForm.selling_price}
-                  onChange={(e) => setEditForm({ ...editForm, selling_price: e.target.value })}
-                  className="mt-1 font-bold text-[#7A5C2E]"
-                />
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between">
-                  <Label className="text-xs font-semibold text-[#2D2A26]">Estoque Inicial *</Label>
-                  <span className="text-[10px] text-[#7A5C2E] font-medium">Entrada</span>
+            {/* Ordem: Valor Investido, Preço de Venda, Estoque Inicial, Estoque Atual, Estoque Loja Virtual e Mínimo */}
+            <div className="space-y-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                <div>
+                  <Label className="text-xs font-semibold">Valor Investido (R$)</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={editForm.invested_value}
+                    onChange={(e) => setEditForm({ ...editForm, invested_value: e.target.value })}
+                    className="mt-1"
+                  />
                 </div>
-                <Input
-                  type="number"
-                  min="0"
-                  step="1"
-                  required
-                  value={editForm.qtde_inicial}
-                  onChange={(e) => setEditForm({ ...editForm, qtde_inicial: e.target.value })}
-                  placeholder="1"
-                  title="Quantidade inicial registrada no cadastro (independente do estoque atual)"
-                  className="mt-1 font-bold border-[#C6A664]/60 text-[#2D2A26]"
-                />
+
+                <div>
+                  <Label className="text-xs font-semibold">Preço de Venda (R$) *</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={editForm.selling_price}
+                    onChange={(e) => setEditForm({ ...editForm, selling_price: e.target.value })}
+                    className="mt-1 font-bold text-[#7A5C2E]"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-semibold text-[#2D2A26]">
+                      Estoque Inicial *
+                    </Label>
+                    <span className="text-[10px] text-[#7A5C2E] font-medium">Entrada</span>
+                  </div>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="1"
+                    required
+                    value={editForm.qtde_inicial}
+                    onChange={(e) => setEditForm({ ...editForm, qtde_inicial: e.target.value })}
+                    placeholder="1"
+                    title="Quantidade inicial registrada no cadastro (independente do estoque atual)"
+                    className="mt-1 font-bold border-[#C6A664]/60 text-[#2D2A26]"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-semibold text-[#2D2A26]">Estoque Atual *</Label>
+                    <span className="text-[10px] text-[#6B655E]">Total Peça</span>
+                  </div>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="1"
+                    required
+                    value={editForm.quantity}
+                    onChange={(e) => {
+                      const nextQty = e.target.value
+                      setEditForm({ ...editForm, quantity: nextQty })
+                      const pQ = parseInt(nextQty || '0', 10)
+                      const pV = parseInt(editForm.qtde_loja_virtual || '0', 10)
+                      if (!isNaN(pQ) && !isNaN(pV) && pV > pQ) {
+                        setEditVirtualStoreQtyError(
+                          `A quantidade da loja virtual (${pV}) não pode ser maior que o Estoque Atual (${pQ}).`,
+                        )
+                      } else {
+                        setEditVirtualStoreQtyError(null)
+                      }
+                    }}
+                    title="Quantidade física atual total em estoque"
+                    className="mt-1 font-bold text-[#2E7D4F]"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-semibold text-[#2D2A26]">
+                      Estoque Loja Virtual
+                    </Label>
+                    <span className="text-[10px] text-[#2E7D4F] font-semibold">Separado</span>
+                  </div>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={editForm.qtde_loja_virtual}
+                    onChange={(e) => {
+                      const nextV = e.target.value
+                      setEditForm({ ...editForm, qtde_loja_virtual: nextV })
+                      const pV = parseInt(nextV || '0', 10)
+                      const pQ = parseInt(editForm.quantity || '0', 10)
+                      if (!isNaN(pQ) && !isNaN(pV) && pV > pQ) {
+                        setEditVirtualStoreQtyError(
+                          `A quantidade da loja virtual (${pV}) não pode ser maior que o Estoque Atual (${pQ}).`,
+                        )
+                      } else {
+                        setEditVirtualStoreQtyError(null)
+                      }
+                    }}
+                    placeholder="0"
+                    title="Quantidade que está separada exclusivamente para o estoque da loja virtual"
+                    className={`mt-1 font-bold ${
+                      editVirtualStoreQtyError
+                        ? 'border-[#B3261E] focus-visible:ring-[#B3261E] text-[#B3261E]'
+                        : 'border-[#2E7D4F]/60 text-[#2E7D4F]'
+                    }`}
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-semibold text-[#6B655E]">Alerta Mínimo</Label>
+                    <span className="text-[10px] text-[#7A5C2E]">(permanece)</span>
+                  </div>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={editForm.minimum_quantity}
+                    onChange={(e) => setEditForm({ ...editForm, minimum_quantity: e.target.value })}
+                    placeholder="Alerta de estoque"
+                    title="Não recalculado automaticamente na edição para preservar o valor do cadastro"
+                    className="mt-1 font-medium"
+                  />
+                </div>
               </div>
 
-              <div>
-                <div className="flex items-center justify-between">
-                  <Label className="text-xs font-semibold text-[#2D2A26]">Estoque Atual *</Label>
-                  <span className="text-[10px] text-[#6B655E]">Disponível</span>
-                </div>
-                <Input
-                  type="number"
-                  min="0"
-                  step="1"
-                  required
-                  value={editForm.quantity}
-                  onChange={(e) => setEditForm({ ...editForm, quantity: e.target.value })}
-                  title="Quantidade física atual em estoque"
-                  className="mt-1 font-bold text-[#2E7D4F]"
-                />
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between">
-                  <Label className="text-xs font-semibold text-[#6B655E]">Alerta Mínimo</Label>
-                  <span className="text-[10px] text-[#7A5C2E]">(permanece)</span>
-                </div>
-                <Input
-                  type="number"
-                  min="0"
-                  value={editForm.minimum_quantity}
-                  onChange={(e) => setEditForm({ ...editForm, minimum_quantity: e.target.value })}
-                  placeholder="Alerta de estoque"
-                  title="Não recalculado automaticamente na edição para preservar o valor do cadastro"
-                  className="mt-1 font-medium"
-                />
-              </div>
+              {editVirtualStoreQtyError && (
+                <p className="text-xs font-medium text-[#B3261E] flex items-center gap-1 mt-1">
+                  <span>⚠️</span> {editVirtualStoreQtyError}
+                </p>
+              )}
             </div>
+
+            {/* Painel de Localização e Divisão do Estoque (Onde a peça está) */}
+            {editingProduct && (
+              <div className="p-3.5 rounded-xl bg-gradient-to-br from-[#FDFBF7] to-[#F3EAD8]/40 border border-[#C6A664]/40 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="p-1 rounded-md bg-[#7A5C2E]/10 text-[#7A5C2E]">
+                      <Boxes className="h-4 w-4" />
+                    </span>
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-[#7A5C2E]">
+                      Onde esta peça está (Divisão do Estoque)
+                    </h4>
+                  </div>
+                  <span className="text-[11px] text-[#6B655E]">
+                    Estoque Atual Total:{' '}
+                    <strong className="text-[#2D2A26] font-mono">
+                      {parseInt(editForm.quantity || '0', 10) || 0}
+                    </strong>
+                  </span>
+                </div>
+
+                {/* 3 Blocos de Resumo: Estoque Geral, Loja Virtual e Com Revendedoras */}
+                {(() => {
+                  const totalAtual = parseInt(editForm.quantity || '0', 10) || 0
+                  const lojaVirtual = parseInt(editForm.qtde_loja_virtual || '0', 10) || 0
+                  const estoqueGeral = Math.max(0, totalAtual - lojaVirtual)
+                  const totalEmRevendedoras = productResellerStock.reduce(
+                    (acc, item) => acc + (item.quantity || 0),
+                    0,
+                  )
+
+                  return (
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                        {/* 1. Estoque Geral */}
+                        <div className="p-2.5 rounded-lg bg-white border border-[#E5DFD5] shadow-2xs">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-[#6B655E] block">
+                            Estoque Geral (Físico)
+                          </span>
+                          <div className="flex items-baseline justify-between mt-1">
+                            <span className="font-serif text-lg font-bold text-[#2D2A26]">
+                              {estoqueGeral}
+                            </span>
+                            <span className="text-[10px] text-[#6B655E]">
+                              (Total - Loja Virtual)
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* 2. Loja Virtual */}
+                        <div className="p-2.5 rounded-lg bg-white border border-[#2E7D4F]/30 shadow-2xs">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-[#2E7D4F] block">
+                            Loja Virtual
+                          </span>
+                          <div className="flex items-baseline justify-between mt-1">
+                            <span className="font-serif text-lg font-bold text-[#2E7D4F]">
+                              {lojaVirtual}
+                            </span>
+                            <span className="text-[10px] text-[#2E7D4F] font-medium">
+                              Quantidade Separada
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* 3. Com Revendedoras */}
+                        <div className="p-2.5 rounded-lg bg-white border border-[#7A5C2E]/30 shadow-2xs">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-[#7A5C2E] block">
+                            Com Revendedoras
+                          </span>
+                          <div className="flex items-baseline justify-between mt-1">
+                            <span className="font-serif text-lg font-bold text-[#7A5C2E]">
+                              {loadingResellerStock ? '...' : totalEmRevendedoras}
+                            </span>
+                            <span className="text-[10px] text-[#7A5C2E] font-medium">
+                              {productResellerStock.length}{' '}
+                              {productResellerStock.length === 1 ? 'revendedora' : 'revendedoras'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Lista nominal de Revendedoras com esta peça */}
+                      <div className="pt-1">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-[#7A5C2E] block mb-1">
+                          Detalhamento por Revendedora:
+                        </span>
+                        {loadingResellerStock ? (
+                          <p className="text-xs text-[#6B655E] italic">
+                            Carregando revendedoras...
+                          </p>
+                        ) : productResellerStock.length === 0 ? (
+                          <p className="text-xs text-[#6B655E] italic bg-white/70 p-2 rounded-md border border-[#E5DFD5]">
+                            Nenhuma revendedora possui esta peça em posse no momento.
+                          </p>
+                        ) : (
+                          <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-1 bg-white/70 rounded-md border border-[#E5DFD5]">
+                            {productResellerStock.map((it) => (
+                              <div
+                                key={it.id}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#FDFBF7] border border-[#E5DFD5] text-xs"
+                              >
+                                <span className="font-medium text-[#2D2A26]">
+                                  {it.expand?.reseller?.name || 'Revendedora'}
+                                </span>
+                                <Badge
+                                  variant="outline"
+                                  className="border-[#7A5C2E] text-[#7A5C2E] bg-[#7A5C2E]/10 font-bold text-[10px] px-1.5 py-0"
+                                >
+                                  {it.quantity} unid.
+                                </Badge>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })()}
+              </div>
+            )}
 
             <div>
               <Label className="text-xs font-semibold">Observações</Label>
