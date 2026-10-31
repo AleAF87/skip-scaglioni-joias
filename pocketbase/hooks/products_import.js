@@ -782,11 +782,24 @@ routerAdd(
                 // Atualiza campos de rastreabilidade de origem sem sobrescrever edições manuais
                 existing.set('id_scaglioni', idScaglioni)
                 existing.set('sku_scaglioni', skuScaglioni)
-                // Preservar o slug existente se já houver
-                if (!existing.getString('slug') && slugScaglioni) {
-                  existing.set('slug', slugScaglioni)
+
+                // Garante que sku_novo e sku_interno estejam preenchidos pelo sistema
+                if (!existing.getString('sku_novo')) {
+                  const randNovo = Math.floor(100000 + Math.random() * 900000).toString()
+                  const generatedSku = 'SCG-' + randNovo
+                  existing.set('sku_novo', generatedSku)
+                  if (!existing.getString('sku_interno')) {
+                    existing.set('sku_interno', generatedSku)
+                  }
                 }
-                existing.set('slug_scaglioni', slugScaglioni)
+
+                // Garante produto_id gerado pelo sistema se estiver ausente
+                if (!existing.getString('produto_id')) {
+                  const ts = new Date().getTime().toString().slice(-6)
+                  const rand1 = Math.floor(1000 + Math.random() * 9000).toString()
+                  existing.set('produto_id', 'PROD-' + ts + '-' + rand1)
+                }
+
                 existing.set(
                   'nome_original_scaglioni',
                   nomeOriginal || existing.getString('nome_original_scaglioni'),
@@ -795,15 +808,15 @@ routerAdd(
                   'created_at_scaglioni',
                   createdAtScaglioni || existing.getString('created_at_scaglioni'),
                 )
-                existing.set(
-                  'updated_at_scaglioni',
-                  updatedAtScaglioni || existing.getString('updated_at_scaglioni'),
-                )
+                if (createdAtScaglioni) {
+                  existing.set('criado_em_origem', createdAtScaglioni)
+                }
+                existing.set('publicar_no_ecommerce', estadoAtivoEcommerce)
                 existing.set('estado_ativo_ecommerce', estadoAtivoEcommerce)
                 existing.set('destaque_ecommerce', destaqueEcommerce)
 
-                // Preserva descrição se editada manualmente; preenche se estiver vazia
-                if (descricao && (!localDesc || localDesc === localNome)) {
+                // Regra crítica: nome preenche exclusivamente nome_produto; descricao preenche exclusivamente descricao e nunca sobrescreve nome_produto
+                if (descricao) {
                   existing.set('description', descricao)
                 }
 
@@ -896,42 +909,66 @@ routerAdd(
             } else {
               // NOVO PRODUTO SCAGLIONI
               if (!isDryRun) {
+                // NÃO importar id do CSV como produto_id. O produto_id deve ser GERADO pelo sistema.
                 const ts = new Date().getTime().toString().slice(-6)
                 const rand1 = Math.floor(1000 + Math.random() * 9000).toString()
                 const produtoId = 'PROD-' + ts + '-' + rand1
+
+                // Gerar sku_novo pelo próprio sistema
                 const rand2 = Math.floor(100000 + Math.random() * 900000).toString()
-                const skuInterno = 'SCG-' + rand2
+                const skuNovo = 'SCG-' + rand2
+                const skuInterno = skuNovo
 
                 const newProd = new Record(productsCol)
                 newProd.set('produto_id', produtoId)
+                newProd.set('sku_novo', skuNovo)
                 newProd.set('sku_interno', skuInterno)
+
+                // Regras críticas do usuário:
+                // - A coluna nome deve preencher EXCLUSIVAMENTE o campo nome_produto.
+                // - A coluna descricao deve preencher EXCLUSIVAMENTE o campo descricao e NUNCA pode sobrescrever nome_produto.
                 newProd.set('nome_produto', nomeProduto)
                 newProd.set('nome_original_scaglioni', nomeOriginal || nomeProduto)
-                newProd.set('description', descricao || nomeProduto)
-                // code do sistema é único: utiliza SKU Scaglioni se disponível, ou SKU interno
-                newProd.set('code', skuScaglioni || skuInterno)
-                newProd.set('slug', slugScaglioni || '')
-                newProd.set('slug_scaglioni', slugScaglioni)
+                newProd.set('description', descricao || '')
+
+                // code do sistema é único: utiliza SKU Scaglioni se disponível, ou sku_novo gerado
+                newProd.set('code', skuScaglioni || skuNovo)
+
+                // NÃO importar slug nem updated_at
+                // Armazenar id e sku de rastreabilidade Scaglioni
                 newProd.set('id_scaglioni', idScaglioni)
                 newProd.set('sku_scaglioni', skuScaglioni)
+
+                // preco -> preco_venda (selling_price)
                 newProd.set('selling_price', precoVenda)
                 if (precoPromo !== null) {
                   newProd.set('preco_promocional', precoPromo)
                 }
+
                 if (altura) newProd.set('altura_cm', altura)
                 if (largura) newProd.set('largura_cm', largura)
                 if (comprimento) newProd.set('comprimento_cm', comprimento)
                 if (peso) newProd.set('peso_g', peso)
 
+                // estoque -> qtde_inicial (initial_stocks e quantity)
                 newProd.set('quantity', saldoInicialQty)
                 newProd.set('status', saldoInicialQty > 0 ? 'available' : 'unavailable')
                 newProd.set('ativo_interno', true)
-                // produtos com origem e-commerce preservam vínculo de publicação
+
+                // ativo -> publicar_no_ecommerce
                 newProd.set('publicar_no_ecommerce', estadoAtivoEcommerce)
                 newProd.set('estado_ativo_ecommerce', estadoAtivoEcommerce)
+
+                // destaque -> destaque_ecommerce
                 newProd.set('destaque_ecommerce', destaqueEcommerce)
+
+                // created_at -> criado_em_origem (e created_at_scaglioni)
                 newProd.set('created_at_scaglioni', createdAtScaglioni)
-                newProd.set('updated_at_scaglioni', updatedAtScaglioni)
+                if (createdAtScaglioni) {
+                  newProd.set('criado_em_origem', createdAtScaglioni)
+                }
+
+                // imagem_url -> imagem_principal (image_url e product_images)
                 newProd.set('image_url', imagemPrincipal)
                 if (item.arquivos_imagens) {
                   newProd.set('import_image_path', String(item.arquivos_imagens).trim())
@@ -977,7 +1014,7 @@ routerAdd(
                   }
                 }
 
-                // Mapear Categorias
+                // Mapear Categorias: converte ID numérico para a categoria correspondente e cadastra se necessário
                 let catsToLink = []
                 if (Array.isArray(item.categorias)) {
                   catsToLink = item.categorias
@@ -1006,7 +1043,10 @@ routerAdd(
                       .replace(/[\u0300-\u036f]/g, '')
                       .replace(/[^a-z0-9]+/g, '-')
                       .replace(/^-+|-+$/g, '')
-                    catRecord.set('slug', catSlug)
+                    catRecord.set(
+                      'slug',
+                      catSlug || 'cat-' + Math.floor(1000 + Math.random() * 9000),
+                    )
                     txApp.save(catRecord)
                   }
 

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-31T01:22:06.717Z",
+  "generatedAt": "2026-10-31T14:35:54.620Z",
   "collections": [
     {
       "name": "users",
@@ -737,6 +737,18 @@
         },
         {
           "name": "codigo_barras_pai_bruto",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sku_novo",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "criado_em_origem",
           "type": "text",
           "required": false,
           "system": false

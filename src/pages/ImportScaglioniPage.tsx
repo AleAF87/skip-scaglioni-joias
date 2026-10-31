@@ -41,75 +41,93 @@ import { formatCurrency } from '@/lib/formatters'
 import { decodeFileTolerant, parseCsvRows } from '@/lib/csvParser'
 import { Product } from '@/types'
 
-// Mapeamento canônico Scaglioni
+// Mapeamento canônico Scaglioni conforme especificação obrigatória:
+// - nome → nome_produto
+// - descricao → descricao
+// - sku → sku_scaglioni
+// - preco → preco_venda
+// - preco_promocional → preco_promocional
+// - estoque → qtde_inicial
+// - imagem_url → imagem_principal
+// - categoria_id → categorias (convertendo o ID numérico para o nome correspondente)
+// - marca_id → marca (convertendo o ID numérico para o nome da marca)
+// - altura_cm → altura_cm
+// - largura_cm → largura_cm
+// - comprimento_cm → comprimento_cm
+// - peso_g → peso_g
+// - ativo → publicar_no_ecommerce
+// - destaque → destaque_ecommerce
+// - created_at → criado_em_origem
+// NÃO importar: id como produto_id, slug, updated_at
+// Também gerar sku_novo pelo próprio sistema.
 const SCAGLIONI_COLUMN_MAP: Record<string, string> = {
-  id: 'id_scaglioni',
   nome: 'nome_produto',
-  slug: 'slug_scaglioni',
   descricao: 'descricao',
-  description: 'descricao',
   sku: 'sku_scaglioni',
-  marca_id: 'marca_id_scaglioni',
-  marca: 'marca',
-  categoria_id: 'categoria_id_scaglioni',
-  categoria: 'categoria',
-  categorias: 'categorias',
-  'categoria(s)': 'categorias',
-  categoria_principal: 'categoria_principal',
   preco: 'preco_venda',
-  preco_venda: 'preco_venda',
   preco_promocional: 'preco_promocional',
-  estoque: 'saldo_inicial_scaglioni',
-  quantidade: 'saldo_inicial_scaglioni',
-  imagem_url: 'imagem_url',
-  image_url: 'imagem_url',
-  urls_imagens: 'urls_imagens',
-  arquivos_imagens: 'arquivos_imagens',
+  estoque: 'qtde_inicial',
+  imagem_url: 'imagem_principal',
+  categoria_id: 'categorias',
+  marca_id: 'marca',
   altura_cm: 'altura_cm',
   largura_cm: 'largura_cm',
   comprimento_cm: 'comprimento_cm',
   peso_g: 'peso_g',
-  ativo: 'estado_ativo_ecommerce',
+  ativo: 'publicar_no_ecommerce',
   destaque: 'destaque_ecommerce',
-  created_at: 'created_at_scaglioni',
-  updated_at: 'updated_at_scaglioni',
+  created_at: 'criado_em_origem',
+  // Sinônimos tolerados para leitura completa de variações comuns do CSV
+  nome_produto: 'nome_produto',
+  description: 'descricao',
+  sku_scaglioni: 'sku_scaglioni',
+  preco_venda: 'preco_venda',
+  selling_price: 'preco_venda',
+  quantidade: 'qtde_inicial',
+  saldo: 'qtde_inicial',
+  image_url: 'imagem_principal',
+  marca: 'marca',
+  categoria: 'categorias',
+  categorias: 'categorias',
+  'categoria(s)': 'categorias',
+  categoria_principal: 'categoria_principal',
+  urls_imagens: 'urls_imagens',
+  arquivos_imagens: 'arquivos_imagens',
+  // Colunas explicitamente não importadas (conforme regra do usuário):
+  id: '__IGNORAR_ID__',
+  slug: '__IGNORAR_SLUG__',
+  updated_at: '__IGNORAR_UPDATED_AT__',
 }
 
 // Descrição amigável de destino
 const DESTINATION_FIELD_LABELS: Record<string, string> = {
-  id_scaglioni: 'ID Scaglioni (id_scaglioni)',
-  nome_produto: 'Nome Produto (nome_produto / nome_original_scaglioni)',
-  slug_scaglioni: 'Slug E-commerce (slug e slug_scaglioni)',
-  descricao: 'Descrição Preservando Parágrafos (description)',
+  nome_produto: 'Nome Produto (nome_produto) — Exclusivo da coluna "nome"',
+  descricao: 'Descrição (descricao) — Exclusivo da coluna "descricao"',
   sku_scaglioni: 'SKU Scaglioni (sku_scaglioni)',
-  marca_id_scaglioni: 'Vínculo UUID Marca (marca_id)',
-  marca: 'Marca E-commerce (brands.name)',
-  categoria_id_scaglioni: 'Vínculo UUID Categoria Principal',
-  categoria: 'Categoria (product_categories)',
-  categorias: 'Categorias Múltiplas (product_category_links)',
-  categoria_principal: 'Categoria Principal (is_principal)',
-  preco_venda: 'Preço Venda (selling_price)',
+  preco_venda: 'Preço Venda (preco_venda)',
   preco_promocional: 'Preço Promocional (preco_promocional)',
-  saldo_inicial_scaglioni: 'Saldo Inicial Scaglioni (initial_stocks: "A definir")',
-  imagem_url: 'Foto Principal (product_images / image_url)',
-  urls_imagens: 'Galeria Ordenada Sem Duplicatas (product_images)',
-  arquivos_imagens: 'Caminho Arquivos Imagens (import_image_path)',
+  qtde_inicial: 'Qtde Inicial (qtde_inicial)',
+  imagem_principal: 'Imagem Principal (imagem_principal)',
+  categorias: 'Categorias (categorias — ID numérico convertido)',
+  marca: 'Marca (marca — ID numérico convertido)',
   altura_cm: 'Altura cm (altura_cm)',
   largura_cm: 'Largura cm (largura_cm)',
   comprimento_cm: 'Comprimento cm (comprimento_cm)',
   peso_g: 'Peso g (peso_g)',
-  estado_ativo_ecommerce: 'Estado Ativo E-commerce (estado_ativo_ecommerce)',
+  publicar_no_ecommerce: 'Publicar no E-commerce (publicar_no_ecommerce)',
   destaque_ecommerce: 'Destaque E-commerce (destaque_ecommerce)',
-  created_at_scaglioni: 'Data Criação Scaglioni (created_at_scaglioni)',
-  updated_at_scaglioni: 'Data Atualização Scaglioni (updated_at_scaglioni)',
+  criado_em_origem: 'Criado em Origem (criado_em_origem)',
+  __IGNORAR_ID__: 'NÃO IMPORTAR (produto_id gerado pelo sistema)',
+  __IGNORAR_SLUG__: 'NÃO IMPORTAR (slug desconsiderado)',
+  __IGNORAR_UPDATED_AT__: 'NÃO IMPORTAR (updated_at desconsiderado)',
 }
 
 export interface ParsedScaglioniItem {
   index: number
   id_scaglioni: string
+  produto_id_gerado: string
+  sku_novo: string
   nome_produto: string
-  nome_original_scaglioni: string
-  slug_scaglioni: string
   descricao: string
   sku_scaglioni: string
   marca_id: string
@@ -119,7 +137,9 @@ export interface ParsedScaglioniItem {
   categoria_principal: string
   preco_venda: number
   preco_promocional: number | null
+  qtde_inicial: number
   estoque: number
+  imagem_principal: string
   imagem_url: string
   urls_imagens: string[]
   arquivos_imagens: string
@@ -127,10 +147,12 @@ export interface ParsedScaglioniItem {
   largura_cm: number | null
   comprimento_cm: number | null
   peso_g: number | null
+  publicar_no_ecommerce: boolean
+  destaque_ecommerce: boolean
   ativo: boolean
   destaque: boolean
+  criado_em_origem: string
   created_at: string
-  updated_at: string
   unrecognized_columns: string[]
   validation_errors: string[]
 }
@@ -176,6 +198,47 @@ export function ImportScaglioniPage() {
     loadExistingProducts()
   }, [])
 
+  // Conversão de ID numérico para nomes correspondentes de marcas e categorias
+  const resolveMarcaName = (val: any): string => {
+    if (!val) return ''
+    const strVal = String(val).trim()
+    const idNum = parseInt(strVal, 10)
+    if (!isNaN(idNum)) {
+      const KNOWN_BRANDS: Record<number, string> = {
+        1: 'Scaglioni Joias',
+        2: 'Scaglioni Prata 925',
+        3: 'Scaglioni Ouro 18k',
+        4: 'Scaglioni Folheados',
+      }
+      return KNOWN_BRANDS[idNum] || `Marca ${idNum}`
+    }
+    return strVal
+  }
+
+  const resolveCategoriaName = (val: any): string => {
+    if (!val) return ''
+    const strVal = String(val).trim()
+    const idNum = parseInt(strVal, 10)
+    if (!isNaN(idNum)) {
+      const KNOWN_CATEGORIES: Record<number, string> = {
+        1: 'Anéis',
+        2: 'Brincos',
+        3: 'Colares',
+        4: 'Pulseiras',
+        5: 'Pingentes',
+        6: 'Tornozeleiras',
+        7: 'Conjuntos',
+        8: 'Correntes',
+        9: 'Alianças',
+        10: 'Gargantilhas',
+        11: 'Chokers',
+        12: 'Braceletes',
+      }
+      return KNOWN_CATEGORIES[idNum] || `Categoria ${idNum}`
+    }
+    return strVal
+  }
+
   // Parsear número monetário tolerante
   const parseNumberValue = (val: any): number => {
     if (typeof val === 'number') return val
@@ -198,6 +261,73 @@ export function ImportScaglioniPage() {
     if (typeof val === 'boolean') return val
     const s = String(val).trim().toLowerCase()
     return s === 'true' || s === '1' || s === 'sim' || s === 'yes' || s === 't'
+  }
+
+  const sanitizeFrontendUrl = (u: any): string => {
+    if (!u) return ''
+    let str = String(u).trim()
+    str = str
+      .replace(/^\uFEFF+/, '')
+      .replace(/[\r\n\t]+/g, '')
+      .trim()
+    str = str.replace(/^["'`]+|["'`]+$/g, '').trim()
+    str = str.replace(/^[[({<]+|[\])}>]+$/g, '').trim()
+    str = str.replace(/^["'`]+|["'`]+$/g, '').trim()
+    return str
+  }
+
+  const extractFrontendGalleryUrls = (input: any): string[] => {
+    if (!input) return []
+    const list: string[] = []
+
+    const addVal = (val: any) => {
+      if (!val) return
+      if (Array.isArray(val)) {
+        val.forEach(addVal)
+        return
+      }
+      const s = String(val).trim()
+      if (!s) return
+
+      if (s.startsWith('[') && s.endsWith(']')) {
+        try {
+          const parsed = JSON.parse(s)
+          if (Array.isArray(parsed)) {
+            parsed.forEach(addVal)
+            return
+          }
+        } catch (_) {
+          const stripped = s.replace(/^\[\s*|\s*\]$/g, '')
+          return addVal(stripped)
+        }
+      }
+
+      if (s.includes('|') || s.includes('\n') || s.includes('\r')) {
+        s.split(/[|\r\n]+/).forEach(addVal)
+        return
+      }
+
+      if (s.includes('http://') || s.includes('https://')) {
+        const matches = s.match(/https?:\/\/[^\s"'`|,;\]>]+/gi)
+        if (matches && matches.length > 1) {
+          matches.forEach((m) => {
+            const clean = sanitizeFrontendUrl(m)
+            if (clean) list.push(clean)
+          })
+          return
+        }
+      }
+
+      const clean = sanitizeFrontendUrl(s)
+      if (clean) list.push(clean)
+    }
+
+    if (Array.isArray(input)) {
+      input.forEach(addVal)
+    } else {
+      addVal(input)
+    }
+    return list
   }
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -225,109 +355,83 @@ export function ImportScaglioniPage() {
         const jsonData = JSON.parse(text)
         const arrayData = Array.isArray(jsonData) ? jsonData : jsonData.products || [jsonData]
         const mapped: ParsedScaglioniItem[] = arrayData.map((item: any, idx: number) => {
-          const precoVenda = parseNumberValue(item.preco || item.preco_venda)
+          // Mapeamento obrigatório:
+          // nome -> nome_produto EXCLUSIVAMENTE
+          // descricao -> descricao EXCLUSIVAMENTE
+          const nomeProduto = String(item.nome ?? item.nome_produto ?? '').trim()
+          const descricao = String(item.descricao ?? item.description ?? '')
+
+          // preco -> preco_venda
+          const precoVenda = parseNumberValue(item.preco ?? item.preco_venda)
+
+          // preco_promocional -> preco_promocional
+          const rawPromo = item.preco_promocional
           const precoPromo =
-            item.preco_promocional !== undefined &&
-            item.preco_promocional !== null &&
-            String(item.preco_promocional).trim() !== ''
-              ? parseNumberValue(item.preco_promocional)
+            rawPromo !== undefined && rawPromo !== null && String(rawPromo).trim() !== ''
+              ? parseNumberValue(rawPromo)
               : null
 
-          const cats = Array.isArray(item.categorias)
-            ? item.categorias
-            : item.categoria
-              ? [item.categoria]
-              : []
+          // estoque -> qtde_inicial
+          const qtdeInicial = parseInt(item.estoque ?? item.quantidade ?? 0, 10) || 0
 
-          const sanitizeFrontendUrl = (u: any): string => {
-            if (!u) return ''
-            let str = String(u).trim()
-            str = str
-              .replace(/^\uFEFF+/, '')
-              .replace(/[\r\n\t]+/g, '')
-              .trim()
-            str = str.replace(/^["'`]+|["'`]+$/g, '').trim()
-            str = str.replace(/^[[({<]+|[\])}>]+$/g, '').trim()
-            str = str.replace(/^["'`]+|["'`]+$/g, '').trim()
-            return str
+          // imagem_url -> imagem_principal
+          const imagemPrincipal = sanitizeFrontendUrl(item.imagem_url ?? item.image_url ?? '')
+
+          // categoria_id -> categorias (convertendo ID numérico para o nome correspondente)
+          let catRaw = item.categoria_id ?? item.categoria ?? item.categorias
+          let cats: string[] = []
+          if (Array.isArray(catRaw)) {
+            cats = catRaw.map((c) => resolveCategoriaName(c)).filter(Boolean)
+          } else if (catRaw) {
+            cats = String(catRaw)
+              .split('|')
+              .map((c) => resolveCategoriaName(c))
+              .filter(Boolean)
           }
 
-          const extractFrontendGalleryUrls = (input: any): string[] => {
-            if (!input) return []
-            const list: string[] = []
+          // marca_id -> marca (convertendo ID numérico para o nome correspondente)
+          const marcaName = resolveMarcaName(item.marca_id ?? item.marca)
 
-            const addVal = (val: any) => {
-              if (!val) return
-              if (Array.isArray(val)) {
-                val.forEach(addVal)
-                return
-              }
-              const s = String(val).trim()
-              if (!s) return
+          // ativo -> publicar_no_ecommerce
+          const publicarEcommerce = parseBooleanValue(item.ativo ?? item.is_active, true)
 
-              if (s.startsWith('[') && s.endsWith(']')) {
-                try {
-                  const parsed = JSON.parse(s)
-                  if (Array.isArray(parsed)) {
-                    parsed.forEach(addVal)
-                    return
-                  }
-                } catch (_) {
-                  const stripped = s.replace(/^\[\s*|\s*\]$/g, '')
-                  return addVal(stripped)
-                }
-              }
+          // destaque -> destaque_ecommerce
+          const destaqueEcommerce = parseBooleanValue(item.destaque ?? item.is_featured, false)
 
-              if (s.includes('|') || s.includes('\n') || s.includes('\r')) {
-                s.split(/[|\r\n]+/).forEach(addVal)
-                return
-              }
+          // created_at -> criado_em_origem
+          const criadoEmOrigem = String(item.created_at ?? '')
 
-              if (s.includes('http://') || s.includes('https://')) {
-                const matches = s.match(/https?:\/\/[^\s"'`|,;\]>]+/gi)
-                if (matches && matches.length > 1) {
-                  matches.forEach((m) => {
-                    const clean = sanitizeFrontendUrl(m)
-                    if (clean) list.push(clean)
-                  })
-                  return
-                }
-              }
+          // sku -> sku_scaglioni
+          const skuScaglioni = String(item.sku ?? item.sku_scaglioni ?? '').trim()
 
-              const clean = sanitizeFrontendUrl(s)
-              if (clean) list.push(clean)
-            }
+          // Gerados pelo próprio sistema (NÃO importar id como produto_id, não importar slug)
+          const ts = new Date().getTime().toString().slice(-6)
+          const rand1 = Math.floor(1000 + ((idx * 31) % 9000)).toString()
+          const generatedProdId = `PROD-${ts}-${rand1}`
+          const rand2 = Math.floor(100000 + ((idx * 791) % 900000)).toString()
+          const generatedSkuNovo = `SCG-${rand2}`
 
-            if (Array.isArray(input)) {
-              input.forEach(addVal)
-            } else {
-              addVal(input)
-            }
-            return list
-          }
-
-          const imagemPrincipal = sanitizeFrontendUrl(item.imagem_url || item.image_url || '')
           const galleryUrls: string[] = extractFrontendGalleryUrls(item.urls_imagens)
-          // Garantir galeria em ordem sem duplicar imagem principal
           const uniqueGallery = galleryUrls.filter((u) => u && u !== imagemPrincipal)
 
           return {
             index: idx + 1,
             id_scaglioni: item.id ? String(item.id).trim() : '',
-            nome_produto: (item.nome || item.nome_produto || '').trim(),
-            nome_original_scaglioni: String(item.nome || item.nome_produto || ''),
-            slug_scaglioni: (item.slug || item.slug_scaglioni || '').trim(),
-            descricao: item.descricao || item.description || '',
-            sku_scaglioni: (item.sku || item.sku_scaglioni || '').trim(),
+            produto_id_gerado: generatedProdId,
+            sku_novo: generatedSkuNovo,
+            nome_produto: nomeProduto,
+            descricao: descricao,
+            sku_scaglioni: skuScaglioni,
             marca_id: item.marca_id ? String(item.marca_id).trim() : '',
-            marca: item.marca || (item.marca_id?.name ? item.marca_id.name : ''),
+            marca: marcaName,
             categoria_id: item.categoria_id ? String(item.categoria_id).trim() : '',
             categorias: cats,
-            categoria_principal:
-              item.categoria_principal || item.categoria_id || cats[0] || item.categoria || '',
+            categoria_principal: cats[0] || '',
             preco_venda: precoVenda,
             preco_promocional: precoPromo,
-            estoque: parseInt(item.estoque || item.quantidade, 10) || 0,
+            qtde_inicial: qtdeInicial,
+            estoque: qtdeInicial,
+            imagem_principal: imagemPrincipal,
             imagem_url: imagemPrincipal,
             urls_imagens: uniqueGallery,
             arquivos_imagens: item.arquivos_imagens || '',
@@ -335,10 +439,12 @@ export function ImportScaglioniPage() {
             largura_cm: parseFloat(item.largura_cm) || null,
             comprimento_cm: parseFloat(item.comprimento_cm) || null,
             peso_g: parseFloat(item.peso_g) || null,
-            ativo: parseBooleanValue(item.ativo, true),
-            destaque: parseBooleanValue(item.destaque, false),
-            created_at: item.created_at || '',
-            updated_at: item.updated_at || '',
+            publicar_no_ecommerce: publicarEcommerce,
+            destaque_ecommerce: destaqueEcommerce,
+            ativo: publicarEcommerce,
+            destaque: destaqueEcommerce,
+            criado_em_origem: criadoEmOrigem,
+            created_at: criadoEmOrigem,
             unrecognized_columns: [],
             validation_errors: [],
           }
@@ -374,7 +480,12 @@ export function ImportScaglioniPage() {
           }
         })
 
-        setUnrecognizedColumns(Array.from(new Set(unrecCols)))
+        // Excluir das não reconhecidas as que são explicitamente ignoradas
+        const displayedUnrec = unrecCols.filter((col) => {
+          const c = col.trim().toLowerCase()
+          return c !== 'id' && c !== 'slug' && c !== 'updated_at'
+        })
+        setUnrecognizedColumns(Array.from(new Set(displayedUnrec)))
 
         const rows: ParsedScaglioniItem[] = []
         for (let r = 1; r < rawMatrix.length; r++) {
@@ -389,107 +500,86 @@ export function ImportScaglioniPage() {
             }
           })
 
-          const nomeOriginal = rowObj['nome_produto'] || ''
-          const nomeTrim = nomeOriginal.trim()
+          // REGRAS CRÍTICAS:
+          // 1. A coluna nome deve preencher EXCLUSIVAMENTE o campo nome_produto.
+          // 2. A coluna descricao deve preencher EXCLUSIVAMENTE o campo descricao e NUNCA pode sobrescrever nome_produto.
+          const nomeProduto = (rowObj['nome_produto'] || '').trim()
+          const descricao = rowObj['descricao'] || ''
 
+          // preco -> preco_venda
           const precoVenda = parseNumberValue(rowObj['preco_venda'])
-          // preco_promocional frequentemente vazio: vazio permanece vazio (null), nunca zero
+
+          // preco_promocional -> preco_promocional
           const rawPromo = rowObj['preco_promocional']
           const precoPromo =
             rawPromo !== undefined && rawPromo !== null && rawPromo.trim() !== ''
               ? parseNumberValue(rawPromo)
               : null
 
-          // Categorias: suporta lista separada por pipe (|) ou única
+          // estoque -> qtde_inicial
+          const qtdeInicial = parseInt(rowObj['qtde_inicial'] || '0', 10) || 0
+
+          // imagem_url -> imagem_principal
+          const imagemPrincipal = sanitizeFrontendUrl(rowObj['imagem_principal'] || '')
+
+          // categoria_id -> categorias (convertendo ID numérico para a categoria correspondente)
           let cats: string[] = []
           if (rowObj['categorias']) {
             cats = rowObj['categorias']
               .split('|')
-              .map((c: string) => c.trim())
+              .map((c: string) => resolveCategoriaName(c))
               .filter(Boolean)
-          } else if (rowObj['categoria']) {
-            cats = [rowObj['categoria'].trim()].filter(Boolean)
           }
 
-          const catId = rowObj['categoria_id_scaglioni'] || ''
-          // Definir categoria_principal conforme categoria_id ou primeira da lista
-          let catPrincipal = rowObj['categoria_principal'] || cats[0] || catId || ''
+          // marca_id -> marca (convertendo ID numérico para o nome da marca)
+          const marcaName = resolveMarcaName(rowObj['marca'])
 
-          const sanitizeFrontendUrl = (u: any): string => {
-            if (!u) return ''
-            let str = String(u).trim()
-            str = str
-              .replace(/^\uFEFF+/, '')
-              .replace(/[\r\n\t]+/g, '')
-              .trim()
-            str = str.replace(/^["'`]+|["'`]+$/g, '').trim()
-            str = str.replace(/^[[({<]+|[\])}>]+$/g, '').trim()
-            str = str.replace(/^["'`]+|["'`]+$/g, '').trim()
-            return str
-          }
+          // altura_cm -> altura_cm
+          const alturaCm = parseFloat(rowObj['altura_cm']) || null
+          // largura_cm -> largura_cm
+          const larguraCm = parseFloat(rowObj['largura_cm']) || null
+          // comprimento_cm -> comprimento_cm
+          const comprimentoCm = parseFloat(rowObj['comprimento_cm']) || null
+          // peso_g -> peso_g
+          const pesoG = parseFloat(rowObj['peso_g']) || null
 
-          const extractFrontendGalleryUrls = (input: any): string[] => {
-            if (!input) return []
-            const list: string[] = []
+          // ativo -> publicar_no_ecommerce
+          const publicarEcommerce = parseBooleanValue(rowObj['publicar_no_ecommerce'], true)
 
-            const addVal = (val: any) => {
-              if (!val) return
-              if (Array.isArray(val)) {
-                val.forEach(addVal)
-                return
-              }
-              const s = String(val).trim()
-              if (!s) return
+          // destaque -> destaque_ecommerce
+          const destaqueEcommerce = parseBooleanValue(rowObj['destaque_ecommerce'], false)
 
-              if (s.startsWith('[') && s.endsWith(']')) {
-                try {
-                  const parsed = JSON.parse(s)
-                  if (Array.isArray(parsed)) {
-                    parsed.forEach(addVal)
-                    return
-                  }
-                } catch (_) {
-                  const stripped = s.replace(/^\[\s*|\s*\]$/g, '')
-                  return addVal(stripped)
-                }
-              }
+          // created_at -> criado_em_origem
+          const criadoEmOrigem = rowObj['criado_em_origem'] || ''
 
-              if (s.includes('|') || s.includes('\n') || s.includes('\r')) {
-                s.split(/[|\r\n]+/).forEach(addVal)
-                return
-              }
+          // sku -> sku_scaglioni
+          const skuScaglioni = (rowObj['sku_scaglioni'] || '').trim()
 
-              if (s.includes('http://') || s.includes('https://')) {
-                const matches = s.match(/https?:\/\/[^\s"'`|,;\]>]+/gi)
-                if (matches && matches.length > 1) {
-                  matches.forEach((m) => {
-                    const clean = sanitizeFrontendUrl(m)
-                    if (clean) list.push(clean)
-                  })
-                  return
-                }
-              }
-
-              const clean = sanitizeFrontendUrl(s)
-              if (clean) list.push(clean)
+          // id_scaglioni (armazenado apenas para rastreabilidade de origem e idempotência, NÃO como produto_id)
+          // Na linha original do CSV, podemos capturar o valor bruto da coluna id para rastrear
+          let rawIdOrigem = ''
+          rawHeaders.forEach((h, idx) => {
+            if (h.trim().toLowerCase() === 'id') {
+              rawIdOrigem = row[idx] ? row[idx].trim() : ''
             }
+          })
 
-            if (Array.isArray(input)) {
-              input.forEach(addVal)
-            } else {
-              addVal(input)
-            }
-            return list
-          }
+          // Gerados pelo próprio sistema:
+          // produto_id: GERADO pelo próprio sistema (PROD-...)
+          const ts = new Date().getTime().toString().slice(-6)
+          const rand1 = Math.floor(1000 + ((r * 37) % 9000)).toString()
+          const generatedProdId = `PROD-${ts}-${rand1}`
 
-          const imagemPrincipal = sanitizeFrontendUrl(rowObj['imagem_url'] || '')
+          // sku_novo: GERADO pelo próprio sistema (SCG-...)
+          const rand2 = Math.floor(100000 + ((r * 739) % 900000)).toString()
+          const generatedSkuNovo = `SCG-${rand2}`
+
           const galleryUrls: string[] = extractFrontendGalleryUrls(rowObj['urls_imagens'])
-          // Regra obrigatória: galeria em ordem sem duplicar a imagem principal
           const uniqueGallery = galleryUrls.filter((u) => u && u !== imagemPrincipal)
 
           const validationErrors: string[] = []
-          if (!rowObj['id_scaglioni'] && !rowObj['sku_scaglioni'] && !nomeTrim) {
-            validationErrors.push('Linha sem ID Scaglioni, SKU nem Nome')
+          if (!skuScaglioni && !nomeProduto) {
+            validationErrors.push('Linha sem SKU nem Nome')
           }
           if (precoPromo !== null && precoPromo >= precoVenda && precoVenda > 0) {
             validationErrors.push('Preço promocional deve ser menor que o preço de venda')
@@ -497,33 +587,36 @@ export function ImportScaglioniPage() {
 
           rows.push({
             index: r,
-            id_scaglioni: rowObj['id_scaglioni'] || '',
-            nome_produto: nomeTrim,
-            nome_original_scaglioni: nomeOriginal,
-            slug_scaglioni: rowObj['slug_scaglioni'] || '',
-            // Descrição preservando parágrafos originais
-            descricao: rowObj['descricao'] || '',
-            sku_scaglioni: rowObj['sku_scaglioni'] || '',
-            marca_id: rowObj['marca_id_scaglioni'] || '',
-            marca: rowObj['marca'] || '',
-            categoria_id: catId,
+            id_scaglioni: rawIdOrigem,
+            produto_id_gerado: generatedProdId,
+            sku_novo: generatedSkuNovo,
+            nome_produto: nomeProduto,
+            descricao: descricao,
+            sku_scaglioni: skuScaglioni,
+            marca_id: '',
+            marca: marcaName,
+            categoria_id: '',
             categorias: cats,
-            categoria_principal: catPrincipal,
+            categoria_principal: cats[0] || '',
             preco_venda: precoVenda,
             preco_promocional: precoPromo,
-            estoque: parseInt(rowObj['saldo_inicial_scaglioni'], 10) || 0,
+            qtde_inicial: qtdeInicial,
+            estoque: qtdeInicial,
+            imagem_principal: imagemPrincipal,
             imagem_url: imagemPrincipal,
             urls_imagens: uniqueGallery,
             arquivos_imagens: rowObj['arquivos_imagens'] || '',
-            altura_cm: parseFloat(rowObj['altura_cm']) || null,
-            largura_cm: parseFloat(rowObj['largura_cm']) || null,
-            comprimento_cm: parseFloat(rowObj['comprimento_cm']) || null,
-            peso_g: parseFloat(rowObj['peso_g']) || null,
-            ativo: parseBooleanValue(rowObj['estado_ativo_ecommerce'], true),
-            destaque: parseBooleanValue(rowObj['destaque_ecommerce'], false),
-            created_at: rowObj['created_at_scaglioni'] || '',
-            updated_at: rowObj['updated_at_scaglioni'] || '',
-            unrecognized_columns: unrecCols,
+            altura_cm: alturaCm,
+            largura_cm: larguraCm,
+            comprimento_cm: comprimentoCm,
+            peso_g: pesoG,
+            publicar_no_ecommerce: publicarEcommerce,
+            destaque_ecommerce: destaqueEcommerce,
+            ativo: publicarEcommerce,
+            destaque: destaqueEcommerce,
+            criado_em_origem: criadoEmOrigem,
+            created_at: criadoEmOrigem,
+            unrecognized_columns: displayedUnrec,
             validation_errors: validationErrors,
           })
         }
@@ -694,9 +787,12 @@ export function ImportScaglioniPage() {
     const s = searchTerm.toLowerCase()
     return (
       r.nome_produto.toLowerCase().includes(s) ||
+      r.descricao.toLowerCase().includes(s) ||
       r.sku_scaglioni.toLowerCase().includes(s) ||
-      r.id_scaglioni.toLowerCase().includes(s) ||
+      r.sku_novo.toLowerCase().includes(s) ||
+      r.produto_id_gerado.toLowerCase().includes(s) ||
       r.marca.toLowerCase().includes(s) ||
+      r.categorias.some((cat) => cat.toLowerCase().includes(s)) ||
       r.categoria_principal.toLowerCase().includes(s)
     )
   })
@@ -771,26 +867,29 @@ export function ImportScaglioniPage() {
       <Alert className="bg-sky-50/60 border-sky-200">
         <Info className="h-4 w-4 text-sky-700" />
         <AlertTitle className="text-sky-900 font-semibold text-sm">
-          Regras de Negócio — Origem Scaglioni
+          Regras de Negócio e Mapeamento Canônico — Origem Scaglioni
         </AlertTitle>
         <AlertDescription className="text-xs text-sky-800/90 mt-1 space-y-1">
           <p>
-            • <strong>Idempotência:</strong> A chave primária de reimportação é (origem=Scaglioni,{' '}
-            <code>id_scaglioni</code>). Subir o mesmo arquivo não duplica produtos, imagens nem
-            saldos iniciais.
+            • <strong>Separação Estrita de Campos:</strong> A coluna <code>nome</code> alimenta{' '}
+            <em>exclusivamente</em> <code>nome_produto</code>. A coluna <code>descricao</code>{' '}
+            alimenta <em>exclusivamente</em> <code>descricao</code> e nunca sobrescreve{' '}
+            <code>nome_produto</code>.
           </p>
           <p>
-            • <strong>Preservação de Slugs e Preço Promocional:</strong> Slugs existentes são
-            preservados e <code>preco_promocional</code> vazio permanece vazio (nunca zero).
+            • <strong>Conversão de IDs:</strong> <code>categoria_id</code> e <code>marca_id</code>{' '}
+            são convertidos de ID numérico para nomes legíveis de categorias e marcas.
           </p>
           <p>
-            • <strong>Galeria e Fotos:</strong> Imagens do link aparecem no Estoque Loja; a galeria
-            preserva a ordem e não duplica a imagem principal.
+            • <strong>Exclusões e Geração Automática:</strong> A coluna <code>id</code> do CSV NÃO é
+            usada como <code>produto_id</code> (o sistema gera <code>PROD-...</code>) e{' '}
+            <code>sku_novo</code> é gerado pelo próprio sistema (<code>SCG-...</code>). Colunas{' '}
+            <code>slug</code> e <code>updated_at</code> não são importadas.
           </p>
           <p>
-            • <strong>Não Unificação Automática:</strong> Registros Tecson e Scaglioni jamais são
-            unidos automaticamente por nome, SKU ou preço. Possíveis correspondências são exibidas
-            para aprovação manual.
+            • <strong>Idempotência &amp; Estoque:</strong> <code>estoque</code> alimenta{' '}
+            <code>qtde_inicial</code>. Reimportar não duplica registros, fotos nem saldos em{' '}
+            <code>initial_stocks</code>.
           </p>
         </AlertDescription>
       </Alert>
@@ -1005,41 +1104,60 @@ export function ImportScaglioniPage() {
             </div>
           </div>
 
-          {/* Aba 1: Prévia Mapeada */}
+          {/* Aba 1: Prévia Mapeada conforme estrutura exata do cadastro */}
           <TabsContent value="preview" className="space-y-4">
             <div className="rounded-md border bg-white overflow-x-auto max-h-[500px]">
               <table className="w-full text-xs text-left">
                 <thead className="bg-slate-50 text-slate-700 sticky top-0 border-b">
                   <tr>
                     <th className="p-2.5">#</th>
-                    <th className="p-2.5">ID Scaglioni</th>
-                    <th className="p-2.5">SKU Origem</th>
+                    <th className="p-2.5">Produto ID (Gerado)</th>
+                    <th className="p-2.5">SKU Novo (Gerado)</th>
+                    <th className="p-2.5">SKU Scaglioni</th>
                     <th className="p-2.5">Nome do Produto</th>
-                    <th className="p-2.5">Marca / Categoria</th>
+                    <th className="p-2.5">Descrição</th>
+                    <th className="p-2.5">Marca / Categorias</th>
                     <th className="p-2.5 text-right">Preço Venda</th>
                     <th className="p-2.5 text-right">Preço Promo</th>
-                    <th className="p-2.5 text-center">Saldo Inicial</th>
-                    <th className="p-2.5 text-center">Foto Link</th>
+                    <th className="p-2.5 text-center">Qtde Inicial</th>
+                    <th className="p-2.5 text-center">Imagem Principal</th>
                     <th className="p-2.5 text-center">E-commerce</th>
+                    <th className="p-2.5 text-center">Destaque</th>
+                    <th className="p-2.5 text-center">Criado em Origem</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
                   {filteredPreview.slice(0, 100).map((row) => (
                     <tr key={row.index} className="hover:bg-slate-50/70">
                       <td className="p-2.5 text-slate-400 font-mono">{row.index}</td>
-                      <td className="p-2.5 font-mono text-slate-700">{row.id_scaglioni || '—'}</td>
+                      <td className="p-2.5 font-mono text-purple-700 font-medium">
+                        {row.produto_id_gerado}
+                      </td>
+                      <td className="p-2.5 font-mono text-indigo-700 font-semibold">
+                        {row.sku_novo}
+                      </td>
                       <td className="p-2.5 font-mono font-semibold text-sky-800">
                         {row.sku_scaglioni || '—'}
                       </td>
                       <td
-                        className="p-2.5 max-w-xs truncate font-medium text-slate-900"
+                        className="p-2.5 max-w-[200px] truncate font-semibold text-slate-900"
                         title={row.nome_produto}
                       >
                         {row.nome_produto || '—'}
                       </td>
-                      <td className="p-2.5 text-slate-600">
-                        {row.marca || '—'}{' '}
-                        {row.categoria_principal ? `(${row.categoria_principal})` : ''}
+                      <td
+                        className="p-2.5 max-w-[180px] truncate text-slate-600 italic"
+                        title={row.descricao}
+                      >
+                        {row.descricao || '—'}
+                      </td>
+                      <td className="p-2.5 text-slate-700">
+                        <span className="font-medium text-slate-900">{row.marca || '—'}</span>
+                        {row.categorias.length > 0 && (
+                          <span className="text-slate-500 block text-[11px]">
+                            {row.categorias.join(', ')}
+                          </span>
+                        )}
                       </td>
                       <td className="p-2.5 text-right font-semibold text-slate-800">
                         {formatCurrency(row.preco_venda)}
@@ -1051,11 +1169,11 @@ export function ImportScaglioniPage() {
                       </td>
                       <td className="p-2.5 text-center">
                         <Badge variant="outline" className="font-mono">
-                          {row.estoque} un
+                          {row.qtde_inicial} un
                         </Badge>
                       </td>
                       <td className="p-2.5 text-center">
-                        {row.imagem_url ? (
+                        {row.imagem_principal ? (
                           <div className="inline-flex items-center gap-1 text-sky-600">
                             <Image className="w-3.5 h-3.5" />
                             <span className="text-[10px]">
@@ -1068,11 +1186,21 @@ export function ImportScaglioniPage() {
                       </td>
                       <td className="p-2.5 text-center">
                         <Badge
-                          variant={row.ativo ? 'default' : 'secondary'}
-                          className={row.ativo ? 'bg-emerald-600' : ''}
+                          variant={row.publicar_no_ecommerce ? 'default' : 'secondary'}
+                          className={row.publicar_no_ecommerce ? 'bg-emerald-600' : ''}
                         >
-                          {row.ativo ? 'Ativo' : 'Inativo'}
+                          {row.publicar_no_ecommerce ? 'Sim' : 'Não'}
                         </Badge>
+                      </td>
+                      <td className="p-2.5 text-center">
+                        {row.destaque_ecommerce ? (
+                          <Badge className="bg-amber-600 text-[10px]">Destaque</Badge>
+                        ) : (
+                          <span className="text-slate-400 text-[11px]">Não</span>
+                        )}
+                      </td>
+                      <td className="p-2.5 text-center font-mono text-[11px] text-slate-600">
+                        {row.criado_em_origem || '—'}
                       </td>
                     </tr>
                   ))}
@@ -1101,27 +1229,27 @@ export function ImportScaglioniPage() {
                 {parsedRows.length > 0 && (
                   <div className="rounded-md border bg-slate-50/50 p-3 mb-4 text-xs text-slate-700">
                     <p className="font-semibold text-slate-900 mb-1">
-                      Amostra Interpretada da 1ª Linha do Arquivo:
+                      Amostra Interpretada da 1ª Linha do Arquivo (Novo Mapeamento Canônico):
                     </p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
                       <div>
-                        <span className="text-slate-500">ID Origem:</span>{' '}
-                        <strong>{parsedRows[0].id_scaglioni || '—'}</strong>
-                      </div>
-                      <div>
-                        <span className="text-slate-500">Nome:</span>{' '}
+                        <span className="text-slate-500">Nome Produto (nome):</span>{' '}
                         <strong>{parsedRows[0].nome_produto || '—'}</strong>
                       </div>
                       <div>
-                        <span className="text-slate-500">SKU:</span>{' '}
+                        <span className="text-slate-500">Descrição (descricao):</span>{' '}
+                        <strong className="italic">{parsedRows[0].descricao || '(vazio)'}</strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-500">SKU Scaglioni (sku):</span>{' '}
                         <strong>{parsedRows[0].sku_scaglioni || '—'}</strong>
                       </div>
                       <div>
-                        <span className="text-slate-500">Preço Venda:</span>{' '}
+                        <span className="text-slate-500">Preço Venda (preco):</span>{' '}
                         <strong>{formatCurrency(parsedRows[0].preco_venda)}</strong>
                       </div>
                       <div>
-                        <span className="text-slate-500">Preço Promo:</span>{' '}
+                        <span className="text-slate-500">Preço Promo (preco_promocional):</span>{' '}
                         <strong>
                           {parsedRows[0].preco_promocional !== null
                             ? formatCurrency(parsedRows[0].preco_promocional)
@@ -1129,41 +1257,142 @@ export function ImportScaglioniPage() {
                         </strong>
                       </div>
                       <div>
-                        <span className="text-slate-500">Saldo Inicial:</span>{' '}
-                        <strong>{parsedRows[0].estoque} un</strong>
+                        <span className="text-slate-500">Qtde Inicial (estoque):</span>{' '}
+                        <strong>{parsedRows[0].qtde_inicial} un</strong>
                       </div>
                       <div>
-                        <span className="text-slate-500">Marca:</span>{' '}
-                        <strong>{parsedRows[0].marca || parsedRows[0].marca_id || '—'}</strong>
+                        <span className="text-slate-500">Marca Convertida (marca_id):</span>{' '}
+                        <strong>{parsedRows[0].marca || '—'}</strong>
                       </div>
                       <div>
-                        <span className="text-slate-500">Categorias:</span>{' '}
-                        <strong>
-                          {parsedRows[0].categorias.join(', ') ||
-                            parsedRows[0].categoria_principal ||
-                            '—'}
+                        <span className="text-slate-500">
+                          Categorias Convertidas (categoria_id):
+                        </span>{' '}
+                        <strong>{parsedRows[0].categorias.join(', ') || '—'}</strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Publicar no E-commerce (ativo):</span>{' '}
+                        <strong>{parsedRows[0].publicar_no_ecommerce ? 'Sim' : 'Não'}</strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Destaque E-commerce (destaque):</span>{' '}
+                        <strong>{parsedRows[0].destaque_ecommerce ? 'Sim' : 'Não'}</strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Criado em Origem (created_at):</span>{' '}
+                        <strong>{parsedRows[0].criado_em_origem || '—'}</strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Produto ID (Gerado pelo Sistema):</span>{' '}
+                        <strong className="text-purple-700 font-mono">
+                          {parsedRows[0].produto_id_gerado}
                         </strong>
                       </div>
                       <div>
-                        <span className="text-slate-500">Status Canal:</span>{' '}
-                        <strong>{parsedRows[0].ativo ? 'Ativo' : 'Inativo'}</strong>
+                        <span className="text-slate-500">SKU Novo (Gerado pelo Sistema):</span>{' '}
+                        <strong className="text-indigo-700 font-mono">
+                          {parsedRows[0].sku_novo}
+                        </strong>
                       </div>
                     </div>
                   </div>
                 )}
 
+                {/* Tabela do Mapeamento Obrigatório */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-                  {Object.entries(SCAGLIONI_COLUMN_MAP).map(([col, targetField]) => (
-                    <div key={col} className="p-3 bg-white rounded border border-slate-200">
-                      <div className="flex items-center justify-between">
+                  {[
+                    {
+                      origem: 'nome',
+                      destino: 'nome_produto',
+                      nota: 'Exclusivo — nunca sobrescreve com descricao',
+                    },
+                    {
+                      origem: 'descricao',
+                      destino: 'descricao',
+                      nota: 'Exclusivo — nunca sobrescreve nome_produto',
+                    },
+                    {
+                      origem: 'sku',
+                      destino: 'sku_scaglioni',
+                      nota: 'Rastreabilidade do SKU original',
+                    },
+                    { origem: 'preco', destino: 'preco_venda', nota: 'Valor de venda no catálogo' },
+                    {
+                      origem: 'preco_promocional',
+                      destino: 'preco_promocional',
+                      nota: 'Preço promocional quando houver',
+                    },
+                    {
+                      origem: 'estoque',
+                      destino: 'qtde_inicial',
+                      nota: 'Saldo inicial em initial_stocks',
+                    },
+                    {
+                      origem: 'imagem_url',
+                      destino: 'imagem_principal',
+                      nota: 'Foto principal e product_images',
+                    },
+                    {
+                      origem: 'categoria_id',
+                      destino: 'categorias',
+                      nota: 'ID numérico convertido para nome (cria se necessário)',
+                    },
+                    {
+                      origem: 'marca_id',
+                      destino: 'marca',
+                      nota: 'ID numérico convertido para o nome da marca',
+                    },
+                    { origem: 'altura_cm', destino: 'altura_cm', nota: 'Dimensão logística' },
+                    { origem: 'largura_cm', destino: 'largura_cm', nota: 'Dimensão logística' },
+                    {
+                      origem: 'comprimento_cm',
+                      destino: 'comprimento_cm',
+                      nota: 'Dimensão logística',
+                    },
+                    { origem: 'peso_g', destino: 'peso_g', nota: 'Peso em gramas' },
+                    {
+                      origem: 'ativo',
+                      destino: 'publicar_no_ecommerce',
+                      nota: 'Visibilidade no e-commerce',
+                    },
+                    {
+                      origem: 'destaque',
+                      destino: 'destaque_ecommerce',
+                      nota: 'Vitrine de destaque',
+                    },
+                    {
+                      origem: 'created_at',
+                      destino: 'criado_em_origem',
+                      nota: 'Data/hora de criação na origem',
+                    },
+                    {
+                      origem: 'id (CSV)',
+                      destino: 'NÃO IMPORTAR',
+                      nota: 'produto_id é GERADO pelo sistema',
+                    },
+                    { origem: 'slug', destino: 'NÃO IMPORTAR', nota: 'Desconsiderado' },
+                    { origem: 'updated_at', destino: 'NÃO IMPORTAR', nota: 'Desconsiderado' },
+                    {
+                      origem: '(sistema)',
+                      destino: 'sku_novo',
+                      nota: 'Gerado automaticamente pelo sistema',
+                    },
+                  ].map((item, idx) => (
+                    <div key={idx} className="p-3 bg-white rounded border border-slate-200">
+                      <div className="flex items-center justify-between mb-1">
                         <span className="font-mono font-bold text-sky-900 bg-sky-50 px-1.5 py-0.5 rounded border border-sky-200">
-                          {col}
+                          {item.origem}
                         </span>
                         <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                        <span className="font-semibold text-slate-900">
-                          {DESTINATION_FIELD_LABELS[targetField] || targetField}
+                        <span
+                          className={`font-semibold ${
+                            item.destino.includes('NÃO') ? 'text-red-600' : 'text-slate-900'
+                          }`}
+                        >
+                          {item.destino}
                         </span>
                       </div>
+                      <p className="text-[10px] text-slate-500">{item.nota}</p>
                     </div>
                   ))}
                 </div>

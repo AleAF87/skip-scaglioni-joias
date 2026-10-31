@@ -131,6 +131,7 @@ export interface Product {
   // Identificador novo interno e códigos
   produto_id?: string
   sku_interno?: string
+  sku_novo?: string
   code: string // código legado e compatibilidade
   codigo_barras?: string // texto preservando zeros
 
@@ -178,6 +179,7 @@ export interface Product {
   slug_scaglioni?: string
   nome_original_scaglioni?: string
   created_at_scaglioni?: string
+  criado_em_origem?: string
   updated_at_scaglioni?: string
   estado_ativo_ecommerce?: boolean
 
