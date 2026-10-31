@@ -47,6 +47,8 @@ import {
   FileSpreadsheet,
   HelpCircle,
   Image as ImageIcon,
+  DollarSign,
+  TrendingUp,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Link } from 'react-router-dom'
@@ -70,6 +72,15 @@ export default function StockInventory() {
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [totalItems, setTotalItems] = useState(0)
+
+  // Totals for filtered products
+  const [filteredTotals, setFilteredTotals] = useState({
+    totalInvested: 0,
+    totalSelling: 0,
+    totalStockPieces: 0,
+    totalItems: 0,
+  })
+  const [totalsLoading, setTotalsLoading] = useState(false)
 
   // Selection for bulk action & barcode printing
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -136,6 +147,19 @@ export default function StockInventory() {
     page,
   ])
 
+  // Recalculate totals whenever filters change (independent of pagination page)
+  useEffect(() => {
+    loadFilteredTotals()
+  }, [
+    search,
+    selectedTypes,
+    selectedMaterials,
+    selectedSizes,
+    selectedAudiences,
+    selectedStatuses,
+    selectedEcommerce,
+  ])
+
   const loadAuxiliaries = async () => {
     try {
       const data = await productService.getAuxiliaryData()
@@ -170,6 +194,36 @@ export default function StockInventory() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const loadFilteredTotals = async () => {
+    setTotalsLoading(true)
+    try {
+      const res = await productService.getFilteredTotals({
+        search,
+        types: selectedTypes,
+        materials: selectedMaterials,
+        sizes: selectedSizes,
+        targetAudience: selectedAudiences,
+        statuses: selectedStatuses,
+        ecommerce: selectedEcommerce,
+      })
+      setFilteredTotals({
+        totalInvested: res.total_invested || 0,
+        totalSelling: res.total_selling || 0,
+        totalStockPieces: res.total_stock_pieces || 0,
+        totalItems: res.total_items || 0,
+      })
+    } catch (err) {
+      console.error('Erro ao calcular totais do estoque:', err)
+    } finally {
+      setTotalsLoading(false)
+    }
+  }
+
+  const reloadData = () => {
+    loadProducts()
+    loadFilteredTotals()
   }
 
   const toggleArrayFilter = (
@@ -229,7 +283,7 @@ export default function StockInventory() {
       })
       toast.success('Quantidade atualizada!')
       setEditingQtyId(null)
-      loadProducts()
+      reloadData()
     } catch (err) {
       toast.error('Falha ao atualizar quantidade.')
     }
@@ -268,7 +322,7 @@ export default function StockInventory() {
       setBulkType('')
       setBulkMaterial('')
       setBulkStatus('')
-      loadProducts()
+      reloadData()
     } catch (err) {
       toast.error('Falha na atualização em massa.')
     }
@@ -393,7 +447,7 @@ export default function StockInventory() {
       toast.success('Produto e fotos atualizados com sucesso!')
       setEditProductModalOpen(false)
       setEditingProduct(null)
-      loadProducts()
+      reloadData()
     } catch (err: any) {
       console.error('Erro ao atualizar produto:', err)
       toast.error('Falha ao atualizar produto: ' + (err.message || ''))
@@ -407,7 +461,7 @@ export default function StockInventory() {
       try {
         await productService.deleteProduct(id)
         toast.success('Produto excluído do estoque.')
-        loadProducts()
+        reloadData()
       } catch (err) {
         toast.error('Não foi possível excluir o produto.')
       }
@@ -500,6 +554,89 @@ export default function StockInventory() {
             </Button>
           </Link>
         </div>
+      </div>
+
+      {/* KPI Cards: Totais dos Produtos Filtrados */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {/* Card Investido */}
+        <Card className="border-[#E5DFD5] bg-white shadow-xs p-4 relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-[#6B655E]">
+              Investido
+            </span>
+            <span className="p-2 rounded-lg bg-[#2E7D4F]/10 text-[#2E7D4F]">
+              <DollarSign className="h-4 w-4" />
+            </span>
+          </div>
+          <div className="mt-2">
+            <p className="font-serif text-xl sm:text-2xl font-bold text-[#2D2A26] truncate">
+              {totalsLoading ? (
+                <span className="text-sm font-sans text-[#6B655E] animate-pulse">
+                  Calculando...
+                </span>
+              ) : (
+                formatCurrency(filteredTotals.totalInvested)
+              )}
+            </p>
+            <p className="text-[11px] text-[#6B655E] mt-0.5">Total investido nas peças filtradas</p>
+          </div>
+        </Card>
+
+        {/* Card Preço Venda */}
+        <Card className="border-[#E5DFD5] bg-white shadow-xs p-4 relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-[#6B655E]">
+              Preço Venda
+            </span>
+            <span className="p-2 rounded-lg bg-[#C6A664]/15 text-[#7A5C2E]">
+              <TrendingUp className="h-4 w-4" />
+            </span>
+          </div>
+          <div className="mt-2">
+            <p className="font-serif text-xl sm:text-2xl font-bold text-[#2D2A26] truncate">
+              {totalsLoading ? (
+                <span className="text-sm font-sans text-[#6B655E] animate-pulse">
+                  Calculando...
+                </span>
+              ) : (
+                formatCurrency(filteredTotals.totalSelling)
+              )}
+            </p>
+            <p className="text-[11px] text-[#6B655E] mt-0.5">Valor potencial de venda</p>
+          </div>
+        </Card>
+
+        {/* Card Em Estoque */}
+        <Card className="border-[#E5DFD5] bg-white shadow-xs p-4 relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-[#6B655E]">
+              Em Estoque
+            </span>
+            <span className="p-2 rounded-lg bg-[#7A5C2E]/10 text-[#7A5C2E]">
+              <Boxes className="h-4 w-4" />
+            </span>
+          </div>
+          <div className="mt-2">
+            <p className="font-serif text-xl sm:text-2xl font-bold text-[#2D2A26] truncate">
+              {totalsLoading ? (
+                <span className="text-sm font-sans text-[#6B655E] animate-pulse">
+                  Calculando...
+                </span>
+              ) : (
+                <>
+                  {filteredTotals.totalStockPieces.toLocaleString('pt-BR')}{' '}
+                  <span className="text-xs font-sans font-normal text-[#6B655E]">
+                    {filteredTotals.totalStockPieces === 1 ? 'peça' : 'peças'}
+                  </span>
+                </>
+              )}
+            </p>
+            <p className="text-[11px] text-[#6B655E] mt-0.5">
+              {filteredTotals.totalItems.toLocaleString('pt-BR')}{' '}
+              {filteredTotals.totalItems === 1 ? 'item cadastrado' : 'itens cadastrados'}
+            </p>
+          </div>
+        </Card>
       </div>
 
       {/* Filter Toolbar (Multi-choice style) */}

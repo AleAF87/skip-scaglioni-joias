@@ -88,6 +88,148 @@ export const productService = {
     })
   },
 
+  buildProductFilterString(params?: {
+    search?: string
+    type?: string
+    types?: string[]
+    material?: string
+    materials?: string[]
+    size?: string
+    sizes?: string[]
+    targetAudience?: string[]
+    status?: string
+    statuses?: string[]
+    ecommerce?: string[]
+  }) {
+    const filters: string[] = []
+
+    if (params?.search) {
+      const q = params.search.replace(/'/g, "\\'")
+      filters.push(
+        `(code ~ '${q}' || description ~ '${q}' || nome_produto ~ '${q}' || codigo_barras ~ '${q}' || codigo_barras_tecson ~ '${q}' || codigo_produto_tecson ~ '${q}' || id_tecson ~ '${q}' || id_scaglioni ~ '${q}' || sku_scaglioni ~ '${q}')`,
+      )
+    }
+    if (params?.types && params.types.length > 0) {
+      const typeClauses = params.types.map((t) => `type = '${t.replace(/'/g, "\\'")}'`)
+      filters.push(`(${typeClauses.join(' || ')})`)
+    } else if (params?.type) {
+      filters.push(`type = '${params.type.replace(/'/g, "\\'")}'`)
+    }
+
+    if (params?.materials && params.materials.length > 0) {
+      const matClauses = params.materials.map((m) => `material = '${m.replace(/'/g, "\\'")}'`)
+      filters.push(`(${matClauses.join(' || ')})`)
+    } else if (params?.material) {
+      filters.push(`material = '${params.material.replace(/'/g, "\\'")}'`)
+    }
+
+    if (params?.sizes && params.sizes.length > 0) {
+      const sizeClauses = params.sizes.map((s) => `size = '${s.replace(/'/g, "\\'")}'`)
+      filters.push(`(${sizeClauses.join(' || ')})`)
+    } else if (params?.size) {
+      filters.push(`size = '${params.size.replace(/'/g, "\\'")}'`)
+    }
+
+    if (params?.targetAudience && params.targetAudience.length > 0) {
+      const audClauses = params.targetAudience.map(
+        (a) => `target_audience = '${a.replace(/'/g, "\\'")}'`,
+      )
+      filters.push(`(${audClauses.join(' || ')})`)
+    }
+
+    if (params?.statuses && params.statuses.length > 0) {
+      const stClauses = params.statuses.map((s) => `status = '${s.replace(/'/g, "\\'")}'`)
+      filters.push(`(${stClauses.join(' || ')})`)
+    } else if (params?.status) {
+      filters.push(`status = '${params.status.replace(/'/g, "\\'")}'`)
+    }
+
+    if (params?.ecommerce && params.ecommerce.length > 0) {
+      const wantsPublished = params.ecommerce.includes('published')
+      const wantsNotPublished = params.ecommerce.includes('not_published')
+      if (wantsPublished && !wantsNotPublished) {
+        filters.push('publicar_no_ecommerce = true')
+      } else if (!wantsPublished && wantsNotPublished) {
+        filters.push('publicar_no_ecommerce = false')
+      }
+    }
+
+    return filters.join(' && ')
+  },
+
+  async getFilteredTotals(params?: {
+    search?: string
+    type?: string
+    types?: string[]
+    material?: string
+    materials?: string[]
+    size?: string
+    sizes?: string[]
+    targetAudience?: string[]
+    status?: string
+    statuses?: string[]
+    ecommerce?: string[]
+  }) {
+    const filter = this.buildProductFilterString(params)
+
+    // First attempt: call backend endpoint for atomic aggregation
+    try {
+      const res = await pb.send<{
+        total_invested: number
+        total_selling: number
+        total_invested_unit: number
+        total_selling_unit: number
+        total_invested_stock: number
+        total_selling_stock: number
+        total_stock_pieces: number
+        total_items: number
+      }>('/backend/v1/products/totals', {
+        method: 'POST',
+        body: JSON.stringify({ filter }),
+      })
+      if (res && typeof res.total_stock_pieces === 'number') {
+        return res
+      }
+    } catch (err) {
+      console.warn('Endpoint /backend/v1/products/totals falhou, calculando via SDK:', err)
+    }
+
+    // Fallback: fetch filtered products (only required fields for fast performance)
+    const list = await pb.collection('products').getFullList<Product>({
+      filter,
+      fields: 'id,invested_value,selling_price,quantity',
+    })
+
+    let totalInvestedUnit = 0
+    let totalSellingUnit = 0
+    let totalInvestedStock = 0
+    let totalSellingStock = 0
+    let totalQuantity = 0
+
+    list.forEach((p) => {
+      const qty = p.quantity || 0
+      const invested = p.invested_value || 0
+      const selling = p.selling_price || 0
+
+      totalQuantity += qty
+      totalInvestedUnit += invested
+      totalSellingUnit += selling
+      totalInvestedStock += invested * qty
+      totalSellingStock += selling * qty
+    })
+
+    return {
+      total_invested: totalInvestedStock > 0 ? totalInvestedStock : totalInvestedUnit,
+      total_selling: totalSellingStock > 0 ? totalSellingStock : totalSellingUnit,
+      total_invested_unit: totalInvestedUnit,
+      total_selling_unit: totalSellingUnit,
+      total_invested_stock: totalInvestedStock,
+      total_selling_stock: totalSellingStock,
+      total_stock_pieces: totalQuantity,
+      total_items: list.length,
+    }
+  },
+
   async getProductById(id: string) {
     return pb.collection('products').getOne<Product>(id, {
       expand: 'type,material,size,marca_id',
