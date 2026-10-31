@@ -43,13 +43,22 @@ routerAdd(
         totalSellingStock += selling * qty
       }
 
+      const totalInvested = totalInvestedStock > 0 ? totalInvestedStock : totalInvestedUnit
+      const totalSelling = totalSellingStock > 0 ? totalSellingStock : totalSellingUnit
+      const totalProfit = totalSelling - totalInvested
+      const totalProfitUnit = totalSellingUnit - totalInvestedUnit
+      const totalProfitStock = totalSellingStock - totalInvestedStock
+
       return e.json(200, {
-        total_invested: totalInvestedStock > 0 ? totalInvestedStock : totalInvestedUnit,
-        total_selling: totalSellingStock > 0 ? totalSellingStock : totalSellingUnit,
+        total_invested: totalInvested,
+        total_selling: totalSelling,
+        total_profit: totalProfit,
         total_invested_unit: totalInvestedUnit,
         total_selling_unit: totalSellingUnit,
         total_invested_stock: totalInvestedStock,
         total_selling_stock: totalSellingStock,
+        total_profit_unit: totalProfitUnit,
+        total_profit_stock: totalProfitStock,
         total_stock_pieces: totalQuantity,
         total_items: totalItems,
       })

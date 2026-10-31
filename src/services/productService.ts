@@ -177,10 +177,13 @@ export const productService = {
       const res = await pb.send<{
         total_invested: number
         total_selling: number
+        total_profit?: number
         total_invested_unit: number
         total_selling_unit: number
         total_invested_stock: number
         total_selling_stock: number
+        total_profit_unit?: number
+        total_profit_stock?: number
         total_stock_pieces: number
         total_items: number
       }>('/backend/v1/products/totals', {
@@ -188,7 +191,14 @@ export const productService = {
         body: JSON.stringify({ filter }),
       })
       if (res && typeof res.total_stock_pieces === 'number') {
-        return res
+        const totalInvested = res.total_invested ?? 0
+        const totalSelling = res.total_selling ?? 0
+        const totalProfit =
+          typeof res.total_profit === 'number' ? res.total_profit : totalSelling - totalInvested
+        return {
+          ...res,
+          total_profit: totalProfit,
+        }
       }
     } catch (err) {
       console.warn('Endpoint /backend/v1/products/totals falhou, calculando via SDK:', err)
@@ -218,13 +228,20 @@ export const productService = {
       totalSellingStock += selling * qty
     })
 
+    const totalInvested = totalInvestedStock > 0 ? totalInvestedStock : totalInvestedUnit
+    const totalSelling = totalSellingStock > 0 ? totalSellingStock : totalSellingUnit
+    const totalProfit = totalSelling - totalInvested
+
     return {
-      total_invested: totalInvestedStock > 0 ? totalInvestedStock : totalInvestedUnit,
-      total_selling: totalSellingStock > 0 ? totalSellingStock : totalSellingUnit,
+      total_invested: totalInvested,
+      total_selling: totalSelling,
+      total_profit: totalProfit,
       total_invested_unit: totalInvestedUnit,
       total_selling_unit: totalSellingUnit,
       total_invested_stock: totalInvestedStock,
       total_selling_stock: totalSellingStock,
+      total_profit_unit: totalSellingUnit - totalInvestedUnit,
+      total_profit_stock: totalSellingStock - totalInvestedStock,
       total_stock_pieces: totalQuantity,
       total_items: list.length,
     }

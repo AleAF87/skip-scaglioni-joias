@@ -77,6 +77,7 @@ export default function StockInventory() {
   const [filteredTotals, setFilteredTotals] = useState({
     totalInvested: 0,
     totalSelling: 0,
+    totalProfit: 0,
     totalStockPieces: 0,
     totalItems: 0,
   })
@@ -211,6 +212,10 @@ export default function StockInventory() {
       setFilteredTotals({
         totalInvested: res.total_invested || 0,
         totalSelling: res.total_selling || 0,
+        totalProfit:
+          typeof res.total_profit === 'number'
+            ? res.total_profit
+            : (res.total_selling || 0) - (res.total_invested || 0),
         totalStockPieces: res.total_stock_pieces || 0,
         totalItems: res.total_items || 0,
       })
@@ -557,7 +562,7 @@ export default function StockInventory() {
       </div>
 
       {/* KPI Cards: Totais dos Produtos Filtrados */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {/* Card Investido */}
         <Card className="border-[#E5DFD5] bg-white shadow-xs p-4 relative overflow-hidden">
           <div className="flex items-center justify-between">
@@ -603,6 +608,44 @@ export default function StockInventory() {
               )}
             </p>
             <p className="text-[11px] text-[#6B655E] mt-0.5">Valor potencial de venda</p>
+          </div>
+        </Card>
+
+        {/* Card Lucro */}
+        <Card className="border-[#E5DFD5] bg-white shadow-xs p-4 relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-[#6B655E]">
+              Lucro
+            </span>
+            <span
+              className={`p-2 rounded-lg ${
+                filteredTotals.totalProfit < 0
+                  ? 'bg-[#B3261E]/10 text-[#B3261E]'
+                  : 'bg-[#2E7D4F]/10 text-[#2E7D4F]'
+              }`}
+            >
+              <TrendingUp className="h-4 w-4" />
+            </span>
+          </div>
+          <div className="mt-2">
+            <p
+              className={`font-serif text-xl sm:text-2xl font-bold truncate ${
+                !totalsLoading && filteredTotals.totalProfit < 0
+                  ? 'text-[#B3261E]'
+                  : 'text-[#2D2A26]'
+              }`}
+            >
+              {totalsLoading ? (
+                <span className="text-sm font-sans text-[#6B655E] animate-pulse">
+                  Calculando...
+                </span>
+              ) : (
+                formatCurrency(filteredTotals.totalProfit)
+              )}
+            </p>
+            <p className="text-[11px] text-[#6B655E] mt-0.5">
+              Margem bruta projetada (Venda - Investido)
+            </p>
           </div>
         </Card>
 
