@@ -717,7 +717,7 @@ export default function StockInventory() {
                     }
                   }
                 }}
-                placeholder="Buscar por código (ignora zeros à esquerda) ou descrição completa..."
+                placeholder="Buscar por código, nome do produto ou descrição..."
                 className="pl-9 border-[#E5DFD5] focus-visible:ring-[#C6A664]"
               />
             </div>
@@ -1061,7 +1061,7 @@ export default function StockInventory() {
                 <th className="py-3 px-4">Material</th>
                 <th className="py-3 px-4">Perfil</th>
                 <th className="py-3 px-4">Tamanho</th>
-                <th className="py-3 px-4 min-w-[220px]">Descrição Completa</th>
+                <th className="py-3 px-4 min-w-[220px]">Nome do Produto</th>
                 <th className="py-3 px-4">Investido</th>
                 <th className="py-3 px-4">Preço Venda</th>
                 <th className="py-3 px-4 text-center">Estoque</th>
@@ -1162,7 +1162,7 @@ export default function StockInventory() {
                         )}
                       </td>
 
-                      {/* Ordem obrigatória: Tipo, Material, Perfil, Tamanho, Descrição */}
+                      {/* Ordem obrigatória: Tipo, Material, Perfil, Tamanho, Nome do Produto */}
                       <td className="py-3 px-4">
                         <span className="font-medium text-[#2D2A26]">
                           {p.expand?.type?.name || '—'}
@@ -1183,10 +1183,10 @@ export default function StockInventory() {
                         {p.expand?.size?.name || 'Único'}
                       </td>
 
-                      {/* Descrição Completa sem truncamento nem reticências */}
+                      {/* Nome do Produto com fallback para description */}
                       <td className="py-3 px-4">
                         <div className="font-medium text-[#2D2A26] whitespace-normal break-words leading-relaxed">
-                          {p.description}
+                          {p.nome_produto?.trim() || p.description}
                         </div>
                         {/* Indicadores de E-commerce e Origem */}
                         <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
