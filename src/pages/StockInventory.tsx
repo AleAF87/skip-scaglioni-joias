@@ -65,6 +65,7 @@ export default function StockInventory() {
   const [selectedSizes, setSelectedSizes] = useState<string[]>([])
   const [selectedAudiences, setSelectedAudiences] = useState<string[]>([])
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([])
+  const [selectedEcommerce, setSelectedEcommerce] = useState<string[]>([])
   const [showFiltersPanel, setShowFiltersPanel] = useState(false)
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
@@ -131,6 +132,7 @@ export default function StockInventory() {
     selectedSizes,
     selectedAudiences,
     selectedStatuses,
+    selectedEcommerce,
     page,
   ])
 
@@ -155,6 +157,7 @@ export default function StockInventory() {
         sizes: selectedSizes,
         targetAudience: selectedAudiences,
         statuses: selectedStatuses,
+        ecommerce: selectedEcommerce,
         page,
         perPage: 15,
       })
@@ -186,6 +189,7 @@ export default function StockInventory() {
     setSelectedSizes([])
     setSelectedAudiences([])
     setSelectedStatuses([])
+    setSelectedEcommerce([])
     setPage(1)
   }
 
@@ -194,7 +198,8 @@ export default function StockInventory() {
     selectedMaterials.length +
     selectedSizes.length +
     selectedAudiences.length +
-    selectedStatuses.length
+    selectedStatuses.length +
+    selectedEcommerce.length
 
   const handleSelectAll = () => {
     if (selectedIds.length === products.length) {
@@ -702,6 +707,38 @@ export default function StockInventory() {
                   })}
                 </div>
               </div>
+
+              {/* E-commerce */}
+              <div>
+                <Label className="text-xs font-semibold text-[#6B655E] uppercase tracking-wider block mb-2">
+                  E-commerce (Múltipla Escolha):
+                </Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { val: 'published', label: 'Publicado no e-commerce' },
+                    { val: 'not_published', label: 'Não publicado' },
+                  ].map((ec) => {
+                    const isChecked = selectedEcommerce.includes(ec.val)
+                    return (
+                      <button
+                        type="button"
+                        key={ec.val}
+                        onClick={() => toggleArrayFilter(setSelectedEcommerce, ec.val)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors flex items-center gap-1.5 ${
+                          isChecked
+                            ? 'bg-[#7A5C2E] border-[#7A5C2E] text-white shadow-xs'
+                            : 'bg-white border-[#E5DFD5] text-[#2D2A26] hover:bg-[#F3EAD8]'
+                        }`}
+                      >
+                        <span
+                          className={`h-2 w-2 rounded-full ${isChecked ? 'bg-white' : 'bg-[#C6A664]'}`}
+                        />
+                        {ec.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
             </div>
           )}
 
@@ -780,6 +817,19 @@ export default function StockInventory() {
                   <X
                     className="h-3 w-3 cursor-pointer hover:text-[#B3261E]"
                     onClick={() => toggleArrayFilter(setSelectedStatuses, st)}
+                  />
+                </Badge>
+              ))}
+              {selectedEcommerce.map((ec) => (
+                <Badge
+                  key={ec}
+                  variant="secondary"
+                  className="bg-[#F3EAD8] text-[#7A5C2E] border border-[#E5DFD5] flex items-center gap-1"
+                >
+                  E-commerce: {ec === 'published' ? 'Publicado' : 'Não publicado'}
+                  <X
+                    className="h-3 w-3 cursor-pointer hover:text-[#B3261E]"
+                    onClick={() => toggleArrayFilter(setSelectedEcommerce, ec)}
                   />
                 </Badge>
               ))}
@@ -935,6 +985,71 @@ export default function StockInventory() {
                       <td className="py-3 px-4">
                         <div className="font-medium text-[#2D2A26] whitespace-normal break-words leading-relaxed">
                           {p.description}
+                        </div>
+                        {/* Indicadores de E-commerce e Origem */}
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                          {p.publicar_no_ecommerce ? (
+                            <Badge className="bg-[#C6A664] hover:bg-[#b0914f] text-[#2D2A26] font-semibold text-[10px] px-1.5 py-0 h-4.5 border border-[#B38F48] shadow-2xs">
+                              E-commerce
+                            </Badge>
+                          ) : (
+                            <Badge
+                              variant="outline"
+                              className="text-[#6B655E] bg-[#FDFBF7] border-[#E5DFD5] text-[10px] px-1.5 py-0 h-4.5"
+                            >
+                              Não publicado
+                            </Badge>
+                          )}
+
+                          {(() => {
+                            const isScaglioni = Boolean(
+                              p.id_scaglioni ||
+                              p.sku_scaglioni ||
+                              (p.origem && p.origem.toLowerCase() === 'scaglioni') ||
+                              (p.origem_importacao &&
+                                p.origem_importacao.toLowerCase() === 'scaglioni'),
+                            )
+                            const isTecson = Boolean(
+                              p.id_tecson ||
+                              p.codigo_barras_tecson ||
+                              p.codigo_produto_tecson ||
+                              (p.origem && p.origem.toLowerCase() === 'tecson') ||
+                              (p.origem_importacao &&
+                                p.origem_importacao.toLowerCase() === 'tecson'),
+                            )
+
+                            if (isScaglioni) {
+                              return (
+                                <Badge
+                                  variant="outline"
+                                  className="border-[#C6A664]/60 bg-[#F3EAD8] text-[#7A5C2E] font-medium text-[10px] px-1.5 py-0 h-4.5"
+                                >
+                                  Scaglioni
+                                </Badge>
+                              )
+                            }
+                            if (isTecson) {
+                              return (
+                                <Badge
+                                  variant="outline"
+                                  className="border-slate-300 bg-slate-100 text-slate-700 font-medium text-[10px] px-1.5 py-0 h-4.5"
+                                >
+                                  Tecson
+                                </Badge>
+                              )
+                            }
+                            if (p.origem || p.origem_importacao) {
+                              return (
+                                <Badge
+                                  variant="outline"
+                                  className="border-slate-300 bg-slate-100 text-slate-700 font-medium text-[10px] px-1.5 py-0 h-4.5"
+                                >
+                                  {p.origem || p.origem_importacao}
+                                </Badge>
+                              )
+                            }
+                            return null
+                          })()}
                         </div>
                       </td>
 

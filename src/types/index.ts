@@ -161,6 +161,10 @@ export interface Product {
   quantity: number
   minimum_quantity?: number
 
+  // Origem geral / importação
+  origem?: string
+  origem_importacao?: string
+
   // Identificadores de Origem Tecson
   id_tecson?: string
   codigo_produto_tecson?: string

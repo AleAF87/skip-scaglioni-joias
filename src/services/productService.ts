@@ -13,6 +13,7 @@ export const productService = {
     targetAudience?: string[]
     status?: string
     statuses?: string[]
+    ecommerce?: string[]
     page?: number
     perPage?: number
     sort?: string
@@ -65,6 +66,18 @@ export const productService = {
       filters.push(`(${stClauses.join(' || ')})`)
     } else if (params?.status) {
       filters.push(`status = '${params.status.replace(/'/g, "\\'")}'`)
+    }
+
+    // E-commerce publication filter
+    if (params?.ecommerce && params.ecommerce.length > 0) {
+      // If both 'published' and 'not_published' are selected, don't restrict (both options selected)
+      const wantsPublished = params.ecommerce.includes('published')
+      const wantsNotPublished = params.ecommerce.includes('not_published')
+      if (wantsPublished && !wantsNotPublished) {
+        filters.push('publicar_no_ecommerce = true')
+      } else if (!wantsPublished && wantsNotPublished) {
+        filters.push('publicar_no_ecommerce = false')
+      }
     }
 
     const filterStr = filters.join(' && ')
