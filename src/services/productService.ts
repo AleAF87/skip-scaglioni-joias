@@ -644,34 +644,79 @@ export const productService = {
         return res.next_code
       }
     } catch {
-      // Fallback: query highest numerical code from collection
+      // Fallback: query numerical codes from collection
     }
 
     try {
       const list = await pb.collection('products').getFullList<Product>({
-        fields: 'code,sku_novo',
+        fields:
+          'code,sku_novo,codigo_barras_tecson,codigo_produto_tecson,codigo_barras,sku_interno',
       })
 
-      // Piso inicial da sequência: 9999 (para que o próximo produto inicial seja 10000)
-      let maxNum = 9999
+      const usedNumbers = new Set<number>()
       for (const item of list) {
-        const c = item.code || ''
-        const sn = item.sku_novo || ''
-        if (/^\d+$/.test(c)) {
-          const val = parseInt(c, 10)
-          if (!isNaN(val) && val > maxNum) maxNum = val
-        }
-        if (/^\d+$/.test(sn)) {
-          const val = parseInt(sn, 10)
-          if (!isNaN(val) && val > maxNum) maxNum = val
+        const fields = [
+          item.code,
+          item.sku_novo,
+          item.codigo_barras_tecson,
+          item.codigo_produto_tecson,
+          item.codigo_barras,
+          item.sku_interno,
+        ]
+        for (const f of fields) {
+          const trimmed = (f || '').trim()
+          if (/^\d+$/.test(trimmed)) {
+            const num = parseInt(trimmed, 10)
+            if (!isNaN(num)) {
+              usedNumbers.add(num)
+            }
+          }
         }
       }
 
-      const nextVal = maxNum + 1
-      return String(nextVal)
+      let candidate = 10000
+      while (usedNumbers.has(candidate)) {
+        candidate++
+      }
+
+      return String(candidate)
     } catch (err) {
       console.error('Erro ao consultar próximo código numérico sequencial:', err)
       return '10000'
+    }
+  },
+
+  async getUsedNumericProductCodes(): Promise<Set<number>> {
+    try {
+      const list = await pb.collection('products').getFullList<Product>({
+        fields:
+          'code,sku_novo,codigo_barras_tecson,codigo_produto_tecson,codigo_barras,sku_interno',
+      })
+
+      const usedNumbers = new Set<number>()
+      for (const item of list) {
+        const fields = [
+          item.code,
+          item.sku_novo,
+          item.codigo_barras_tecson,
+          item.codigo_produto_tecson,
+          item.codigo_barras,
+          item.sku_interno,
+        ]
+        for (const f of fields) {
+          const trimmed = (f || '').trim()
+          if (/^\d+$/.test(trimmed)) {
+            const num = parseInt(trimmed, 10)
+            if (!isNaN(num)) {
+              usedNumbers.add(num)
+            }
+          }
+        }
+      }
+      return usedNumbers
+    } catch (err) {
+      console.error('Erro ao listar códigos numéricos ocupados:', err)
+      return new Set<number>()
     }
   },
 }

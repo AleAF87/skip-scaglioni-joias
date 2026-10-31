@@ -522,23 +522,51 @@ routerAdd(
           }
         } catch (_) {}
 
-        // Verifica também maior número existente em products
+        // Mapeia todos os códigos numéricos ocupados no banco (Tecson, Scaglioni, manuais etc.)
+        // Interpretados como número inteiro puro (zeros à esquerda removidos)
+        const usedNumericSet = {}
         try {
-          const maxProdRows = []
-          txApp.db().newQuery('SELECT sku_novo, code FROM products').all(maxProdRows)
-          for (let pIdx = 0; pIdx < maxProdRows.length; pIdx++) {
-            const sn = (maxProdRows[pIdx].sku_novo || '').trim()
-            const c = (maxProdRows[pIdx].code || '').trim()
-            if (/^\d+$/.test(sn)) {
-              const v = parseInt(sn, 10)
-              if (!isNaN(v) && v > currentSeq) currentSeq = v
-            }
-            if (/^\d+$/.test(c)) {
-              const v = parseInt(c, 10)
-              if (!isNaN(v) && v > currentSeq) currentSeq = v
+          const allProdRows = []
+          txApp
+            .db()
+            .newQuery(
+              'SELECT code, sku_novo, codigo_barras_tecson, codigo_produto_tecson, codigo_barras, sku_interno FROM products',
+            )
+            .all(allProdRows)
+
+          for (let pIdx = 0; pIdx < allProdRows.length; pIdx++) {
+            const r = allProdRows[pIdx]
+            const checkFields = [
+              r.code,
+              r.sku_novo,
+              r.codigo_barras_tecson,
+              r.codigo_produto_tecson,
+              r.codigo_barras,
+              r.sku_interno,
+            ]
+            for (let fIdx = 0; fIdx < checkFields.length; fIdx++) {
+              const f = (checkFields[fIdx] || '').trim()
+              if (/^\d+$/.test(f)) {
+                const num = parseInt(f, 10)
+                if (!isNaN(num)) {
+                  usedNumericSet[num] = true
+                }
+              }
             }
           }
         } catch (_) {}
+
+        // Função auxiliar interna para obter o próximo código numérico livre pulando ocupados
+        const getNextFreeSeq = () => {
+          let cand = currentSeq + 1
+          if (cand < 10000) cand = 10000
+          while (usedNumericSet[cand]) {
+            cand++
+          }
+          currentSeq = cand
+          usedNumericSet[cand] = true
+          return String(cand)
+        }
 
         for (let i = 0; i < items.length; i++) {
           const item = items[i]
@@ -833,8 +861,7 @@ routerAdd(
                   !existing.getString('sku_novo') ||
                   !/^\d+$/.test(existing.getString('sku_novo'))
                 ) {
-                  currentSeq++
-                  const generatedNumCode = String(currentSeq)
+                  const generatedNumCode = getNextFreeSeq()
                   existing.set('sku_novo', generatedNumCode)
                   if (!existing.getString('sku_interno')) {
                     existing.set('sku_interno', generatedNumCode)
@@ -963,8 +990,8 @@ routerAdd(
                 const produtoId = 'PROD-' + ts + '-' + rand1
 
                 // Gerar sku_novo numérico, sequencial e crescente pelo próprio sistema (10000..99999, 100000...) SEM zeros à esquerda
-                currentSeq++
-                const skuNovo = String(currentSeq)
+                // Pulando qualquer código numericamente ocupado (ex: códigos Tecson)
+                const skuNovo = getNextFreeSeq()
                 const skuInterno = skuNovo
 
                 const newProd = new Record(productsCol)

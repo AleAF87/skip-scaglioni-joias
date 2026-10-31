@@ -30,26 +30,51 @@ routerAdd(
       console.log('Aviso ao consultar app_sequences:', err.message)
     }
 
-    // Se houver produtos com numeração maior, calcular max existente
+    // Carrega todos os códigos numéricos ocupados (Tecson, Scaglioni, manuais)
+    // Interpretados como número inteiro puro (zeros à esquerda removidos)
+    const usedNumericSet = {}
     try {
       const prodRows = []
-      $app.db().newQuery('SELECT sku_novo, code FROM products').all(prodRows)
+      $app
+        .db()
+        .newQuery(
+          'SELECT code, sku_novo, codigo_barras_tecson, codigo_produto_tecson, codigo_barras, sku_interno, id_tecson, id_scaglioni FROM products',
+        )
+        .all(prodRows)
 
       for (let i = 0; i < prodRows.length; i++) {
-        const sn = (prodRows[i].sku_novo || '').trim()
-        const c = (prodRows[i].code || '').trim()
-        if (/^\d+$/.test(sn)) {
-          const v = parseInt(sn, 10)
-          if (!isNaN(v) && v > currentVal) currentVal = v
-        }
-        if (/^\d+$/.test(c)) {
-          const v = parseInt(c, 10)
-          if (!isNaN(v) && v > currentVal) currentVal = v
+        const r = prodRows[i]
+        const checkFields = [
+          r.code,
+          r.sku_novo,
+          r.codigo_barras_tecson,
+          r.codigo_produto_tecson,
+          r.codigo_barras,
+          r.sku_interno,
+        ]
+        for (let j = 0; j < checkFields.length; j++) {
+          const f = (checkFields[j] || '').trim()
+          if (/^\d+$/.test(f)) {
+            const num = parseInt(f, 10)
+            if (!isNaN(num)) {
+              usedNumericSet[num] = true
+            }
+          }
         }
       }
-    } catch (_) {}
+    } catch (err) {
+      console.log('Aviso ao carregar números ocupados em products:', err.message)
+    }
 
-    const nextVal = currentVal + 1
+    // Encontra o próximo candidato livre pulando números já ocupados
+    let candidate = currentVal + 1
+    if (candidate < 10000) candidate = 10000
+
+    while (usedNumericSet[candidate]) {
+      candidate++
+    }
+
+    const nextVal = candidate
     const nextCode = String(nextVal)
 
     return e.json(200, { next_code: nextCode, next_number: nextVal })
@@ -81,7 +106,6 @@ onRecordCreateRequest((e) => {
       $app.runInTransaction((txApp) => {
         // Piso inicial da sequência: 9999 (próximo é 10000)
         let currentSeq = 9999
-        let seqRecordId = null
         const rows = []
         txApp
           .db()
@@ -91,7 +115,6 @@ onRecordCreateRequest((e) => {
           .all(rows)
 
         if (rows && rows.length > 0) {
-          seqRecordId = rows[0].id
           if (rows[0].current_value !== undefined) {
             const valFromDb = parseInt(rows[0].current_value, 10) || 0
             if (valFromDb > currentSeq) {
@@ -100,29 +123,51 @@ onRecordCreateRequest((e) => {
           }
         }
 
-        // Também assegura que não seja menor do que qualquer numérico existente em products
+        // Mapeia todos os números ocupados no banco (Tecson, Scaglioni, etc.)
+        const usedNumericSet = {}
         const prodRows = []
         try {
-          txApp.db().newQuery('SELECT sku_novo, code FROM products').all(prodRows)
+          txApp
+            .db()
+            .newQuery(
+              'SELECT code, sku_novo, codigo_barras_tecson, codigo_produto_tecson, codigo_barras, sku_interno FROM products',
+            )
+            .all(prodRows)
 
           for (let i = 0; i < prodRows.length; i++) {
-            const sn = (prodRows[i].sku_novo || '').trim()
-            const c = (prodRows[i].code || '').trim()
-            if (/^\d+$/.test(sn)) {
-              const v = parseInt(sn, 10)
-              if (!isNaN(v) && v > currentSeq) currentSeq = v
-            }
-            if (/^\d+$/.test(c)) {
-              const v = parseInt(c, 10)
-              if (!isNaN(v) && v > currentSeq) currentSeq = v
+            const r = prodRows[i]
+            const checkFields = [
+              r.code,
+              r.sku_novo,
+              r.codigo_barras_tecson,
+              r.codigo_produto_tecson,
+              r.codigo_barras,
+              r.sku_interno,
+            ]
+            for (let j = 0; j < checkFields.length; j++) {
+              const f = (checkFields[j] || '').trim()
+              if (/^\d+$/.test(f)) {
+                const num = parseInt(f, 10)
+                if (!isNaN(num)) {
+                  usedNumericSet[num] = true
+                }
+              }
             }
           }
         } catch (_) {}
 
-        const nextVal = currentSeq + 1
+        // Encontra o próximo candidato livre a partir de currentSeq + 1
+        let candidate = currentSeq + 1
+        if (candidate < 10000) candidate = 10000
+
+        while (usedNumericSet[candidate]) {
+          candidate++
+        }
+
+        const nextVal = candidate
         const formattedCode = String(nextVal)
 
-        // Atualiza app_sequences
+        // Atualiza app_sequences para a posição do número atribuído
         txApp
           .db()
           .newQuery(
@@ -138,7 +183,10 @@ onRecordCreateRequest((e) => {
         if (!incomingCode || incomingCode.startsWith('SCG-')) {
           record.set('code', formattedCode)
         }
-        console.log('Código numérico sequencial atômico gerado para produto:', formattedCode)
+        console.log(
+          'Código numérico sequencial atômico gerado para produto (pulando ocupados):',
+          formattedCode,
+        )
       })
     } catch (seqErr) {
       console.log('Erro ao gerar código numérico sequencial atômico:', seqErr.message)

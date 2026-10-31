@@ -343,15 +343,34 @@ export function ImportScaglioniPage() {
 
     try {
       // Obter próximo código numérico para simulação fiel na prévia (piso mínimo 10000)
+      // e o conjunto de todos os números já ocupados (Tecson, Scaglioni etc.)
       let startNum = 10000
+      let usedNumbersSet = new Set<number>()
       try {
-        const nextCodeStr = await productService.getNextProductCode()
+        const [nextCodeStr, usedNumbers] = await Promise.all([
+          productService.getNextProductCode(),
+          productService.getUsedNumericProductCodes(),
+        ])
         const parsed = parseInt(nextCodeStr, 10)
         if (!isNaN(parsed) && parsed >= 10000) {
           startNum = parsed
         }
+        usedNumbersSet = usedNumbers
       } catch {
         /* intentionally ignored */
+      }
+
+      // Função geradora de códigos sequenciais para a prévia que pula ocupados
+      let previewSeqCounter = startNum - 1
+      const getNextPreviewCode = (): string => {
+        let cand = previewSeqCounter + 1
+        if (cand < 10000) cand = 10000
+        while (usedNumbersSet.has(cand)) {
+          cand++
+        }
+        previewSeqCounter = cand
+        usedNumbersSet.add(cand)
+        return String(cand)
       }
 
       const isJson = file.name.endsWith('.json')
@@ -420,9 +439,8 @@ export function ImportScaglioniPage() {
           const ts = new Date().getTime().toString().slice(-6)
           const rand1 = Math.floor(1000 + ((idx * 31) % 9000)).toString()
           const generatedProdId = `PROD-${ts}-${rand1}`
-          // Código numérico sequencial crescente (10000, 10001, 10002... 99999, 100000...) sem zeros à esquerda
-          const seqNum = startNum + idx
-          const generatedSkuNovo = String(seqNum)
+          // Código numérico sequencial crescente (10000, 10001, 10002... 99999, 100000...) sem zeros à esquerda, pulando ocupados
+          const generatedSkuNovo = getNextPreviewCode()
 
           const galleryUrls: string[] = extractFrontendGalleryUrls(item.urls_imagens)
           const uniqueGallery = galleryUrls.filter((u) => u && u !== imagemPrincipal)
@@ -583,9 +601,8 @@ export function ImportScaglioniPage() {
           const rand1 = Math.floor(1000 + ((r * 37) % 9000)).toString()
           const generatedProdId = `PROD-${ts}-${rand1}`
 
-          // sku_novo: GERADO pelo próprio sistema com código numérico sequencial crescente (10000, 10001, 10002... 99999, 100000...) sem zeros à esquerda
-          const seqNum = startNum + (r - 1)
-          const generatedSkuNovo = String(seqNum)
+          // sku_novo: GERADO pelo próprio sistema com código numérico sequencial crescente (10000, 10001, 10002... 99999, 100000...) sem zeros à esquerda, pulando ocupados
+          const generatedSkuNovo = getNextPreviewCode()
 
           const galleryUrls: string[] = extractFrontendGalleryUrls(rowObj['urls_imagens'])
           const uniqueGallery = galleryUrls.filter((u) => u && u !== imagemPrincipal)
