@@ -576,18 +576,96 @@ routerAdd(
           const createdAtScaglioni = item.created_at ? String(item.created_at).trim() : ''
           const updatedAtScaglioni = item.updated_at ? String(item.updated_at).trim() : ''
 
-          const imagemPrincipal =
-            item.imagem_url || item.image_url
-              ? String(item.imagem_url || item.image_url).trim()
-              : ''
+          // Função auxiliar para sanitizar e normalizar URL de imagem
+          const sanitizeImageUrl = (u) => {
+            if (!u) return ''
+            let str = String(u).trim()
+            // Remove BOM, CR, LF
+            str = str
+              .replace(/^[\uFEFF\u0000-\u001F]+/, '')
+              .replace(/[\r\n\t]+/g, '')
+              .trim()
+            // Remove aspas ou apóstrofos envolventes
+            str = str.replace(/^["'`]+|["'`]+$/g, '').trim()
+            // Remove colchetes envolventes se sobrou de lista serializada
+            str = str.replace(/^[\[({<]+|[\])}>]+$/g, '').trim()
+            // Remove novamente aspas se estavam dentro de colchetes ["url"]
+            str = str.replace(/^["'`]+|["'`]+$/g, '').trim()
+            return str
+          }
+
+          // Função auxiliar para extrair lista de URLs de galeria (suporta Array, JSON string, pipe |, vírgula, ponto e vírgula, quebras de linha)
+          const extractGalleryUrls = (input) => {
+            if (!input) return []
+            const results = []
+
+            const addCandidate = (val) => {
+              if (!val) return
+              if (Array.isArray(val)) {
+                for (const sub of val) addCandidate(sub)
+                return
+              }
+              const strVal = String(val).trim()
+              if (!strVal) return
+
+              // Tentar interpretar se for JSON array string ex: ["https://...","https://..."]
+              if (strVal.startsWith('[') && strVal.endsWith(']')) {
+                try {
+                  const parsed = JSON.parse(strVal)
+                  if (Array.isArray(parsed)) {
+                    for (const sub of parsed) addCandidate(sub)
+                    return
+                  }
+                } catch (_) {
+                  // Se falhar o JSON.parse, remove colchetes e continua split
+                  const unbracketed = strVal.replace(/^\[\s*|\s*\]$/g, '')
+                  return addCandidate(unbracketed)
+                }
+              }
+
+              // Se tiver delimitadores como | ou quebra de linha ou vírgula entre aspas/urls
+              if (strVal.includes('|') || strVal.includes('\n') || strVal.includes('\r')) {
+                const parts = strVal.split(/[|\r\n]+/)
+                for (const p of parts) addCandidate(p)
+                return
+              }
+
+              // Se tiver múltiplas URLs separadas por vírgula ou ponto e vírgula (sem quebrar a querystring da própria URL)
+              // Exemplo: "https://...token=abc","https://...token=def" ou https://...;https://...
+              if (strVal.includes('http://') || strVal.includes('https://')) {
+                // Se houver mais de uma ocorrência de http(s)://
+                const httpMatches = strVal.match(/https?:\/\/[^\s"'`|,;\]\>]+/gi)
+                if (httpMatches && httpMatches.length > 1) {
+                  for (const match of httpMatches) {
+                    const cleaned = sanitizeImageUrl(match)
+                    if (cleaned) results.push(cleaned)
+                  }
+                  return
+                }
+              }
+
+              const cleaned = sanitizeImageUrl(strVal)
+              if (cleaned) {
+                results.push(cleaned)
+              }
+            }
+
+            if (Array.isArray(input)) {
+              for (const item of input) {
+                addCandidate(item)
+              }
+            } else {
+              addCandidate(input)
+            }
+
+            return results
+          }
+
+          const rawImagemPrincipal = item.imagem_url || item.image_url || ''
+          const imagemPrincipal = sanitizeImageUrl(rawImagemPrincipal)
 
           // Galeria em ordem, sem duplicar a imagem principal
-          let rawUrlsGaleria = []
-          if (Array.isArray(item.urls_imagens)) {
-            rawUrlsGaleria = item.urls_imagens
-          } else if (typeof item.urls_imagens === 'string' && item.urls_imagens.trim()) {
-            rawUrlsGaleria = item.urls_imagens.split('|').map((u) => u.trim())
-          }
+          const rawUrlsGaleria = extractGalleryUrls(item.urls_imagens)
 
           const urlsGaleria = []
           const seenGalleryUrls = new Set()
@@ -596,15 +674,21 @@ routerAdd(
           }
 
           for (const rawUrl of rawUrlsGaleria) {
-            const cleanU = String(rawUrl || '').trim()
+            const cleanU = sanitizeImageUrl(rawUrl)
             if (cleanU && !seenGalleryUrls.has(cleanU)) {
               seenGalleryUrls.add(cleanU)
               urlsGaleria.push(cleanU)
             }
           }
 
+          // Validação de protocolo estrita mas tolerante (http:// ou https://)
+          const isValidHttpUrl = (u) => {
+            if (!u || typeof u !== 'string') return false
+            return /^https?:\/\//i.test(u.trim())
+          }
+
           // Validação / registro de falhas de imagem com URLs malformadas
-          if (imagemPrincipal && !imagemPrincipal.startsWith('http')) {
+          if (imagemPrincipal && !isValidHttpUrl(imagemPrincipal)) {
             imageFailures.push({
               index: i,
               code: skuScaglioni || idScaglioni,
@@ -615,7 +699,7 @@ routerAdd(
             })
           }
           for (const extraU of urlsGaleria) {
-            if (extraU && !extraU.startsWith('http')) {
+            if (extraU && !isValidHttpUrl(extraU)) {
               imageFailures.push({
                 index: i,
                 code: skuScaglioni || idScaglioni,
@@ -758,27 +842,43 @@ routerAdd(
                   txApp.save(initRec)
                 }
 
-                // Não duplicar imagens da galeria: verifica se já existem
-                if (imagemPrincipal) {
-                  const existImgs = txApp.findRecordsByFilter(
-                    'product_images',
-                    "product = '" +
-                      existing.id +
-                      "' && image_url = '" +
-                      imagemPrincipal.replace(/'/g, "''") +
-                      "'",
-                    '',
-                    1,
-                    0,
-                  )
-                  if (existImgs.length === 0) {
-                    const imgRec = new Record(imagesCol)
-                    imgRec.set('product', existing.id)
-                    imgRec.set('image_url', imagemPrincipal)
-                    imgRec.set('is_principal', true)
-                    imgRec.set('sort_order', 1)
-                    imgRec.set('origem', 'Scaglioni')
-                    txApp.save(imgRec)
+                // Não duplicar imagens da galeria na reimportação: atualiza ou insere galeria mantendo idempotência
+                let existingOrder = 1
+                const currentProductImgs = txApp.findRecordsByFilter(
+                  'product_images',
+                  "product = '" + existing.id + "'",
+                  'sort_order',
+                  100,
+                  0,
+                )
+                const currentUrlsSet = new Set(
+                  currentProductImgs.map((img) => img.getString('image_url')).filter(Boolean),
+                )
+                if (currentProductImgs.length > 0) {
+                  existingOrder = currentProductImgs.length + 1
+                }
+
+                if (imagemPrincipal && !currentUrlsSet.has(imagemPrincipal)) {
+                  const imgRec = new Record(imagesCol)
+                  imgRec.set('product', existing.id)
+                  imgRec.set('image_url', imagemPrincipal)
+                  imgRec.set('is_principal', currentProductImgs.length === 0)
+                  imgRec.set('sort_order', 1)
+                  imgRec.set('origem', 'Scaglioni')
+                  txApp.save(imgRec)
+                  currentUrlsSet.add(imagemPrincipal)
+                }
+
+                for (const extraUrl of urlsGaleria) {
+                  if (extraUrl && !currentUrlsSet.has(extraUrl)) {
+                    const extraRec = new Record(imagesCol)
+                    extraRec.set('product', existing.id)
+                    extraRec.set('image_url', extraUrl)
+                    extraRec.set('is_principal', false)
+                    extraRec.set('sort_order', existingOrder++)
+                    extraRec.set('origem', 'Scaglioni')
+                    txApp.save(extraRec)
+                    currentUrlsSet.add(extraUrl)
                   }
                 }
 

@@ -239,14 +239,75 @@ export function ImportScaglioniPage() {
               ? [item.categoria]
               : []
 
-          let galleryUrls: string[] = []
-          if (Array.isArray(item.urls_imagens)) {
-            galleryUrls = item.urls_imagens
-          } else if (typeof item.urls_imagens === 'string' && item.urls_imagens.trim()) {
-            galleryUrls = item.urls_imagens.split('|').map((u: string) => u.trim())
+          const sanitizeFrontendUrl = (u: any): string => {
+            if (!u) return ''
+            let str = String(u).trim()
+            str = str
+              .replace(/^\uFEFF+/, '')
+              .replace(/[\r\n\t]+/g, '')
+              .trim()
+            str = str.replace(/^["'`]+|["'`]+$/g, '').trim()
+            str = str.replace(/^[[({<]+|[\])}>]+$/g, '').trim()
+            str = str.replace(/^["'`]+|["'`]+$/g, '').trim()
+            return str
           }
 
-          const imagemPrincipal = (item.imagem_url || item.image_url || '').trim()
+          const extractFrontendGalleryUrls = (input: any): string[] => {
+            if (!input) return []
+            const list: string[] = []
+
+            const addVal = (val: any) => {
+              if (!val) return
+              if (Array.isArray(val)) {
+                val.forEach(addVal)
+                return
+              }
+              const s = String(val).trim()
+              if (!s) return
+
+              if (s.startsWith('[') && s.endsWith(']')) {
+                try {
+                  const parsed = JSON.parse(s)
+                  if (Array.isArray(parsed)) {
+                    parsed.forEach(addVal)
+                    return
+                  }
+                } catch (_) {
+                  const stripped = s.replace(/^\[\s*|\s*\]$/g, '')
+                  return addVal(stripped)
+                }
+              }
+
+              if (s.includes('|') || s.includes('\n') || s.includes('\r')) {
+                s.split(/[|\r\n]+/).forEach(addVal)
+                return
+              }
+
+              if (s.includes('http://') || s.includes('https://')) {
+                const matches = s.match(/https?:\/\/[^\s"'`|,;\]>]+/gi)
+                if (matches && matches.length > 1) {
+                  matches.forEach((m) => {
+                    const clean = sanitizeFrontendUrl(m)
+                    if (clean) list.push(clean)
+                  })
+                  return
+                }
+              }
+
+              const clean = sanitizeFrontendUrl(s)
+              if (clean) list.push(clean)
+            }
+
+            if (Array.isArray(input)) {
+              input.forEach(addVal)
+            } else {
+              addVal(input)
+            }
+            return list
+          }
+
+          const imagemPrincipal = sanitizeFrontendUrl(item.imagem_url || item.image_url || '')
+          const galleryUrls: string[] = extractFrontendGalleryUrls(item.urls_imagens)
           // Garantir galeria em ordem sem duplicar imagem principal
           const uniqueGallery = galleryUrls.filter((u) => u && u !== imagemPrincipal)
 
@@ -354,16 +415,75 @@ export function ImportScaglioniPage() {
           // Definir categoria_principal conforme categoria_id ou primeira da lista
           let catPrincipal = rowObj['categoria_principal'] || cats[0] || catId || ''
 
-          // Galeria de imagens: urls_imagens separadas por pipe (|)
-          let galleryUrls: string[] = []
-          if (rowObj['urls_imagens']) {
-            galleryUrls = rowObj['urls_imagens']
-              .split('|')
-              .map((u: string) => u.trim())
-              .filter(Boolean)
+          const sanitizeFrontendUrl = (u: any): string => {
+            if (!u) return ''
+            let str = String(u).trim()
+            str = str
+              .replace(/^\uFEFF+/, '')
+              .replace(/[\r\n\t]+/g, '')
+              .trim()
+            str = str.replace(/^["'`]+|["'`]+$/g, '').trim()
+            str = str.replace(/^[[({<]+|[\])}>]+$/g, '').trim()
+            str = str.replace(/^["'`]+|["'`]+$/g, '').trim()
+            return str
           }
 
-          const imagemPrincipal = rowObj['imagem_url'] || ''
+          const extractFrontendGalleryUrls = (input: any): string[] => {
+            if (!input) return []
+            const list: string[] = []
+
+            const addVal = (val: any) => {
+              if (!val) return
+              if (Array.isArray(val)) {
+                val.forEach(addVal)
+                return
+              }
+              const s = String(val).trim()
+              if (!s) return
+
+              if (s.startsWith('[') && s.endsWith(']')) {
+                try {
+                  const parsed = JSON.parse(s)
+                  if (Array.isArray(parsed)) {
+                    parsed.forEach(addVal)
+                    return
+                  }
+                } catch (_) {
+                  const stripped = s.replace(/^\[\s*|\s*\]$/g, '')
+                  return addVal(stripped)
+                }
+              }
+
+              if (s.includes('|') || s.includes('\n') || s.includes('\r')) {
+                s.split(/[|\r\n]+/).forEach(addVal)
+                return
+              }
+
+              if (s.includes('http://') || s.includes('https://')) {
+                const matches = s.match(/https?:\/\/[^\s"'`|,;\]>]+/gi)
+                if (matches && matches.length > 1) {
+                  matches.forEach((m) => {
+                    const clean = sanitizeFrontendUrl(m)
+                    if (clean) list.push(clean)
+                  })
+                  return
+                }
+              }
+
+              const clean = sanitizeFrontendUrl(s)
+              if (clean) list.push(clean)
+            }
+
+            if (Array.isArray(input)) {
+              input.forEach(addVal)
+            } else {
+              addVal(input)
+            }
+            return list
+          }
+
+          const imagemPrincipal = sanitizeFrontendUrl(rowObj['imagem_url'] || '')
+          const galleryUrls: string[] = extractFrontendGalleryUrls(rowObj['urls_imagens'])
           // Regra obrigatória: galeria em ordem sem duplicar a imagem principal
           const uniqueGallery = galleryUrls.filter((u) => u && u !== imagemPrincipal)
 
