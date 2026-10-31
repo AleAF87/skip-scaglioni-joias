@@ -1,172 +1,134 @@
-// Hook to atomically generate sequential 6-digit product code (starting at 100001)
-// if code is empty or missing on product creation.
+// Helper e Hooks para geração atômica e sequencial de código numérico crescente (00001, 00002... 99999, 100000...)
+// Formato com 5 dígitos mínimos preenchidos com zeros à esquerda (00001..99999) e crescendo indefinidamente (100000, 100001...)
 // All helper logic is declared inline inside callbacks to avoid JSVM top-level scoping errors.
 
-// 1. Endpoint for frontend preview of the next code
+// 1. Endpoint para preview do próximo código numérico sequencial (somente leitura / consulta prévia)
 routerAdd(
   'GET',
   '/backend/v1/products/next-code',
   (e) => {
-    let maxNum = 100000
+    let currentVal = 0
 
     try {
       const rows = []
       $app
         .db()
-        .newQuery("SELECT code FROM products WHERE code IS NOT NULL AND code != ''")
+        .newQuery(
+          "SELECT current_value FROM app_sequences WHERE name = 'product_numeric_code' LIMIT 1",
+        )
         .all(rows)
 
-      for (let i = 0; i < rows.length; i++) {
-        const c = (rows[i].code || '').trim()
-        if (/^\d+$/.test(c)) {
-          const val = parseInt(c, 10)
-          if (!isNaN(val) && val > maxNum) {
-            maxNum = val
-          }
-        }
+      if (rows && rows.length > 0 && rows[0].current_value !== undefined) {
+        currentVal = parseInt(rows[0].current_value, 10) || 0
       }
     } catch (err) {
-      console.log('Aviso ao consultar códigos numéricos existentes:', err.message)
-      try {
-        const records = $app.findRecordsByFilter('products', '', '-created', 500, 0)
-        for (let i = 0; i < records.length; i++) {
-          const c = records[i].getString('code').trim()
-          if (/^\d+$/.test(c)) {
-            const val = parseInt(c, 10)
-            if (!isNaN(val) && val > maxNum) {
-              maxNum = val
-            }
-          }
-        }
-      } catch (_) {}
+      console.log('Aviso ao consultar app_sequences:', err.message)
     }
 
-    let candidate = maxNum + 1
-    for (let attempt = 0; attempt < 50; attempt++) {
-      const candidateStr = candidate.toString()
-      let exists = false
-      try {
-        const found = $app.findFirstRecordByData('products', 'code', candidateStr)
-        if (found) {
-          exists = true
+    // Se a tabela ainda estiver vazia ou menor que algum código existente no banco, calcular max existente
+    try {
+      const prodRows = []
+      $app.db().newQuery('SELECT sku_novo, code FROM products').all(prodRows)
+
+      for (let i = 0; i < prodRows.length; i++) {
+        const sn = (prodRows[i].sku_novo || '').trim()
+        const c = (prodRows[i].code || '').trim()
+        if (/^\d+$/.test(sn)) {
+          const v = parseInt(sn, 10)
+          if (!isNaN(v) && v > currentVal) currentVal = v
         }
-      } catch (_) {
-        exists = false
+        if (/^\d+$/.test(c)) {
+          const v = parseInt(c, 10)
+          if (!isNaN(v) && v > currentVal) currentVal = v
+        }
       }
+    } catch (_) {}
 
-      if (!exists) {
-        return e.json(200, { next_code: candidateStr })
-      }
-      candidate++
-    }
+    const nextVal = currentVal + 1
+    const nextCode = nextVal < 100000 ? String(nextVal).padStart(5, '0') : String(nextVal)
 
-    return e.json(200, { next_code: (maxNum + 100).toString() })
+    return e.json(200, { next_code: nextCode, next_number: nextVal })
   },
   $apis.requireAuth(),
 )
 
 // 2. onRecordCreateRequest hook for 'products' collection
+// Garante que sku_novo e code sejam preenchidos com o código numérico sequencial crescente seguro contra concorrência
 onRecordCreateRequest((e) => {
   const record = e.record
   if (record) {
+    const incomingSkuNovo = (record.getString('sku_novo') || '').trim()
     const incomingCode = (record.getString('code') || '').trim()
-    if (!incomingCode) {
-      let maxNum = 100000
-      try {
-        const rows = []
-        $app
-          .db()
-          .newQuery("SELECT code FROM products WHERE code IS NOT NULL AND code != ''")
-          .all(rows)
 
-        for (let i = 0; i < rows.length; i++) {
-          const c = (rows[i].code || '').trim()
-          if (/^\d+$/.test(c)) {
-            const val = parseInt(c, 10)
-            if (!isNaN(val) && val > maxNum) {
-              maxNum = val
-            }
-          }
-        }
-      } catch (_) {}
+    // Se já veio com código numérico puro, mantém
+    const isPureNumeric = (s) => /^\d+$/.test(s)
 
-      let candidate = maxNum + 1
-      let chosenCode = (maxNum + 100).toString()
-      for (let attempt = 0; attempt < 50; attempt++) {
-        const candidateStr = candidate.toString()
-        let exists = false
-        try {
-          const found = $app.findFirstRecordByData('products', 'code', candidateStr)
-          if (found) {
-            exists = true
-          }
-        } catch (_) {
-          exists = false
-        }
-        if (!exists) {
-          chosenCode = candidateStr
-          break
-        }
-        candidate++
+    if (incomingSkuNovo && isPureNumeric(incomingSkuNovo)) {
+      // Já possui numérico no sku_novo
+      if (!incomingCode) {
+        record.set('code', incomingSkuNovo)
       }
-
-      record.set('code', chosenCode)
-      console.log('Código gerado automaticamente no servidor para novo produto:', chosenCode)
-    } else {
-      record.set('code', incomingCode)
+      return e.next()
     }
-  }
-  e.next()
-}, 'products')
 
-// 3. onRecordCreateExecute hook for 'products' collection
-onRecordCreateExecute((e) => {
-  const record = e.record
-  if (record) {
-    const incomingCode = (record.getString('code') || '').trim()
-    if (!incomingCode) {
-      let maxNum = 100000
-      try {
+    // Gerar próximo número com lock/transação atômica em app_sequences
+    try {
+      $app.runInTransaction((txApp) => {
+        let currentSeq = 0
         const rows = []
-        $app
+        txApp
           .db()
-          .newQuery("SELECT code FROM products WHERE code IS NOT NULL AND code != ''")
+          .newQuery(
+            "SELECT current_value FROM app_sequences WHERE name = 'product_numeric_code' LIMIT 1",
+          )
           .all(rows)
 
-        for (let i = 0; i < rows.length; i++) {
-          const c = (rows[i].code || '').trim()
-          if (/^\d+$/.test(c)) {
-            const val = parseInt(c, 10)
-            if (!isNaN(val) && val > maxNum) {
-              maxNum = val
+        if (rows && rows.length > 0 && rows[0].current_value !== undefined) {
+          currentSeq = parseInt(rows[0].current_value, 10) || 0
+        }
+
+        // Também assegura que não seja menor do que qualquer numérico existente em products
+        const prodRows = []
+        try {
+          txApp.db().newQuery('SELECT sku_novo, code FROM products').all(prodRows)
+
+          for (let i = 0; i < prodRows.length; i++) {
+            const sn = (prodRows[i].sku_novo || '').trim()
+            const c = (prodRows[i].code || '').trim()
+            if (/^\d+$/.test(sn)) {
+              const v = parseInt(sn, 10)
+              if (!isNaN(v) && v > currentSeq) currentSeq = v
+            }
+            if (/^\d+$/.test(c)) {
+              const v = parseInt(c, 10)
+              if (!isNaN(v) && v > currentSeq) currentSeq = v
             }
           }
-        }
-      } catch (_) {}
+        } catch (_) {}
 
-      let candidate = maxNum + 1
-      let chosenCode = (maxNum + 100).toString()
-      for (let attempt = 0; attempt < 50; attempt++) {
-        const candidateStr = candidate.toString()
-        let exists = false
-        try {
-          const found = $app.findFirstRecordByData('products', 'code', candidateStr)
-          if (found) {
-            exists = true
-          }
-        } catch (_) {
-          exists = false
-        }
-        if (!exists) {
-          chosenCode = candidateStr
-          break
-        }
-        candidate++
-      }
+        const nextVal = currentSeq + 1
+        const formattedCode = nextVal < 100000 ? String(nextVal).padStart(5, '0') : String(nextVal)
 
-      record.set('code', chosenCode)
-    } else {
-      record.set('code', incomingCode)
+        // Atualiza app_sequences
+        txApp
+          .db()
+          .newQuery(
+            "UPDATE app_sequences SET current_value = {:val}, updated = {:updated} WHERE name = 'product_numeric_code'",
+          )
+          .bind({ val: nextVal, updated: new Date().toISOString() })
+          .execute()
+
+        record.set('sku_novo', formattedCode)
+        if (!record.getString('sku_interno')) {
+          record.set('sku_interno', formattedCode)
+        }
+        if (!incomingCode || incomingCode.startsWith('SCG-')) {
+          record.set('code', formattedCode)
+        }
+        console.log('Código numérico sequencial atômico gerado para produto:', formattedCode)
+      })
+    } catch (seqErr) {
+      console.log('Erro ao gerar código numérico sequencial atômico:', seqErr.message)
     }
   }
   e.next()

@@ -23,10 +23,51 @@ export const productService = {
     const filters: string[] = []
 
     if (params?.search) {
-      const q = params.search.replace(/'/g, "\\'")
-      filters.push(
-        `(code ~ '${q}' || description ~ '${q}' || nome_produto ~ '${q}' || codigo_barras ~ '${q}' || codigo_barras_tecson ~ '${q}' || codigo_produto_tecson ~ '${q}' || id_tecson ~ '${q}' || id_scaglioni ~ '${q}' || sku_scaglioni ~ '${q}')`,
-      )
+      const rawSearch = params.search.trim()
+      const q = rawSearch.replace(/'/g, "\\'")
+      const searchClauses: string[] = [
+        `code ~ '${q}'`,
+        `description ~ '${q}'`,
+        `nome_produto ~ '${q}'`,
+        `codigo_barras ~ '${q}'`,
+        `codigo_barras_tecson ~ '${q}'`,
+        `codigo_produto_tecson ~ '${q}'`,
+        `id_tecson ~ '${q}'`,
+        `id_scaglioni ~ '${q}'`,
+        `sku_scaglioni ~ '${q}'`,
+        `sku_novo ~ '${q}'`,
+        `produto_id ~ '${q}'`,
+      ]
+
+      // Se a busca for puramente numérica, adiciona cláusulas para ignorar zeros à esquerda (ex.: "123" -> "00123", "00123" -> "123")
+      if (/^\d+$/.test(rawSearch)) {
+        const numVal = parseInt(rawSearch, 10)
+        const stripped = rawSearch.replace(/^0+/, '') || '0'
+        const padded5 = String(numVal).padStart(5, '0')
+
+        if (stripped !== rawSearch) {
+          searchClauses.push(`code = '${stripped}'`)
+          searchClauses.push(`codigo_barras_tecson = '${stripped}'`)
+          searchClauses.push(`sku_novo = '${stripped}'`)
+          searchClauses.push(`produto_id = '${stripped}'`)
+        }
+        if (padded5 !== rawSearch) {
+          searchClauses.push(`code = '${padded5}'`)
+          searchClauses.push(`codigo_barras_tecson = '${padded5}'`)
+          searchClauses.push(`sku_novo = '${padded5}'`)
+        }
+      }
+
+      // Se contiver C ou Ç, adiciona variação normalizada
+      if (/[cç]/i.test(rawSearch)) {
+        const withC = rawSearch.replace(/ç/gi, 'c').replace(/'/g, "\\'")
+        const withCedilla = rawSearch.replace(/c/gi, 'ç').replace(/'/g, "\\'")
+        searchClauses.push(`sku_scaglioni ~ '${withC}'`)
+        searchClauses.push(`sku_scaglioni ~ '${withCedilla}'`)
+        searchClauses.push(`code ~ '${withC}'`)
+      }
+
+      filters.push(`(${searchClauses.join(' || ')})`)
     }
     // Single or multi types
     if (params?.types && params.types.length > 0) {
@@ -104,10 +145,49 @@ export const productService = {
     const filters: string[] = []
 
     if (params?.search) {
-      const q = params.search.replace(/'/g, "\\'")
-      filters.push(
-        `(code ~ '${q}' || description ~ '${q}' || nome_produto ~ '${q}' || codigo_barras ~ '${q}' || codigo_barras_tecson ~ '${q}' || codigo_produto_tecson ~ '${q}' || id_tecson ~ '${q}' || id_scaglioni ~ '${q}' || sku_scaglioni ~ '${q}')`,
-      )
+      const rawSearch = params.search.trim()
+      const q = rawSearch.replace(/'/g, "\\'")
+      const searchClauses: string[] = [
+        `code ~ '${q}'`,
+        `description ~ '${q}'`,
+        `nome_produto ~ '${q}'`,
+        `codigo_barras ~ '${q}'`,
+        `codigo_barras_tecson ~ '${q}'`,
+        `codigo_produto_tecson ~ '${q}'`,
+        `id_tecson ~ '${q}'`,
+        `id_scaglioni ~ '${q}'`,
+        `sku_scaglioni ~ '${q}'`,
+        `sku_novo ~ '${q}'`,
+        `produto_id ~ '${q}'`,
+      ]
+
+      if (/^\d+$/.test(rawSearch)) {
+        const numVal = parseInt(rawSearch, 10)
+        const stripped = rawSearch.replace(/^0+/, '') || '0'
+        const padded5 = String(numVal).padStart(5, '0')
+
+        if (stripped !== rawSearch) {
+          searchClauses.push(`code = '${stripped}'`)
+          searchClauses.push(`codigo_barras_tecson = '${stripped}'`)
+          searchClauses.push(`sku_novo = '${stripped}'`)
+          searchClauses.push(`produto_id = '${stripped}'`)
+        }
+        if (padded5 !== rawSearch) {
+          searchClauses.push(`code = '${padded5}'`)
+          searchClauses.push(`codigo_barras_tecson = '${padded5}'`)
+          searchClauses.push(`sku_novo = '${padded5}'`)
+        }
+      }
+
+      if (/[cç]/i.test(rawSearch)) {
+        const withC = rawSearch.replace(/ç/gi, 'c').replace(/'/g, "\\'")
+        const withCedilla = rawSearch.replace(/c/gi, 'ç').replace(/'/g, "\\'")
+        searchClauses.push(`sku_scaglioni ~ '${withC}'`)
+        searchClauses.push(`sku_scaglioni ~ '${withCedilla}'`)
+        searchClauses.push(`code ~ '${withC}'`)
+      }
+
+      filters.push(`(${searchClauses.join(' || ')})`)
     }
     if (params?.types && params.types.length > 0) {
       const typeClauses = params.types.map((t) => `type = '${t.replace(/'/g, "\\'")}'`)
@@ -554,9 +634,12 @@ export const productService = {
   async getNextProductCode(): Promise<string> {
     try {
       // Prioritize backend endpoint for atomic code preview
-      const res = await pb.send<{ next_code: string }>('/backend/v1/products/next-code', {
-        method: 'GET',
-      })
+      const res = await pb.send<{ next_code: string; next_number?: number }>(
+        '/backend/v1/products/next-code',
+        {
+          method: 'GET',
+        },
+      )
       if (res?.next_code) {
         return res.next_code
       }
@@ -566,25 +649,28 @@ export const productService = {
 
     try {
       const list = await pb.collection('products').getFullList<Product>({
-        fields: 'code',
+        fields: 'code,sku_novo',
       })
 
-      let maxNum = 100000
+      let maxNum = 0
       for (const item of list) {
-        if (!item.code) continue
-        // Check if code is purely digits
-        if (/^\d+$/.test(item.code)) {
-          const val = parseInt(item.code, 10)
-          if (!isNaN(val) && val > maxNum) {
-            maxNum = val
-          }
+        const c = item.code || ''
+        const sn = item.sku_novo || ''
+        if (/^\d+$/.test(c)) {
+          const val = parseInt(c, 10)
+          if (!isNaN(val) && val > maxNum) maxNum = val
+        }
+        if (/^\d+$/.test(sn)) {
+          const val = parseInt(sn, 10)
+          if (!isNaN(val) && val > maxNum) maxNum = val
         }
       }
 
-      return (maxNum + 1).toString()
+      const nextVal = maxNum + 1
+      return nextVal < 100000 ? String(nextVal).padStart(5, '0') : String(nextVal)
     } catch (err) {
       console.error('Erro ao consultar próximo código numérico sequencial:', err)
-      return '100001'
+      return '00001'
     }
   },
 }

@@ -495,6 +495,39 @@ routerAdd(
 
     try {
       $app.runInTransaction((txApp) => {
+        // Carrega sequência atual de produtos para geração numérica sequencial contínua dentro da transação
+        let currentSeq = 0
+        const seqRows = []
+        try {
+          txApp
+            .db()
+            .newQuery(
+              "SELECT current_value FROM app_sequences WHERE name = 'product_numeric_code' LIMIT 1",
+            )
+            .all(seqRows)
+          if (seqRows && seqRows.length > 0 && seqRows[0].current_value !== undefined) {
+            currentSeq = parseInt(seqRows[0].current_value, 10) || 0
+          }
+        } catch (_) {}
+
+        // Verifica também maior número existente em products
+        try {
+          const maxProdRows = []
+          txApp.db().newQuery('SELECT sku_novo, code FROM products').all(maxProdRows)
+          for (let pIdx = 0; pIdx < maxProdRows.length; pIdx++) {
+            const sn = (maxProdRows[pIdx].sku_novo || '').trim()
+            const c = (maxProdRows[pIdx].code || '').trim()
+            if (/^\d+$/.test(sn)) {
+              const v = parseInt(sn, 10)
+              if (!isNaN(v) && v > currentSeq) currentSeq = v
+            }
+            if (/^\d+$/.test(c)) {
+              const v = parseInt(c, 10)
+              if (!isNaN(v) && v > currentSeq) currentSeq = v
+            }
+          }
+        } catch (_) {}
+
         for (let i = 0; i < items.length; i++) {
           const item = items[i]
           const idScaglioni = item.id_scaglioni ? String(item.id_scaglioni).trim() : ''
@@ -783,13 +816,17 @@ routerAdd(
                 existing.set('id_scaglioni', idScaglioni)
                 existing.set('sku_scaglioni', skuScaglioni)
 
-                // Garante que sku_novo e sku_interno estejam preenchidos pelo sistema
-                if (!existing.getString('sku_novo')) {
-                  const randNovo = Math.floor(100000 + Math.random() * 900000).toString()
-                  const generatedSku = 'SCG-' + randNovo
-                  existing.set('sku_novo', generatedSku)
+                // Garante que sku_novo e sku_interno estejam preenchidos pelo sistema com código numérico sequencial
+                if (
+                  !existing.getString('sku_novo') ||
+                  !/^\d+$/.test(existing.getString('sku_novo'))
+                ) {
+                  currentSeq++
+                  const generatedNumCode =
+                    currentSeq < 100000 ? String(currentSeq).padStart(5, '0') : String(currentSeq)
+                  existing.set('sku_novo', generatedNumCode)
                   if (!existing.getString('sku_interno')) {
-                    existing.set('sku_interno', generatedSku)
+                    existing.set('sku_interno', generatedNumCode)
                   }
                 }
 
@@ -914,9 +951,10 @@ routerAdd(
                 const rand1 = Math.floor(1000 + Math.random() * 9000).toString()
                 const produtoId = 'PROD-' + ts + '-' + rand1
 
-                // Gerar sku_novo pelo próprio sistema
-                const rand2 = Math.floor(100000 + Math.random() * 900000).toString()
-                const skuNovo = 'SCG-' + rand2
+                // Gerar sku_novo numérico, sequencial e crescente pelo próprio sistema (00001..99999, 100000...)
+                currentSeq++
+                const skuNovo =
+                  currentSeq < 100000 ? String(currentSeq).padStart(5, '0') : String(currentSeq)
                 const skuInterno = skuNovo
 
                 const newProd = new Record(productsCol)
@@ -931,8 +969,8 @@ routerAdd(
                 newProd.set('nome_original_scaglioni', nomeOriginal || nomeProduto)
                 newProd.set('description', descricao || '')
 
-                // code do sistema é único: utiliza SKU Scaglioni se disponível, ou sku_novo gerado
-                newProd.set('code', skuScaglioni || skuNovo)
+                // code do sistema: utiliza o código numérico novo sequencial (ou sku_scaglioni se especificado)
+                newProd.set('code', skuNovo)
 
                 // NÃO importar slug nem updated_at
                 // Armazenar id e sku de rastreabilidade Scaglioni
@@ -1078,6 +1116,19 @@ routerAdd(
               reason: rowErr.message || 'Erro ao processar item',
             })
           }
+        }
+
+        // Atualiza a sequência persistida caso não seja dry-run
+        if (!isDryRun) {
+          try {
+            txApp
+              .db()
+              .newQuery(
+                "UPDATE app_sequences SET current_value = {:val}, updated = {:updated} WHERE name = 'product_numeric_code'",
+              )
+              .bind({ val: currentSeq, updated: new Date().toISOString() })
+              .execute()
+          } catch (_) {}
         }
 
         if (isDryRun) {

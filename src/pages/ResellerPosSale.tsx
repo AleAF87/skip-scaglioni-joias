@@ -19,6 +19,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { resellerService } from '@/services/resellerService'
 import { resellerStockService } from '@/services/resellerStockService'
 import { ResellerStockItem, Reseller } from '@/types'
+import { matchesProductQuery } from '@/lib/barcodeSearch'
 import { formatCurrency, getFileUrl } from '@/lib/formatters'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -157,12 +158,12 @@ export default function ResellerPosSale() {
   const resellerProfit = Math.round(((total * commissionRate) / 100) * 100) / 100
   const scaglioniDue = Math.round((total - resellerProfit) * 100) / 100
 
-  // Filter products by search
+  // Filter products by search (universal barcode / numeric zeros-stripped / Ç->C search)
   const filteredStock = stockItems.filter((it) => {
     const prod = it.expand?.product
     if (!prod) return false
-    const q = searchFilter.toLowerCase()
-    return prod.description.toLowerCase().includes(q) || prod.code.toLowerCase().includes(q)
+    if (!searchFilter.trim()) return true
+    return matchesProductQuery(prod, searchFilter.trim())
   })
 
   // Checkout sale

@@ -248,8 +248,7 @@ export default function VoiceProductEntry() {
       const nextCode = await productService.getNextProductCode()
       setCode(nextCode)
     } catch {
-      const random = Math.floor(100000 + Math.random() * 900000)
-      setCode(`${random}`)
+      setCode('00001')
     }
   }
 

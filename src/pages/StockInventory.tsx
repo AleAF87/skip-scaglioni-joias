@@ -695,7 +695,29 @@ export default function StockInventory() {
                   setSearch(e.target.value)
                   setPage(1)
                 }}
-                placeholder="Buscar por código ou descrição completa..."
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && search.trim()) {
+                    // Salto no scan exato: se houver exatamente 1 produto que dá match exato com o código escaneado
+                    const exact = products.find((p) => {
+                      const qTrim = search.trim()
+                      if (/^\d+$/.test(qTrim)) {
+                        const qNum = parseInt(qTrim, 10)
+                        const c = (p.code || '').trim()
+                        const sn = (p.sku_novo || '').trim()
+                        const cb = (p.codigo_barras_tecson || '').trim()
+                        if (/^\d+$/.test(c) && parseInt(c, 10) === qNum) return true
+                        if (/^\d+$/.test(sn) && parseInt(sn, 10) === qNum) return true
+                        if (/^\d+$/.test(cb) && parseInt(cb, 10) === qNum) return true
+                      }
+                      return false
+                    })
+                    if (exact) {
+                      handleOpenEdit(exact)
+                      toast.info(`Localizado via leitor: ${exact.code || exact.sku_novo}`)
+                    }
+                  }
+                }}
+                placeholder="Buscar por código (ignora zeros à esquerda) ou descrição completa..."
                 className="pl-9 border-[#E5DFD5] focus-visible:ring-[#C6A664]"
               />
             </div>
@@ -2129,7 +2151,15 @@ export default function StockInventory() {
                   </p>
 
                   <div className="w-full flex justify-center py-1">
-                    <Barcode128 code={p.code} height={36} />
+                    {(() => {
+                      const isTecson = Boolean(
+                        p.id_tecson || p.codigo_barras_tecson || p.codigo_produto_tecson,
+                      )
+                      const barcodeVal = isTecson
+                        ? p.codigo_barras_tecson || p.codigo_barras || p.code || ''
+                        : p.sku_novo || p.code || p.codigo_barras || ''
+                      return <Barcode128 code={barcodeVal} height={36} />
+                    })()}
                   </div>
 
                   <span className="text-[9px] text-[#6B655E] font-medium">

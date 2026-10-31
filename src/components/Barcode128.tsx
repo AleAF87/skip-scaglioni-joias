@@ -2,11 +2,12 @@ import React, { useEffect, useRef } from 'react'
 
 // Simple SVG generator for Code 128 (Subset B)
 // Code 128 B patterns (simplified robust representation for product barcodes)
-export const Barcode128: React.FC<{ code: string; className?: string; height?: number }> = ({
-  code,
-  className = '',
-  height = 40,
-}) => {
+export const Barcode128: React.FC<{
+  code: string
+  displayText?: string
+  className?: string
+  height?: number
+}> = ({ code, displayText, className = '', height = 40 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
@@ -17,6 +18,18 @@ export const Barcode128: React.FC<{ code: string; className?: string; height?: n
 
     // Deterministic pseudo Code 128 rendering based on string chars
     const str = code || '0000'
+    // Texto a ser exibido por baixo do código de barras
+    // Se displayText for fornecido, usa ele; se não, se for numérico puro, remove zeros à esquerda
+    let visibleText = displayText
+    if (visibleText === undefined) {
+      if (/^\d+$/.test(str)) {
+        const stripped = str.replace(/^0+/, '')
+        visibleText = stripped === '' ? '0' : stripped
+      } else {
+        visibleText = str
+      }
+    }
+
     const barWidth = 2
     let x = 10
     canvas.width = (str.length * 11 + 35) * barWidth
@@ -67,11 +80,11 @@ export const Barcode128: React.FC<{ code: string; className?: string; height?: n
     drawBar(1, false)
     drawBar(2, true)
 
-    // Text below barcode
-    ctx.font = '10px monospace'
+    // Text below barcode (com zeros à esquerda ocultos)
+    ctx.font = 'bold 11px monospace'
     ctx.textAlign = 'center'
-    ctx.fillText(str, canvas.width / 2, height + 12)
-  }, [code, height])
+    ctx.fillText(visibleText, canvas.width / 2, height + 12)
+  }, [code, displayText, height])
 
   return <canvas ref={canvasRef} className={className} />
 }

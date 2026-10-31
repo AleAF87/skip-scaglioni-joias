@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { salesService } from '@/services/salesService'
 import { productService } from '@/services/productService'
 import { Product, Customer, Sale, SaleItem } from '@/types'
+import { isExactCodeMatch, matchesProductQuery } from '@/lib/barcodeSearch'
 import {
   formatCurrency,
   formatDateTime,
@@ -135,20 +136,14 @@ export default function PosSale() {
 
   // Handle Search or Barcode Scan
   useEffect(() => {
-    const q = barcodeOrSearch.trim().toLowerCase()
+    const q = barcodeOrSearch.trim()
     if (!q) {
       setFilteredProducts([])
       return
     }
 
-    // Exact barcode match (simulate instant add on barcode enter)
-    const exactMatch = products.find((p) => p.code.toLowerCase() === q && p.quantity > 0)
-
-    const matches = products.filter(
-      (p) =>
-        (p.code.toLowerCase().includes(q) || p.description.toLowerCase().includes(q)) &&
-        p.quantity > 0,
-    )
+    // Procura matches usando o motor universal de busca de códigos/joias
+    const matches = products.filter((p) => matchesProductQuery(p, q) && p.quantity > 0)
     setFilteredProducts(matches.slice(0, 6))
   }, [barcodeOrSearch, products])
 
@@ -229,17 +224,33 @@ export default function PosSale() {
   const total = Math.round(Math.max(0, subtotal - discountVal) * 100) / 100
   const installmentValue = Math.round((total / installments) * 100) / 100
 
-  // Key press on Barcode input (Enter triggers exact match addition)
+  // Key press on Barcode input (Enter triggers exact match addition / scan jump)
   const handleBarcodeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault()
-      const q = barcodeOrSearch.trim().toUpperCase()
-      const match = products.find((p) => p.code === q && p.quantity > 0)
-      if (match) {
-        addToCart(match)
-        toast.success(`Joia adicionada: ${match.code}`)
-      } else if (filteredProducts.length === 1) {
+      const q = barcodeOrSearch.trim()
+      if (!q) return
+
+      // 1. Salto no scan exato: verifica se corresponde exatamente a um único código
+      // (numérico ignorando zeros à esquerda, ou SKU do site normalizado Ç->C)
+      const exactMatches = products.filter((p) => isExactCodeMatch(p, q) && p.quantity > 0)
+      if (exactMatches.length === 1) {
+        addToCart(exactMatches[0])
+        toast.success(
+          `Joia adicionada: ${exactMatches[0].code || exactMatches[0].sku_novo || exactMatches[0].sku_scaglioni}`,
+        )
+        return
+      }
+
+      // 2. Se houver exatamente 1 produto filtrado na lista
+      if (filteredProducts.length === 1) {
         addToCart(filteredProducts[0])
+        toast.success(`Joia adicionada: ${filteredProducts[0].code}`)
+        return
+      }
+
+      if (exactMatches.length > 1) {
+        toast.info('Mais de um produto encontrado com este código. Selecione na lista.')
       } else {
         toast.info('Nenhuma joia encontrada com esse código de barras exato.')
       }

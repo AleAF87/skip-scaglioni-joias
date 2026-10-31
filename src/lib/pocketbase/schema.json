@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-31T14:35:54.620Z",
+  "generatedAt": "2026-10-31T15:06:10.687Z",
   "collections": [
     {
       "name": "users",
@@ -2148,6 +2148,46 @@
         }
       ],
       "indexes": ["CREATE INDEX idx_initial_stocks_prod ON initial_stocks (product, origem)"]
+    },
+    {
+      "name": "app_sequences",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": null
+      },
+      "fields": [
+        {
+          "name": "name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "current_value",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": ["CREATE UNIQUE INDEX idx_app_sequences_name ON app_sequences (name)"]
     }
   ]
 }
