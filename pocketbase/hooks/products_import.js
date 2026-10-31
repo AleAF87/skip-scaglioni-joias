@@ -182,9 +182,8 @@ routerAdd(
         for (let i = 0; i < items.length; i++) {
           const item = items[i]
           const idTecson = item.id_tecson ? String(item.id_tecson).trim() : ''
-          const codProdTecson = item.codigo_produto_tecson
-            ? String(item.codigo_produto_tecson).trim()
-            : ''
+          // Regra do usuário: O código deve vir da coluna 'codigo_barras'. Devemos descartar a coluna 'codigo_produto'.
+          // A coluna codigo_produto não deve preencher nenhum campo.
           const codBarrasTecson = item.codigo_barras_tecson
             ? String(item.codigo_barras_tecson).trim()
             : ''
@@ -193,12 +192,25 @@ routerAdd(
             : ''
           const nomeProduto = (item.nome_produto || nomeOriginal).trim()
 
-          if (!idTecson && !codProdTecson && !codBarrasTecson && !nomeProduto) {
+          // Validação estrita: codigo_barras é OBRIGATÓRIO (valores de 611 a 999984)
+          if (!codBarrasTecson) {
+            ignoredCount++
+            lineReports.push({
+              index: i,
+              status: 'error',
+              code: '—',
+              name: nomeProduto || idTecson || 'Sem identificação',
+              reason: 'Código obrigatório ausente: a coluna codigo_barras está vazia nesta linha.',
+            })
+            continue
+          }
+
+          if (!idTecson && !nomeProduto) {
             ignoredCount++
             lineReports.push({
               index: i,
               status: 'ignored',
-              reason: 'Linha sem identificadores nem nome.',
+              reason: 'Linha sem identificador Tecson nem nome.',
             })
             continue
           }
@@ -252,8 +264,9 @@ routerAdd(
 
               if (!isDryRun) {
                 existing.set('id_tecson', idTecson)
-                existing.set('codigo_produto_tecson', codProdTecson)
                 existing.set('codigo_barras_tecson', codBarrasTecson)
+                existing.set('code', codBarrasTecson)
+                existing.set('codigo_barras', codBarrasTecson)
                 existing.set(
                   'nome_original_tecson',
                   nomeOriginal || existing.getString('nome_original_tecson'),
@@ -332,7 +345,7 @@ routerAdd(
               lineReports.push({
                 index: i,
                 status: 'updated',
-                code: codBarrasTecson || codProdTecson,
+                code: codBarrasTecson,
                 name: nomeProduto,
                 product_id: existing.id,
               })
@@ -341,21 +354,16 @@ routerAdd(
                 const ts = new Date().getTime().toString().slice(-6)
                 const rand1 = Math.floor(1000 + Math.random() * 9000).toString()
                 const produtoId = 'PROD-' + ts + '-' + rand1
-                const rand2 = Math.floor(100000 + Math.random() * 900000).toString()
-                const skuInterno = 'SCG-' + rand2
 
                 const newProd = new Record(productsCol)
                 newProd.set('produto_id', produtoId)
-                newProd.set('sku_interno', skuInterno)
+                // sku_interno recebe o próprio código de barras Tecson para rastreabilidade coerente
+                newProd.set('sku_interno', codBarrasTecson)
                 newProd.set('nome_produto', nomeProduto)
-                newProd.set(
-                  'description',
-                  nomeProduto || codBarrasTecson || codProdTecson || 'Produto Tecson',
-                )
-                newProd.set('code', codBarrasTecson || codProdTecson || skuInterno)
+                newProd.set('description', nomeProduto || codBarrasTecson || 'Produto Tecson')
+                newProd.set('code', codBarrasTecson)
                 newProd.set('codigo_barras', codBarrasTecson)
                 newProd.set('id_tecson', idTecson)
-                newProd.set('codigo_produto_tecson', codProdTecson)
                 newProd.set('codigo_barras_tecson', codBarrasTecson)
                 newProd.set('nome_original_tecson', nomeOriginal)
                 newProd.set('data_inclusao_tecson', dataInclusao)
@@ -414,7 +422,7 @@ routerAdd(
               lineReports.push({
                 index: i,
                 status: 'created',
-                code: codBarrasTecson || codProdTecson,
+                code: codBarrasTecson,
                 name: nomeProduto,
               })
             }
@@ -423,7 +431,7 @@ routerAdd(
             lineReports.push({
               index: i,
               status: 'error',
-              code: codBarrasTecson || codProdTecson,
+              code: codBarrasTecson || '—',
               name: nomeProduto,
               reason: rowErr.message || 'Erro ao processar item',
             })

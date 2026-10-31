@@ -42,8 +42,8 @@ const TECSON_COLUMN_MAP: Record<string, string> = {
   url_imagem: 'image_url',
   arquivo_imagem: 'import_image_path',
   nome: 'nome_produto',
-  cod_produto: 'codigo_produto_tecson',
-  codigo_produto: 'codigo_produto_tecson',
+  cod_produto: 'codigo_produto_ignorado',
+  codigo_produto: 'codigo_produto_ignorado',
   fornecedor: 'fornecedor',
   codigo_barras: 'codigo_barras_tecson',
   quant_em_estoques: 'quantidade_estoques',
@@ -77,6 +77,8 @@ const TECSON_IGNORED_REASONS: Record<string, string> = {
   lote_bruto_ignorado: 'Identificador do lote legado de edição — não importável no cadastro',
   busca_grade_ignorado: 'Auxiliar de índice do sistema antigo — não utilizado',
   options_ignorado: 'Opções auxiliares legadas em HTML/JSON — não utilizado',
+  codigo_produto_ignorado:
+    'Código legado descartado conforme regra de negócio — o código do produto provém exclusivamente da coluna codigo_barras',
 }
 
 export interface IgnoredColumnRuleItem {
@@ -88,7 +90,6 @@ export interface IgnoredColumnRuleItem {
 interface ParsedTecsonRow {
   index: number
   id_tecson: string
-  codigo_produto_tecson: string
   codigo_barras_tecson: string
   nome_produto: string
   nome_original_tecson: string
@@ -237,9 +238,6 @@ export function ImportTecsonPage() {
         })
 
         const idTecson = mapped['id_tecson'] ? String(mapped['id_tecson']).trim() : ''
-        const codProd = mapped['codigo_produto_tecson']
-          ? String(mapped['codigo_produto_tecson']).trim()
-          : ''
         const codBarras = mapped['codigo_barras_tecson']
           ? String(mapped['codigo_barras_tecson']).trim()
           : ''
@@ -254,14 +252,16 @@ export function ImportTecsonPage() {
         const quant = parseInt(mapped['quantidade_estoques'], 10) || 0
 
         const validationErrors: string[] = []
-        if (!idTecson && !codProd && !codBarras && !nomeTrim) {
+        if (!codBarras) {
+          validationErrors.push('Código de barras obrigatório ausente na linha')
+        }
+        if (!nomeTrim && !idTecson) {
           validationErrors.push('Linha sem identificador Tecson nem nome')
         }
 
         parsed.push({
           index: r,
           id_tecson: idTecson,
-          codigo_produto_tecson: codProd,
           codigo_barras_tecson: codBarras,
           nome_produto: nomeTrim,
           nome_original_tecson: nomeOriginal,
@@ -352,14 +352,27 @@ export function ImportTecsonPage() {
   const handleExecuteImport = async (dryRun: boolean) => {
     if (parsedRows.length === 0) return
 
+    const rowsWithErrors = parsedRows.filter((r) => r.validation_errors.length > 0)
+    const validRows = parsedRows.filter((r) => r.validation_errors.length === 0)
+
+    if (validRows.length === 0) {
+      toast({
+        title: 'Nenhum item válido para importar',
+        description:
+          'Todas as linhas do arquivo possuem erros de validação (ex: codigo_barras vazio).',
+        variant: 'destructive',
+      })
+      setActiveTab('validation')
+      return
+    }
+
     setIsProcessing(true)
     setProgress(5)
 
     try {
-      // Preparar payload mantendo preservação estrita de zeros e tipos
-      const allPayloadItems = parsedRows.map((r) => ({
+      // Preparar payload com apenas as linhas válidas (linhas sem codigo_barras são apontadas como erro)
+      const allPayloadItems = validRows.map((r) => ({
         id_tecson: r.id_tecson,
-        codigo_produto_tecson: r.codigo_produto_tecson,
         codigo_barras_tecson: r.codigo_barras_tecson,
         nome_produto: r.nome_produto,
         nome_original_tecson: r.nome_original_tecson,
@@ -383,13 +396,19 @@ export function ImportTecsonPage() {
       let accumulatedResult = {
         success: true,
         dry_run: dryRun,
-        total_received: totalItems,
+        total_received: parsedRows.length,
         created: 0,
         updated: 0,
-        ignored: 0,
+        ignored: rowsWithErrors.length,
         conflicts: [] as any[],
         image_failures: [] as any[],
-        sample_reports: [] as any[],
+        sample_reports: rowsWithErrors.map((r) => ({
+          index: r.index,
+          status: 'error',
+          code: r.codigo_barras_tecson || '—',
+          name: r.nome_produto || '—',
+          reason: r.validation_errors.join('; '),
+        })) as any[],
       }
 
       for (let offset = 0; offset < totalItems; offset += CHUNK_SIZE) {
@@ -456,10 +475,11 @@ export function ImportTecsonPage() {
     return (
       r.nome_produto.toLowerCase().includes(s) ||
       r.codigo_barras_tecson.toLowerCase().includes(s) ||
-      r.codigo_produto_tecson.toLowerCase().includes(s) ||
       r.id_tecson.toLowerCase().includes(s)
     )
   })
+
+  const rowsWithErrors = parsedRows.filter((r) => r.validation_errors.length > 0)
 
   return (
     <div className="container mx-auto px-4 py-6 max-w-7xl space-y-6">
@@ -539,8 +559,15 @@ export function ImportTecsonPage() {
             produtos, imagens ou saldos iniciais (chave de reimportação = <code>id_tecson</code>).
           </p>
           <p>
-            • <strong>Preservação de Zeros:</strong> O código de barras Tecson é importado
-            exatamente como texto (ex: <code>0789000000000</code>).
+            • <strong>Código do Produto Exclusivo:</strong> O código de identificação do produto
+            provém
+            <strong> exclusivamente da coluna codigo_barras</strong> (ex.: 611, 00123, 999984), com
+            zeros à esquerda preservados para leitura no PDV. A coluna <code>codigo_produto</code> é
+            descartada/ignorada.
+          </p>
+          <p>
+            • <strong>Obrigatoriedade do Código:</strong> Linhas com <code>codigo_barras</code>{' '}
+            vazio são apontadas como erro e não são gravadas.
           </p>
           <p>
             • <strong>Publicação e Descrição:</strong> Produtos Tecson iniciam com{' '}
@@ -610,6 +637,21 @@ export function ImportTecsonPage() {
             </Alert>
           )}
         </div>
+      )}
+
+      {/* Alerta de Linhas com Erros de Validação (ex: codigo_barras vazio) */}
+      {rowsWithErrors.length > 0 && (
+        <Alert variant="destructive" className="bg-red-50 border-red-200 text-red-900">
+          <AlertTriangle className="h-4 w-4 text-red-600" />
+          <AlertTitle className="text-sm font-semibold">
+            {rowsWithErrors.length} linha(s) com erro de validação (código obrigatório ausente)
+          </AlertTitle>
+          <AlertDescription className="text-xs mt-1">
+            O código de barras (coluna <code>codigo_barras</code>) é obrigatório para todos os
+            produtos Tecson. Linhas com este campo vazio não serão gravadas. Verifique a aba
+            &quot;Validação de Campos&quot;.
+          </AlertDescription>
+        </Alert>
       )}
 
       {isProcessing && (
@@ -703,7 +745,14 @@ export function ImportTecsonPage() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <TabsList>
               <TabsTrigger value="preview">Prévia Mapeada ({parsedRows.length})</TabsTrigger>
-              <TabsTrigger value="validation">Validação de Campos</TabsTrigger>
+              <TabsTrigger value="validation" className="relative">
+                Validação de Campos
+                {rowsWithErrors.length > 0 && (
+                  <Badge variant="destructive" className="ml-1.5 px-1 py-0 text-[10px] h-4">
+                    {rowsWithErrors.length}
+                  </Badge>
+                )}
+              </TabsTrigger>
               {runResult && <TabsTrigger value="report">Relatório por Linha</TabsTrigger>}
             </TabsList>
 
@@ -726,22 +775,38 @@ export function ImportTecsonPage() {
                   <tr>
                     <th className="p-2.5">#</th>
                     <th className="p-2.5">ID Tecson</th>
-                    <th className="p-2.5">Cód. Barras (Texto)</th>
+                    <th className="p-2.5">Código do Produto (codigo_barras)</th>
                     <th className="p-2.5">Nome do Produto</th>
                     <th className="p-2.5">Fornecedor</th>
                     <th className="p-2.5 text-right">Preço Venda</th>
                     <th className="p-2.5 text-right">Custo Unit.</th>
                     <th className="p-2.5 text-center">Saldo Inicial</th>
                     <th className="p-2.5 text-center">Imagem</th>
+                    <th className="p-2.5 text-center">Validação</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
                   {filteredPreview.slice(0, 100).map((row) => (
-                    <tr key={row.index} className="hover:bg-slate-50/70">
+                    <tr
+                      key={row.index}
+                      className={
+                        row.validation_errors.length > 0
+                          ? 'bg-red-50/60 hover:bg-red-50'
+                          : 'hover:bg-slate-50/70'
+                      }
+                    >
                       <td className="p-2.5 text-slate-400 font-mono">{row.index}</td>
                       <td className="p-2.5 font-mono text-slate-700">{row.id_tecson || '—'}</td>
-                      <td className="p-2.5 font-mono font-semibold text-emerald-800">
-                        {row.codigo_barras_tecson || '—'}
+                      <td className="p-2.5 font-mono font-semibold">
+                        {row.codigo_barras_tecson ? (
+                          <span className="text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                            {row.codigo_barras_tecson}
+                          </span>
+                        ) : (
+                          <span className="text-red-700 font-bold bg-red-100 px-1.5 py-0.5 rounded border border-red-300">
+                            (Vazio - Erro)
+                          </span>
+                        )}
                       </td>
                       <td
                         className="p-2.5 max-w-xs truncate font-medium text-slate-900"
@@ -771,6 +836,24 @@ export function ImportTecsonPage() {
                           <span className="text-slate-300">—</span>
                         )}
                       </td>
+                      <td className="p-2.5 text-center">
+                        {row.validation_errors.length > 0 ? (
+                          <Badge
+                            variant="destructive"
+                            className="text-[10px] bg-red-600"
+                            title={row.validation_errors.join('; ')}
+                          >
+                            Inválido
+                          </Badge>
+                        ) : (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] text-emerald-700 border-emerald-300 bg-emerald-50"
+                          >
+                            OK
+                          </Badge>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -784,6 +867,49 @@ export function ImportTecsonPage() {
           </TabsContent>
 
           <TabsContent value="validation" className="space-y-4">
+            {rowsWithErrors.length > 0 && (
+              <Card className="border-red-200 bg-red-50/20">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="h-5 w-5 text-red-600" />
+                    <CardTitle className="text-base text-red-950">
+                      Linhas com Erros de Validação ({rowsWithErrors.length})
+                    </CardTitle>
+                  </div>
+                  <CardDescription className="text-red-700">
+                    Estas linhas possuem <code>codigo_barras</code> vazio e NÃO serão gravadas no
+                    banco de dados.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="rounded border bg-white overflow-x-auto max-h-60">
+                    <table className="w-full text-xs text-left">
+                      <thead className="bg-red-50 text-red-900 border-b">
+                        <tr>
+                          <th className="p-2">Linha</th>
+                          <th className="p-2">ID Tecson</th>
+                          <th className="p-2">Nome do Produto</th>
+                          <th className="p-2">Motivo do Erro</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {rowsWithErrors.map((errRow) => (
+                          <tr key={errRow.index} className="hover:bg-red-50/50">
+                            <td className="p-2 font-mono text-slate-600">{errRow.index}</td>
+                            <td className="p-2 font-mono">{errRow.id_tecson || '—'}</td>
+                            <td className="p-2 max-w-xs truncate">{errRow.nome_produto || '—'}</td>
+                            <td className="p-2 font-semibold text-red-700">
+                              {errRow.validation_errors.join('; ')}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">Mapeamento de Origem Tecson → Destino</CardTitle>
@@ -793,6 +919,24 @@ export function ImportTecsonPage() {
               </CardHeader>
               <CardContent className="space-y-3 text-xs">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="p-3 bg-emerald-50 rounded border border-emerald-200">
+                    <p className="font-semibold text-emerald-950">
+                      CODIGO_BARRAS → code e codigo_barras (Obrigatório)
+                    </p>
+                    <p className="text-emerald-800 mt-0.5">
+                      Código exclusivo do produto Tecson (611 a 999984), preservando zeros à
+                      esquerda conforme etiquetas físicas existentes.
+                    </p>
+                  </div>
+                  <div className="p-3 bg-red-50 rounded border border-red-200">
+                    <p className="font-semibold text-red-950">
+                      COD_PRODUTO / CODIGO_PRODUTO → DESCARTADA / IGNORADA
+                    </p>
+                    <p className="text-red-800 mt-0.5">
+                      Coluna completamente ignorada conforme regra do usuário. Não preenche nenhum
+                      campo no sistema.
+                    </p>
+                  </div>
                   <div className="p-3 bg-slate-50 rounded border">
                     <p className="font-semibold text-slate-800">ID / id → id_tecson</p>
                     <p className="text-slate-600 mt-0.5">
@@ -801,18 +945,10 @@ export function ImportTecsonPage() {
                   </div>
                   <div className="p-3 bg-slate-50 rounded border">
                     <p className="font-semibold text-slate-800">
-                      CODIGO_BARRAS → codigo_barras_tecson
-                    </p>
-                    <p className="text-slate-600 mt-0.5">
-                      Armazenado como texto com zeros à esquerda preservados.
-                    </p>
-                  </div>
-                  <div className="p-3 bg-slate-50 rounded border">
-                    <p className="font-semibold text-slate-800">
                       QUANT_EM_ESTOQUES → initial_stocks
                     </p>
                     <p className="text-slate-600 mt-0.5">
-                      Registrado como Saldo Inicial (localização 'A definir').
+                      Registrado como Saldo Inicial (localização &apos;A definir&apos;).
                     </p>
                   </div>
                   <div className="p-3 bg-slate-50 rounded border">
@@ -843,12 +979,6 @@ export function ImportTecsonPage() {
                     <p className="text-slate-600 mt-0.5">
                       Totais calculados de estoque: ignorados por regra sem bloquear importação nem
                       criar campos.
-                    </p>
-                  </div>
-                  <div className="p-3 bg-slate-50 rounded border">
-                    <p className="font-semibold text-slate-800">Campos Omitidos sem Presunção</p>
-                    <p className="text-slate-600 mt-0.5">
-                      Descrição, Marca e Categoria permanecem vazios/pendentes de revisão manual.
                     </p>
                   </div>
                 </div>

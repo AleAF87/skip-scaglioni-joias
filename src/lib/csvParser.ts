@@ -181,7 +181,6 @@ export function parseProductsCsv(rawText: string, encodingName = 'UTF-8'): CsvPa
     codigo_barras: headers.findIndex(
       (h) => h === 'codigo_barras' || h === 'codigo' || h === 'barcode',
     ),
-    codigo_produto: headers.findIndex((h) => h === 'codigo_produto'),
     quantidade_estoques: headers.findIndex(
       (h) => h === 'quantidade_estoques' || h === 'quantidade' || h === 'estoque',
     ),
@@ -209,8 +208,6 @@ export function parseProductsCsv(rawText: string, encodingName = 'UTF-8'): CsvPa
     // Extract mapped values
     const rawCodeBarras =
       colIndex.codigo_barras >= 0 ? (row[colIndex.codigo_barras] || '').trim() : ''
-    const rawCodeProduto =
-      colIndex.codigo_produto >= 0 ? (row[colIndex.codigo_produto] || '').trim() : ''
     const rawNome = colIndex.nome >= 0 ? (row[colIndex.nome] || '').trim() : ''
     const rawQty = colIndex.quantidade_estoques >= 0 ? row[colIndex.quantidade_estoques] : '0'
     const rawPrecoVenda = colIndex.preco_venda >= 0 ? row[colIndex.preco_venda] : '0'
@@ -219,15 +216,25 @@ export function parseProductsCsv(rawText: string, encodingName = 'UTF-8'): CsvPa
     const rawArquivoImagem =
       colIndex.arquivo_imagem >= 0 ? (row[colIndex.arquivo_imagem] || '').trim() : ''
 
-    // Code decision: user strictly instructed: "o código de produto, mesmo impresso como código de barras, é o 'codigo_barras'"
-    // Preserve string with leading zeros (e.g. "0000000615433")
-    const code = rawCodeBarras || rawCodeProduto
+    // Regra: O código deve vir EXCLUSIVAMENTE da coluna codigo_barras.
+    // A coluna codigo_produto é descartada/ignorada.
+    // Preserve string with leading zeros (e.g. "611", "00123", "999984")
+    const code = rawCodeBarras
     const description = rawNome
 
-    if (!code && !description) {
+    if (!code) {
       invalidRows.push({
         lineIndex,
-        reason: 'Linha vazia ou sem código e descrição reconhecíveis.',
+        reason: 'Código de barras obrigatório ausente na coluna codigo_barras.',
+        rawText: row.join(';').substring(0, 80),
+      })
+      continue
+    }
+
+    if (!description) {
+      invalidRows.push({
+        lineIndex,
+        reason: 'Linha sem nome/descrição de produto.',
         rawText: row.join(';').substring(0, 80),
       })
       continue
