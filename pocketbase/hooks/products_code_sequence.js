@@ -1,5 +1,6 @@
-// Helper e Hooks para geração atômica e sequencial de código numérico crescente (1, 2... 99999, 100000...)
-// Sem zeros à esquerda: o código é gravado e exibido como número puro (1..99999, 100000...)
+// Helper e Hooks para geração atômica e sequencial de código numérico crescente
+// Regra do negócio: a sequência inicia em 10000 (primeiro código = 10000; 10000, 10001... 99999, 100000...)
+// Sem zeros à esquerda: o código é gravado e exibido como número puro
 // All helper logic is declared inline inside callbacks to avoid JSVM top-level scoping errors.
 
 // 1. Endpoint para preview do próximo código numérico sequencial (somente leitura / consulta prévia)
@@ -7,7 +8,8 @@ routerAdd(
   'GET',
   '/backend/v1/products/next-code',
   (e) => {
-    let currentVal = 0
+    // Piso inicial obrigatório: 9999 (para que o próximo seja 10000)
+    let currentVal = 9999
 
     try {
       const rows = []
@@ -19,13 +21,16 @@ routerAdd(
         .all(rows)
 
       if (rows && rows.length > 0 && rows[0].current_value !== undefined) {
-        currentVal = parseInt(rows[0].current_value, 10) || 0
+        const valFromDb = parseInt(rows[0].current_value, 10) || 0
+        if (valFromDb > currentVal) {
+          currentVal = valFromDb
+        }
       }
     } catch (err) {
       console.log('Aviso ao consultar app_sequences:', err.message)
     }
 
-    // Se a tabela ainda estiver vazia ou menor que algum código existente no banco, calcular max existente
+    // Se houver produtos com numeração maior, calcular max existente
     try {
       const prodRows = []
       $app.db().newQuery('SELECT sku_novo, code FROM products').all(prodRows)
@@ -74,17 +79,25 @@ onRecordCreateRequest((e) => {
     // Gerar próximo número com lock/transação atômica em app_sequences
     try {
       $app.runInTransaction((txApp) => {
-        let currentSeq = 0
+        // Piso inicial da sequência: 9999 (próximo é 10000)
+        let currentSeq = 9999
+        let seqRecordId = null
         const rows = []
         txApp
           .db()
           .newQuery(
-            "SELECT current_value FROM app_sequences WHERE name = 'product_numeric_code' LIMIT 1",
+            "SELECT id, current_value FROM app_sequences WHERE name = 'product_numeric_code' LIMIT 1",
           )
           .all(rows)
 
-        if (rows && rows.length > 0 && rows[0].current_value !== undefined) {
-          currentSeq = parseInt(rows[0].current_value, 10) || 0
+        if (rows && rows.length > 0) {
+          seqRecordId = rows[0].id
+          if (rows[0].current_value !== undefined) {
+            const valFromDb = parseInt(rows[0].current_value, 10) || 0
+            if (valFromDb > currentSeq) {
+              currentSeq = valFromDb
+            }
+          }
         }
 
         // Também assegura que não seja menor do que qualquer numérico existente em products

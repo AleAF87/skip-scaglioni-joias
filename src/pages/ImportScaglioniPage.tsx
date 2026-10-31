@@ -342,6 +342,18 @@ export function ImportScaglioniPage() {
     setPossibleMatches([])
 
     try {
+      // Obter próximo código numérico para simulação fiel na prévia (piso mínimo 10000)
+      let startNum = 10000
+      try {
+        const nextCodeStr = await productService.getNextProductCode()
+        const parsed = parseInt(nextCodeStr, 10)
+        if (!isNaN(parsed) && parsed >= 10000) {
+          startNum = parsed
+        }
+      } catch {
+        /* intentionally ignored */
+      }
+
       const isJson = file.name.endsWith('.json')
       const decoded = await decodeFileTolerant(file)
       let text = typeof decoded === 'string' ? decoded : decoded.text
@@ -408,8 +420,8 @@ export function ImportScaglioniPage() {
           const ts = new Date().getTime().toString().slice(-6)
           const rand1 = Math.floor(1000 + ((idx * 31) % 9000)).toString()
           const generatedProdId = `PROD-${ts}-${rand1}`
-          // Código numérico sequencial crescente (1, 2, 3... 99999, 100000...) sem zeros à esquerda
-          const seqNum = idx + 1
+          // Código numérico sequencial crescente (10000, 10001, 10002... 99999, 100000...) sem zeros à esquerda
+          const seqNum = startNum + idx
           const generatedSkuNovo = String(seqNum)
 
           const galleryUrls: string[] = extractFrontendGalleryUrls(item.urls_imagens)
@@ -571,8 +583,8 @@ export function ImportScaglioniPage() {
           const rand1 = Math.floor(1000 + ((r * 37) % 9000)).toString()
           const generatedProdId = `PROD-${ts}-${rand1}`
 
-          // sku_novo: GERADO pelo próprio sistema com código numérico sequencial crescente (1, 2, 3... 100000...) sem zeros à esquerda
-          const seqNum = r
+          // sku_novo: GERADO pelo próprio sistema com código numérico sequencial crescente (10000, 10001, 10002... 99999, 100000...) sem zeros à esquerda
+          const seqNum = startNum + (r - 1)
           const generatedSkuNovo = String(seqNum)
 
           const galleryUrls: string[] = extractFrontendGalleryUrls(rowObj['urls_imagens'])
@@ -885,8 +897,8 @@ export function ImportScaglioniPage() {
             • <strong>Exclusões e Geração Automática:</strong> A coluna <code>id</code> do CSV NÃO é
             usada como <code>produto_id</code> (o sistema gera <code>PROD-...</code>) e{' '}
             <code>sku_novo</code> é gerado pelo próprio sistema com numeração sequencial sem zeros à
-            esquerda (<code>1, 2, 3...</code>). Colunas <code>slug</code> e <code>updated_at</code>{' '}
-            não são importadas.
+            esquerda (<code>10000, 10001, 10002...</code>). Colunas <code>slug</code> e{' '}
+            <code>updated_at</code> não são importadas.
           </p>
           <p>
             • <strong>Idempotência &amp; Estoque:</strong> <code>estoque</code> alimenta{' '}

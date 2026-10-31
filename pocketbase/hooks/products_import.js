@@ -496,7 +496,8 @@ routerAdd(
     try {
       $app.runInTransaction((txApp) => {
         // Carrega sequência atual de produtos para geração numérica sequencial contínua dentro da transação
-        let currentSeq = 0
+        // Piso obrigatório: 9999 (para que o primeiro item receba 10000)
+        let currentSeq = 9999
         const seqRows = []
         try {
           txApp
@@ -506,7 +507,10 @@ routerAdd(
             )
             .all(seqRows)
           if (seqRows && seqRows.length > 0 && seqRows[0].current_value !== undefined) {
-            currentSeq = parseInt(seqRows[0].current_value, 10) || 0
+            const valFromDb = parseInt(seqRows[0].current_value, 10) || 0
+            if (valFromDb > currentSeq) {
+              currentSeq = valFromDb
+            }
           }
         } catch (_) {}
 
@@ -950,7 +954,7 @@ routerAdd(
                 const rand1 = Math.floor(1000 + Math.random() * 9000).toString()
                 const produtoId = 'PROD-' + ts + '-' + rand1
 
-                // Gerar sku_novo numérico, sequencial e crescente pelo próprio sistema (1..99999, 100000...) SEM zeros à esquerda
+                // Gerar sku_novo numérico, sequencial e crescente pelo próprio sistema (10000..99999, 100000...) SEM zeros à esquerda
                 currentSeq++
                 const skuNovo = String(currentSeq)
                 const skuInterno = skuNovo

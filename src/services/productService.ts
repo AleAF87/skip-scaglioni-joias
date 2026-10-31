@@ -652,7 +652,8 @@ export const productService = {
         fields: 'code,sku_novo',
       })
 
-      let maxNum = 0
+      // Piso inicial da sequência: 9999 (para que o próximo produto inicial seja 10000)
+      let maxNum = 9999
       for (const item of list) {
         const c = item.code || ''
         const sn = item.sku_novo || ''
@@ -670,7 +671,7 @@ export const productService = {
       return String(nextVal)
     } catch (err) {
       console.error('Erro ao consultar próximo código numérico sequencial:', err)
-      return '1'
+      return '10000'
     }
   },
 }

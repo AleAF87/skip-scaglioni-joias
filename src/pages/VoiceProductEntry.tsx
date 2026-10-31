@@ -248,7 +248,7 @@ export default function VoiceProductEntry() {
       const nextCode = await productService.getNextProductCode()
       setCode(nextCode)
     } catch {
-      setCode('1')
+      setCode('10000')
     }
   }
 
