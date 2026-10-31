@@ -450,6 +450,13 @@ export default function StockInventory() {
     setEditingProduct(p)
     setEditExistingPhotos(p.photos ? [...p.photos] : [])
     setEditNewPhotoFiles([])
+    // Se o produto já possui minimum_quantity gravado, utiliza ele.
+    // Caso venha indefinido/nulo/zero, calcula 30% da quantidade atual do produto (no mínimo 1), nunca valor fixo.
+    const initialMinQty =
+      p.minimum_quantity && p.minimum_quantity > 0
+        ? p.minimum_quantity.toString()
+        : Math.max(1, Math.round((p.quantity || 0) * 0.3)).toString()
+
     setEditForm({
       code: p.code,
       description: p.description,
@@ -460,7 +467,7 @@ export default function StockInventory() {
       invested_value: p.invested_value ? p.invested_value.toString() : '',
       selling_price: p.selling_price ? p.selling_price.toString() : '',
       quantity: p.quantity.toString(),
-      minimum_quantity: p.minimum_quantity ? p.minimum_quantity.toString() : '3',
+      minimum_quantity: initialMinQty,
       observations: p.observations || '',
       status: p.status || 'available',
     })
@@ -528,9 +535,15 @@ export default function StockInventory() {
         invested_value: normInvested !== null ? normInvested : '',
         selling_price: normSelling !== null ? normSelling : 0,
         quantity: parsedQty,
-        minimum_quantity: editForm.minimum_quantity
-          ? parseInt(editForm.minimum_quantity, 10)
-          : Math.max(1, Math.round(parsedQty * 0.3)),
+        // Se o usuário preencheu/editou o mínimo no form, usa o valor informado.
+        // Se o campo estiver em branco mas o produto já tinha mínimo gravado no cadastro, PRESERVA o mínimo gravado.
+        // Apenas como último fallback calcula 30% (no mínimo 1), nunca valor fixo.
+        minimum_quantity:
+          editForm.minimum_quantity && parseInt(editForm.minimum_quantity, 10) > 0
+            ? parseInt(editForm.minimum_quantity, 10)
+            : editingProduct.minimum_quantity && editingProduct.minimum_quantity > 0
+              ? editingProduct.minimum_quantity
+              : Math.max(1, Math.round(parsedQty * 0.3)),
         observations: editForm.observations,
         status: parsedQty > 0 ? 'available' : 'unavailable',
       }
@@ -1249,7 +1262,13 @@ export default function StockInventory() {
                 products.map((p) => {
                   const isSelected = selectedIds.includes(p.id)
                   const isEditingThisQty = editingQtyId === p.id
-                  const isLowStock = p.quantity <= (p.minimum_quantity || 3)
+                  // Regra da usuária: o alerta ativa quando a quantidade atual atinge o mínimo (30% do inicial gravado).
+                  // Se por algum motivo o mínimo vier ausente ou zero, usa o fallback dinâmico de 30% da quantidade (mínimo 1), nunca um valor fixo.
+                  const effectiveMinStock =
+                    p.minimum_quantity && p.minimum_quantity > 0
+                      ? p.minimum_quantity
+                      : Math.max(1, Math.round((p.quantity || 0) * 0.3))
+                  const isLowStock = p.quantity <= effectiveMinStock
                   const photo = getProductDisplayPhoto(p)
                   const hasPhoto = Boolean(photo)
 

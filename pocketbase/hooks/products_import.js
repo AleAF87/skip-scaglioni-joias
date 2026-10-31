@@ -337,6 +337,10 @@ routerAdd(
                   existing.set('quantity', saldoInicialQty)
                   existing.set('status', 'available')
                 }
+                // Se o produto não tiver minimum_quantity gravado, inicializa com 30% da quantidade inicial
+                if (!existing.getInt('minimum_quantity') && saldoInicialQty > 0) {
+                  existing.set('minimum_quantity', Math.max(1, Math.round(saldoInicialQty * 0.3)))
+                }
 
                 txApp.save(existing)
               }
@@ -376,6 +380,10 @@ routerAdd(
                   typeof saldoInicialQty === 'number' && !isNaN(saldoInicialQty)
                     ? saldoInicialQty
                     : 0,
+                )
+                newProd.set(
+                  'minimum_quantity',
+                  saldoInicialQty > 0 ? Math.max(1, Math.round(saldoInicialQty * 0.3)) : 1,
                 )
                 newProd.set('status', saldoInicialQty > 0 ? 'available' : 'unavailable')
                 newProd.set('ativo_interno', true)
@@ -903,6 +911,11 @@ routerAdd(
                 if (comprimento) existing.set('comprimento_cm', comprimento)
                 if (peso) existing.set('peso_g', peso)
 
+                // Se o produto existente não tiver minimum_quantity gravado, inicializa com 30% da quantidade inicial
+                if (!existing.getInt('minimum_quantity') && saldoInicialQty > 0) {
+                  existing.set('minimum_quantity', Math.max(1, Math.round(saldoInicialQty * 0.3)))
+                }
+
                 // Saldo inicial Scaglioni: idempotente — atualiza o registro único existente em initial_stocks
                 const initStockFilter = "product = '" + existing.id + "' && origem = 'Scaglioni'"
                 const existInitStocks = txApp.findRecordsByFilter(
@@ -1027,6 +1040,10 @@ routerAdd(
 
                 // estoque -> qtde_inicial (initial_stocks e quantity)
                 newProd.set('quantity', saldoInicialQty)
+                newProd.set(
+                  'minimum_quantity',
+                  saldoInicialQty > 0 ? Math.max(1, Math.round(saldoInicialQty * 0.3)) : 1,
+                )
                 newProd.set('status', saldoInicialQty > 0 ? 'available' : 'unavailable')
                 newProd.set('ativo_interno', true)
 
@@ -1290,6 +1307,15 @@ routerAdd(
 
         prodTecson.set('quantity', finalInitialQty)
         prodTecson.set('status', finalInitialQty > 0 ? 'available' : 'unavailable')
+        if (!prodTecson.getInt('minimum_quantity') || prodTecson.getInt('minimum_quantity') === 0) {
+          const minQty =
+            prodScaglioni.getInt('minimum_quantity') > 0
+              ? prodScaglioni.getInt('minimum_quantity')
+              : finalInitialQty > 0
+                ? Math.max(1, Math.round(finalInitialQty * 0.3))
+                : 1
+          prodTecson.set('minimum_quantity', minQty)
+        }
 
         txApp.save(prodTecson)
 

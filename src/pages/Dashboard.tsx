@@ -60,8 +60,6 @@ export default function Dashboard() {
         pb.collection('settings').getFullList(),
       ])
 
-      const minStockAlert = settingsRes[0]?.min_stock_alert || 5
-
       // Stock totals
       let pieces = 0
       let value = 0
@@ -69,13 +67,21 @@ export default function Dashboard() {
       const typeCounter: { [key: string]: number } = {}
 
       prodRes.forEach((p: any) => {
-        pieces += p.quantity || 0
-        value += (p.quantity || 0) * (p.selling_price || 0)
-        if (p.quantity <= minStockAlert) {
+        const qty = p.quantity || 0
+        pieces += qty
+        value += qty * (p.selling_price || 0)
+
+        // Regra da usuária: o alerta ativa quando a quantidade atual atinge o estoque mínimo (30% do inicial gravado)
+        const effectiveMin =
+          p.minimum_quantity && p.minimum_quantity > 0
+            ? p.minimum_quantity
+            : Math.max(1, Math.round(qty * 0.3))
+
+        if (qty <= effectiveMin) {
           lowStock.push(p)
         }
         const typeName = p.expand?.type?.name || 'Outros'
-        typeCounter[typeName] = (typeCounter[typeName] || 0) + (p.quantity || 0)
+        typeCounter[typeName] = (typeCounter[typeName] || 0) + qty
       })
 
       setTotalStockPieces(pieces)
