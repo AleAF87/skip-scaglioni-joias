@@ -42,6 +42,8 @@ import {
   Camera,
   ArrowLeft,
   ArrowRight,
+  ArrowUp,
+  ArrowDown,
   ZoomIn,
   Download,
   FileSpreadsheet,
@@ -52,6 +54,13 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Link } from 'react-router-dom'
+import {
+  SortField,
+  SortDirection,
+  sortProductsList,
+  getProductDisplayCode,
+  getProductDisplayName,
+} from '@/lib/stockSort'
 
 export default function StockInventory() {
   const [products, setProducts] = useState<Product[]>([])
@@ -69,6 +78,22 @@ export default function StockInventory() {
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([])
   const [selectedEcommerce, setSelectedEcommerce] = useState<string[]>([])
   const [showFiltersPanel, setShowFiltersPanel] = useState(false)
+  const [sortField, setSortField] = useState<SortField>('created')
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
+
+  // Helper para renderizar ícone de ordenação no cabeçalho da tabela
+  const renderSortIndicator = (field: SortField) => {
+    if (sortField !== field) {
+      return (
+        <ArrowUpDown className="h-3.5 w-3.5 text-[#6B655E]/50 group-hover:text-[#7A5C2E] transition-colors" />
+      )
+    }
+    return sortDirection === 'asc' ? (
+      <ArrowUp className="h-3.5 w-3.5 text-[#7A5C2E] font-bold" />
+    ) : (
+      <ArrowDown className="h-3.5 w-3.5 text-[#7A5C2E] font-bold" />
+    )
+  }
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [totalItems, setTotalItems] = useState(0)
@@ -145,6 +170,8 @@ export default function StockInventory() {
     selectedAudiences,
     selectedStatuses,
     selectedEcommerce,
+    sortField,
+    sortDirection,
     page,
   ])
 
@@ -175,26 +202,92 @@ export default function StockInventory() {
   const loadProducts = async () => {
     setLoading(true)
     try {
-      const res = await productService.getProducts({
-        search,
-        types: selectedTypes,
-        materials: selectedMaterials,
-        sizes: selectedSizes,
-        targetAudience: selectedAudiences,
-        statuses: selectedStatuses,
-        ecommerce: selectedEcommerce,
-        page,
-        perPage: 15,
-      })
-      setProducts(res.items)
-      setTotalPages(res.totalPages || 1)
-      setTotalItems(res.totalItems || 0)
+      const perPage = 15
+
+      // Ordenações nativas diretas do PocketBase:
+      // - created: '-created' ou '+created'
+      // - invested_value: '+invested_value' ou '-invested_value'
+      // - selling_price: '+selling_price' ou '-selling_price'
+      // - quantity: '+quantity' ou '-quantity'
+      // Para 'code' e 'name', fazemos a ordenação completa em memória dos itens filtrados,
+      // pois 'code' possui zeros à esquerda e 'name' precisa do fallback para description.
+      if (
+        sortField === 'created' ||
+        sortField === 'invested_value' ||
+        sortField === 'selling_price' ||
+        sortField === 'quantity'
+      ) {
+        const pbSortPrefix = sortDirection === 'desc' ? '-' : '+'
+        const pbSortParam = `${pbSortPrefix}${sortField}`
+
+        const res = await productService.getProducts({
+          search,
+          types: selectedTypes,
+          materials: selectedMaterials,
+          sizes: selectedSizes,
+          targetAudience: selectedAudiences,
+          statuses: selectedStatuses,
+          ecommerce: selectedEcommerce,
+          page,
+          perPage,
+          sort: pbSortParam,
+        })
+        setProducts(res.items)
+        setTotalPages(res.totalPages || 1)
+        setTotalItems(res.totalItems || 0)
+      } else {
+        // Ordenação por 'code' (numérico ignorando zeros à esquerda) ou 'name' (alfabético com fallback)
+        // Busca todos os itens correspondentes aos filtros para ordenar o conjunto completo antes de paginar
+        const filterStr = productService.buildProductFilterString({
+          search,
+          types: selectedTypes,
+          materials: selectedMaterials,
+          sizes: selectedSizes,
+          targetAudience: selectedAudiences,
+          statuses: selectedStatuses,
+          ecommerce: selectedEcommerce,
+        })
+
+        // getFullList dos registros filtrados
+        const allFiltered = await (
+          await import('@/lib/pocketbase/client')
+        ).default
+          .collection('products')
+          .getFullList<Product>({
+            filter: filterStr,
+            expand: 'type,material,size,marca_id',
+          })
+
+        const sorted = sortProductsList(allFiltered, sortField, sortDirection)
+        const total = sorted.length
+        const computedTotalPages = Math.max(1, Math.ceil(total / perPage))
+
+        const safePage = Math.min(page, computedTotalPages)
+        const startIndex = (safePage - 1) * perPage
+        const pageItems = sorted.slice(startIndex, startIndex + perPage)
+
+        setProducts(pageItems)
+        setTotalPages(computedTotalPages)
+        setTotalItems(total)
+      }
     } catch (err) {
       console.error('Erro ao listar estoque:', err)
       toast.error('Erro ao carregar produtos.')
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleSortToggle = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortField(field)
+      // Se for data de cadastro, padrão decrescente (mais recente primeiro);
+      // para nome/código/valores/estoque, padrão crescente
+      setSortDirection(field === 'created' ? 'desc' : 'asc')
+    }
+    setPage(1)
   }
 
   const loadFilteredTotals = async () => {
@@ -249,6 +342,8 @@ export default function StockInventory() {
     setSelectedAudiences([])
     setSelectedStatuses([])
     setSelectedEcommerce([])
+    setSortField('created')
+    setSortDirection('desc')
     setPage(1)
   }
 
@@ -1056,15 +1151,76 @@ export default function StockInventory() {
                   </button>
                 </th>
                 <th className="py-3 px-4 w-16">Foto</th>
-                <th className="py-3 px-4">Código</th>
+                <th className="py-3 px-4">
+                  <button
+                    type="button"
+                    onClick={() => handleSortToggle('code')}
+                    className="group inline-flex items-center gap-1.5 focus:outline-none hover:text-[#7A5C2E] transition-colors"
+                    title="Ordenar por Código (numérico menor/maior)"
+                  >
+                    <span>Código</span>
+                    {renderSortIndicator('code')}
+                  </button>
+                </th>
                 <th className="py-3 px-4">Tipo</th>
                 <th className="py-3 px-4">Material</th>
                 <th className="py-3 px-4">Perfil</th>
                 <th className="py-3 px-4">Tamanho</th>
-                <th className="py-3 px-4 min-w-[220px]">Nome do Produto</th>
-                <th className="py-3 px-4">Investido</th>
-                <th className="py-3 px-4">Preço Venda</th>
-                <th className="py-3 px-4 text-center">Estoque</th>
+                <th className="py-3 px-4 min-w-[220px]">
+                  <button
+                    type="button"
+                    onClick={() => handleSortToggle('name')}
+                    className="group inline-flex items-center gap-1.5 focus:outline-none hover:text-[#7A5C2E] transition-colors"
+                    title="Ordenar por Nome do Produto (alfabética A-Z / Z-A)"
+                  >
+                    <span>Nome do Produto</span>
+                    {renderSortIndicator('name')}
+                  </button>
+                </th>
+                <th className="py-3 px-4">
+                  <button
+                    type="button"
+                    onClick={() => handleSortToggle('invested_value')}
+                    className="group inline-flex items-center gap-1.5 focus:outline-none hover:text-[#7A5C2E] transition-colors"
+                    title="Ordenar por Valor Investido (menor/maior)"
+                  >
+                    <span>Investido</span>
+                    {renderSortIndicator('invested_value')}
+                  </button>
+                </th>
+                <th className="py-3 px-4">
+                  <button
+                    type="button"
+                    onClick={() => handleSortToggle('selling_price')}
+                    className="group inline-flex items-center gap-1.5 focus:outline-none hover:text-[#7A5C2E] transition-colors"
+                    title="Ordenar por Preço de Venda (menor/maior)"
+                  >
+                    <span>Preço Venda</span>
+                    {renderSortIndicator('selling_price')}
+                  </button>
+                </th>
+                <th className="py-3 px-4 text-center">
+                  <button
+                    type="button"
+                    onClick={() => handleSortToggle('quantity')}
+                    className="group inline-flex items-center gap-1.5 focus:outline-none hover:text-[#7A5C2E] transition-colors justify-center"
+                    title="Ordenar por Quantidade em Estoque (menor/maior)"
+                  >
+                    <span>Estoque</span>
+                    {renderSortIndicator('quantity')}
+                  </button>
+                </th>
+                <th className="py-3 px-4 whitespace-nowrap">
+                  <button
+                    type="button"
+                    onClick={() => handleSortToggle('created')}
+                    className="group inline-flex items-center gap-1.5 focus:outline-none hover:text-[#7A5C2E] transition-colors"
+                    title="Ordenar por Data de Cadastro (mais recente / mais antigo)"
+                  >
+                    <span>Data de Cadastro</span>
+                    {renderSortIndicator('created')}
+                  </button>
+                </th>
                 <th className="py-3 px-4">Status</th>
                 <th className="py-3 px-4 text-right">Ações</th>
               </tr>
@@ -1072,7 +1228,7 @@ export default function StockInventory() {
             <tbody className="divide-y divide-[#E5DFD5] text-sm">
               {loading ? (
                 <tr>
-                  <td colSpan={13} className="py-12 text-center text-[#6B655E]">
+                  <td colSpan={14} className="py-12 text-center text-[#6B655E]">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#C6A664] border-t-transparent" />
                       <span>Carregando joias do estoque...</span>
@@ -1081,7 +1237,7 @@ export default function StockInventory() {
                 </tr>
               ) : products.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-[#6B655E]">
+                  <td colSpan={14} className="py-12 text-center text-[#6B655E]">
                     <PackageCheck className="h-10 w-10 text-[#C6A664] mx-auto mb-2 opacity-50" />
                     <p className="font-semibold text-[#2D2A26]">Nenhuma peça encontrada.</p>
                     <p className="text-xs text-[#6B655E] mt-1">
@@ -1313,6 +1469,11 @@ export default function StockInventory() {
                             <Edit className="h-3 w-3 text-[#6B655E] opacity-0 group-hover:opacity-100 transition-opacity" />
                           </div>
                         )}
+                      </td>
+
+                      {/* Coluna Data de Cadastro */}
+                      <td className="py-3 px-4 whitespace-nowrap text-xs text-[#6B655E]">
+                        <span>{formatDate(p.created || p.criado_em_origem)}</span>
                       </td>
 
                       <td className="py-3 px-4">
