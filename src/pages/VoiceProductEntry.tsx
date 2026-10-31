@@ -111,6 +111,7 @@ export default function VoiceProductEntry() {
   const [targetAudience, setTargetAudience] = useState<string>('')
   const [investedValue, setInvestedValue] = useState<string>('')
   const [sellingPrice, setSellingPrice] = useState<string>('')
+  const [initialQuantity, setInitialQuantity] = useState<string>('')
   const [quantity, setQuantity] = useState<string>('')
   const [minimumQuantity, setMinimumQuantity] = useState<string>('')
   const [observations, setObservations] = useState('')
@@ -675,16 +676,34 @@ export default function VoiceProductEntry() {
     }
   }
 
-  // Handle quantity changes: automatically set minimumQuantity to 30% of initial quantity (editable)
-  const handleQuantityChange = (newQtyStr: string) => {
-    setQuantity(newQtyStr)
-    const num = parseInt(newQtyStr, 10)
-    if (!isNaN(num) && num > 0) {
-      // 30% do estoque inicial (mínimo 1 unidade)
-      const thirtyPercent = Math.max(1, Math.round(num * 0.3))
-      setMinimumQuantity(thirtyPercent.toString())
+  // Atualização do Estoque Inicial no cadastro: sugere 30% como mínimo e sincroniza o estoque atual se este estiver vazio ou igual ao anterior
+  const handleInitialQuantityChange = (newInitQtyStr: string) => {
+    setInitialQuantity(newInitQtyStr)
+    const numInit = parseInt(newInitQtyStr, 10)
+    if (!isNaN(numInit) && numInit >= 0) {
+      // Sugere 30% de alerta de estoque mínimo (mínimo 1 unidade se > 0)
+      const thirtyPercent = numInit > 0 ? Math.max(1, Math.round(numInit * 0.3)) : 0
+      setMinimumQuantity(thirtyPercent > 0 ? thirtyPercent.toString() : '')
     } else {
       setMinimumQuantity('')
+    }
+    // Se a quantidade atual ainda não foi preenchida ou era vazia, reflete o valor inicial
+    if (!quantity || quantity === initialQuantity) {
+      setQuantity(newInitQtyStr)
+    }
+  }
+
+  // Handle quantity changes: estoque atual / disponível
+  const handleQuantityChange = (newQtyStr: string) => {
+    setQuantity(newQtyStr)
+    // Se o estoque inicial ainda não estava preenchido, define o inicial com este valor e calcula o mínimo
+    if (!initialQuantity) {
+      setInitialQuantity(newQtyStr)
+      const num = parseInt(newQtyStr, 10)
+      if (!isNaN(num) && num > 0) {
+        const thirtyPercent = Math.max(1, Math.round(num * 0.3))
+        setMinimumQuantity(thirtyPercent.toString())
+      }
     }
   }
 
@@ -737,11 +756,16 @@ export default function VoiceProductEntry() {
 
     // 5. Quantity & min stock
     if (guidedData.quantity) {
+      setInitialQuantity(guidedData.quantity)
       setQuantity(guidedData.quantity)
-      const num = parseInt(guidedData.quantity, 10)
-      if (!isNaN(num) && num > 0) {
-        const thirtyPercent = Math.max(1, Math.round(num * 0.3))
-        setMinimumQuantity(thirtyPercent.toString())
+      if (guidedData.minimumQuantity) {
+        setMinimumQuantity(guidedData.minimumQuantity)
+      } else {
+        const num = parseInt(guidedData.quantity, 10)
+        if (!isNaN(num) && num > 0) {
+          const thirtyPercent = Math.max(1, Math.round(num * 0.3))
+          setMinimumQuantity(thirtyPercent.toString())
+        }
       }
     }
 
@@ -911,6 +935,7 @@ export default function VoiceProductEntry() {
     }
 
     if (guidedData.quantity) {
+      setInitialQuantity(guidedData.quantity)
       setQuantity(guidedData.quantity)
       if (guidedData.minimumQuantity) {
         setMinimumQuantity(guidedData.minimumQuantity)
@@ -981,6 +1006,7 @@ export default function VoiceProductEntry() {
         setSellingPrice(normSell !== null ? normSell.toFixed(2) : '')
       }
       if (typeof result.quantity === 'number') {
+        setInitialQuantity(result.quantity.toString())
         setQuantity(result.quantity.toString())
         // Padrão de 30% do estoque inicial (mínimo 1 unidade), liberado para edição
         const thirtyPercent = Math.max(1, Math.round(result.quantity * 0.3))
@@ -1051,6 +1077,7 @@ export default function VoiceProductEntry() {
       setTargetAudience('')
       setInvestedValue('')
       setSellingPrice('')
+      setInitialQuantity('')
       setQuantity('')
       setMinimumQuantity('')
       setObservations('')
@@ -1079,7 +1106,13 @@ export default function VoiceProductEntry() {
 
     const numQuantity = parseInt(quantity, 10)
     if (isNaN(numQuantity) || numQuantity < 0) {
-      toast.error('Informe uma quantidade válida.')
+      toast.error('Informe um estoque atual válido.')
+      return
+    }
+
+    const numInitialQuantity = parseInt(initialQuantity || quantity, 10)
+    if (isNaN(numInitialQuantity) || numInitialQuantity < 0) {
+      toast.error('Informe um estoque inicial válido.')
       return
     }
 
@@ -1096,6 +1129,7 @@ export default function VoiceProductEntry() {
       if (normInvestedValue !== null)
         formData.append('invested_value', normInvestedValue.toFixed(2))
       formData.append('selling_price', normSellingPrice.toFixed(2))
+      formData.append('qtde_inicial', numInitialQuantity.toString())
       formData.append('quantity', numQuantity.toString())
       if (minimumQuantity) {
         const numMin = parseInt(minimumQuantity, 10)
@@ -1124,6 +1158,7 @@ export default function VoiceProductEntry() {
       setTargetAudience('')
       setInvestedValue('')
       setSellingPrice('')
+      setInitialQuantity('')
       setQuantity('')
       setMinimumQuantity('')
       setObservations('')
@@ -1712,9 +1747,32 @@ export default function VoiceProductEntry() {
                 </div>
 
                 <div>
-                  <Label htmlFor="qty" className="text-xs font-semibold text-[#2D2A26]">
-                    Quantidade em Estoque *
-                  </Label>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="initQty" className="text-xs font-semibold text-[#2D2A26]">
+                      Estoque Inicial *
+                    </Label>
+                    <span className="text-[10px] text-[#7A5C2E] font-medium">Entrada</span>
+                  </div>
+                  <Input
+                    id="initQty"
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={initialQuantity}
+                    onChange={(e) => handleInitialQuantityChange(e.target.value)}
+                    placeholder="1"
+                    required
+                    className="mt-1 bg-white border-[#C6A664]/60 focus-visible:ring-[#C6A664] font-semibold text-[#2D2A26]"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="qty" className="text-xs font-semibold text-[#2D2A26]">
+                      Estoque Atual *
+                    </Label>
+                    <span className="text-[10px] text-[#6B655E]">Disponível</span>
+                  </div>
                   <Input
                     id="qty"
                     type="number"
@@ -1733,7 +1791,7 @@ export default function VoiceProductEntry() {
                     <Label htmlFor="minQty" className="text-xs font-semibold text-[#6B655E]">
                       Alerta Estoque Mínimo
                     </Label>
-                    <span className="text-[10px] text-[#7A5C2E] font-medium">(30% padrão)</span>
+                    <span className="text-[10px] text-[#7A5C2E] font-medium">(30% inicial)</span>
                   </div>
                   <Input
                     id="minQty"
@@ -1742,7 +1800,7 @@ export default function VoiceProductEntry() {
                     step="1"
                     value={minimumQuantity}
                     onChange={(e) => setMinimumQuantity(e.target.value)}
-                    placeholder="Padrão 30%"
+                    placeholder="30% do inicial"
                     className="mt-1 bg-white border-[#E5DFD5] focus-visible:ring-[#C6A664]"
                   />
                 </div>

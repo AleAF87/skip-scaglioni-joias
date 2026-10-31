@@ -150,6 +150,7 @@ export default function StockInventory() {
     target_audience: '',
     invested_value: '',
     selling_price: '',
+    qtde_inicial: '',
     quantity: '',
     minimum_quantity: '',
     observations: '',
@@ -450,12 +451,19 @@ export default function StockInventory() {
     setEditingProduct(p)
     setEditExistingPhotos(p.photos ? [...p.photos] : [])
     setEditNewPhotoFiles([])
+
+    // Estoque inicial gravado ou fallback sensato para quantity atual em memória (sem gravar no banco antes de salvar)
+    const initialStockVal =
+      typeof p.qtde_inicial === 'number' && !isNaN(p.qtde_inicial)
+        ? p.qtde_inicial
+        : (p.quantity ?? 0)
+
     // Se o produto já possui minimum_quantity gravado, utiliza ele.
-    // Caso venha indefinido/nulo/zero, calcula 30% da quantidade atual do produto (no mínimo 1), nunca valor fixo.
+    // Caso venha indefinido/nulo/zero, calcula 30% da quantidade inicial (no mínimo 1), nunca valor fixo.
     const initialMinQty =
       p.minimum_quantity && p.minimum_quantity > 0
         ? p.minimum_quantity.toString()
-        : Math.max(1, Math.round((p.quantity || 0) * 0.3)).toString()
+        : Math.max(1, Math.round(initialStockVal * 0.3)).toString()
 
     setEditForm({
       code: p.code,
@@ -466,7 +474,8 @@ export default function StockInventory() {
       target_audience: p.target_audience || '',
       invested_value: p.invested_value ? p.invested_value.toString() : '',
       selling_price: p.selling_price ? p.selling_price.toString() : '',
-      quantity: p.quantity.toString(),
+      qtde_inicial: initialStockVal.toString(),
+      quantity: (p.quantity ?? 0).toString(),
       minimum_quantity: initialMinQty,
       observations: p.observations || '',
       status: p.status || 'available',
@@ -521,11 +530,14 @@ export default function StockInventory() {
     setIsSavingEdit(true)
     try {
       const parsedQty = parseInt(editForm.quantity, 10)
+      const parsedInitQty = parseInt(editForm.qtde_inicial, 10)
       const normInvested = normalizeCurrencyValue(editForm.invested_value)
       const normSelling = normalizeCurrencyValue(editForm.selling_price)
 
       // Código é imutável / bloqueado — preserva o código original da peça
-      const fields = {
+      // Campos independentes: estoque atual e estoque inicial são editados separadamente.
+      // NÃO recalcular minimum_quantity automaticamente na edição — preserva o gravado no cadastro se não foi editado manualmente.
+      const fields: Record<string, any> = {
         code: editingProduct.code,
         description: editForm.description.trim(),
         type: editForm.type || '',
@@ -534,16 +546,23 @@ export default function StockInventory() {
         target_audience: editForm.target_audience || '',
         invested_value: normInvested !== null ? normInvested : '',
         selling_price: normSelling !== null ? normSelling : 0,
+        qtde_inicial:
+          !isNaN(parsedInitQty) && parsedInitQty >= 0
+            ? parsedInitQty
+            : (editingProduct.qtde_inicial ?? parsedQty),
         quantity: parsedQty,
-        // Se o usuário preencheu/editou o mínimo no form, usa o valor informado.
-        // Se o campo estiver em branco mas o produto já tinha mínimo gravado no cadastro, PRESERVA o mínimo gravado.
-        // Apenas como último fallback calcula 30% (no mínimo 1), nunca valor fixo.
+        // Preserva o mínimo gravado caso o usuário não tenha alterado manualmente
         minimum_quantity:
           editForm.minimum_quantity && parseInt(editForm.minimum_quantity, 10) > 0
             ? parseInt(editForm.minimum_quantity, 10)
             : editingProduct.minimum_quantity && editingProduct.minimum_quantity > 0
               ? editingProduct.minimum_quantity
-              : Math.max(1, Math.round(parsedQty * 0.3)),
+              : Math.max(
+                  1,
+                  Math.round(
+                    (!isNaN(parsedInitQty) && parsedInitQty > 0 ? parsedInitQty : parsedQty) * 0.3,
+                  ),
+                ),
         observations: editForm.observations,
         status: parsedQty > 0 ? 'available' : 'unavailable',
       }
@@ -1780,8 +1799,8 @@ export default function StockInventory() {
               />
             </div>
 
-            {/* Ordem: Valor Investido (R$), Preço de Venda (R$), Quantidade em Estoque */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+            {/* Ordem: Valor Investido, Preço de Venda, Estoque Inicial, Estoque Atual e Mínimo */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
               <div>
                 <Label className="text-xs font-semibold">Valor Investido (R$)</Label>
                 <Input
@@ -1807,31 +1826,51 @@ export default function StockInventory() {
 
               <div>
                 <div className="flex items-center justify-between">
-                  <Label className="text-xs font-semibold">Quantidade Atual (Calculada)</Label>
-                  <span className="text-[10px] text-amber-700 bg-amber-50 px-1 rounded border border-amber-200">
-                    Não editável direto
-                  </span>
+                  <Label className="text-xs font-semibold text-[#2D2A26]">Estoque Inicial *</Label>
+                  <span className="text-[10px] text-[#7A5C2E] font-medium">Entrada</span>
                 </div>
                 <Input
                   type="number"
                   min="0"
-                  disabled
-                  value={editForm.quantity}
-                  title="A quantidade atual é calculada a partir do saldo inicial + movimentações (vendas e transferências)"
-                  className="mt-1 font-bold bg-slate-50 cursor-not-allowed"
+                  step="1"
+                  required
+                  value={editForm.qtde_inicial}
+                  onChange={(e) => setEditForm({ ...editForm, qtde_inicial: e.target.value })}
+                  placeholder="1"
+                  title="Quantidade inicial registrada no cadastro (independente do estoque atual)"
+                  className="mt-1 font-bold border-[#C6A664]/60 text-[#2D2A26]"
                 />
               </div>
 
               <div>
-                <Label className="text-xs font-semibold text-[#6B655E]">
-                  Alerta Estoque Mín. (30%)
-                </Label>
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold text-[#2D2A26]">Estoque Atual *</Label>
+                  <span className="text-[10px] text-[#6B655E]">Disponível</span>
+                </div>
+                <Input
+                  type="number"
+                  min="0"
+                  step="1"
+                  required
+                  value={editForm.quantity}
+                  onChange={(e) => setEditForm({ ...editForm, quantity: e.target.value })}
+                  title="Quantidade física atual em estoque"
+                  className="mt-1 font-bold text-[#2E7D4F]"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold text-[#6B655E]">Alerta Mínimo</Label>
+                  <span className="text-[10px] text-[#7A5C2E]">(permanece)</span>
+                </div>
                 <Input
                   type="number"
                   min="0"
                   value={editForm.minimum_quantity}
                   onChange={(e) => setEditForm({ ...editForm, minimum_quantity: e.target.value })}
-                  placeholder="30% do estoque"
+                  placeholder="Alerta de estoque"
+                  title="Não recalculado automaticamente na edição para preservar o valor do cadastro"
                   className="mt-1 font-medium"
                 />
               </div>
