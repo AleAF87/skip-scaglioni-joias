@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-31T19:29:32.542Z",
+  "generatedAt": "2026-10-31T19:41:54.661Z",
   "collections": [
     {
       "name": "users",
@@ -750,6 +750,12 @@
         {
           "name": "criado_em_origem",
           "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "qtde_inicial",
+          "type": "number",
           "required": false,
           "system": false
         }
