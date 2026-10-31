@@ -667,10 +667,10 @@ export const productService = {
       }
 
       const nextVal = maxNum + 1
-      return nextVal < 100000 ? String(nextVal).padStart(5, '0') : String(nextVal)
+      return String(nextVal)
     } catch (err) {
       console.error('Erro ao consultar próximo código numérico sequencial:', err)
-      return '00001'
+      return '1'
     }
   },
 }

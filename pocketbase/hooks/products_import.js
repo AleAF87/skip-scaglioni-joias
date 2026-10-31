@@ -822,8 +822,7 @@ routerAdd(
                   !/^\d+$/.test(existing.getString('sku_novo'))
                 ) {
                   currentSeq++
-                  const generatedNumCode =
-                    currentSeq < 100000 ? String(currentSeq).padStart(5, '0') : String(currentSeq)
+                  const generatedNumCode = String(currentSeq)
                   existing.set('sku_novo', generatedNumCode)
                   if (!existing.getString('sku_interno')) {
                     existing.set('sku_interno', generatedNumCode)
@@ -951,10 +950,9 @@ routerAdd(
                 const rand1 = Math.floor(1000 + Math.random() * 9000).toString()
                 const produtoId = 'PROD-' + ts + '-' + rand1
 
-                // Gerar sku_novo numérico, sequencial e crescente pelo próprio sistema (00001..99999, 100000...)
+                // Gerar sku_novo numérico, sequencial e crescente pelo próprio sistema (1..99999, 100000...) SEM zeros à esquerda
                 currentSeq++
-                const skuNovo =
-                  currentSeq < 100000 ? String(currentSeq).padStart(5, '0') : String(currentSeq)
+                const skuNovo = String(currentSeq)
                 const skuInterno = skuNovo
 
                 const newProd = new Record(productsCol)

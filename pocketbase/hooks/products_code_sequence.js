@@ -1,5 +1,5 @@
-// Helper e Hooks para geração atômica e sequencial de código numérico crescente (00001, 00002... 99999, 100000...)
-// Formato com 5 dígitos mínimos preenchidos com zeros à esquerda (00001..99999) e crescendo indefinidamente (100000, 100001...)
+// Helper e Hooks para geração atômica e sequencial de código numérico crescente (1, 2... 99999, 100000...)
+// Sem zeros à esquerda: o código é gravado e exibido como número puro (1..99999, 100000...)
 // All helper logic is declared inline inside callbacks to avoid JSVM top-level scoping errors.
 
 // 1. Endpoint para preview do próximo código numérico sequencial (somente leitura / consulta prévia)
@@ -45,7 +45,7 @@ routerAdd(
     } catch (_) {}
 
     const nextVal = currentVal + 1
-    const nextCode = nextVal < 100000 ? String(nextVal).padStart(5, '0') : String(nextVal)
+    const nextCode = String(nextVal)
 
     return e.json(200, { next_code: nextCode, next_number: nextVal })
   },
@@ -107,7 +107,7 @@ onRecordCreateRequest((e) => {
         } catch (_) {}
 
         const nextVal = currentSeq + 1
-        const formattedCode = nextVal < 100000 ? String(nextVal).padStart(5, '0') : String(nextVal)
+        const formattedCode = String(nextVal)
 
         // Atualiza app_sequences
         txApp

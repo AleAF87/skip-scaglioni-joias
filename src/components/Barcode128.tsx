@@ -17,18 +17,10 @@ export const Barcode128: React.FC<{
     if (!ctx) return
 
     // Deterministic pseudo Code 128 rendering based on string chars
-    const str = code || '0000'
+    const str = code || '0'
     // Texto a ser exibido por baixo do código de barras
-    // Se displayText for fornecido, usa ele; se não, se for numérico puro, remove zeros à esquerda
-    let visibleText = displayText
-    if (visibleText === undefined) {
-      if (/^\d+$/.test(str)) {
-        const stripped = str.replace(/^0+/, '')
-        visibleText = stripped === '' ? '0' : stripped
-      } else {
-        visibleText = str
-      }
-    }
+    // Se displayText for fornecido, usa ele; se não, usa o mesmo valor exato do código codificado
+    const visibleText = displayText !== undefined ? displayText : str
 
     const barWidth = 2
     let x = 10
@@ -80,7 +72,7 @@ export const Barcode128: React.FC<{
     drawBar(1, false)
     drawBar(2, true)
 
-    // Text below barcode (com zeros à esquerda ocultos)
+    // Text below barcode (mesmo número/texto codificado pelas barras)
     ctx.font = 'bold 11px monospace'
     ctx.textAlign = 'center'
     ctx.fillText(visibleText, canvas.width / 2, height + 12)

@@ -41,29 +41,24 @@ export function parseNumericCode(input?: string | null): number | null {
 
 /**
  * Formata um código para impressão em etiqueta:
- * - Oculta zeros à esquerda se o código for numérico (ex: "00001" -> "1", "00123" -> "123")
- * - Mantém como está se contiver letras/caracteres
+ * - Retorna o código limpo exatamente como deve ser impresso.
  */
 export function formatCodeForLabelDisplay(code?: string | null): string {
   if (!code) return ''
-  const trimmed = String(code).trim()
-  if (/^\d+$/.test(trimmed)) {
-    return stripLeadingZeros(trimmed)
-  }
-  return trimmed
+  return String(code).trim()
 }
 
 /**
  * Determina qual código deve ser usado para código de barras e etiqueta de uma joia:
- * - Se for produto Scaglioni ou tiver sku_novo, prioriza o código numérico sequencial (sku_novo ou code numérico)
- * - Se for Tecson, mantém o código de barras tecson (codigo_barras_tecson || codigo_barras || code)
+ * - Se for produto Scaglioni ou tiver sku_novo, prioriza o código numérico sequencial sem zeros (sku_novo ou code numérico)
+ * - Se for Tecson, mantém o código de barras tecson original intacto (codigo_barras_tecson || codigo_barras || code)
  */
 export function getProductBarcodeValue(p: Partial<Product>): string {
   const isTecson = Boolean(p.id_tecson || p.codigo_barras_tecson || p.codigo_produto_tecson)
   if (isTecson) {
     return (p.codigo_barras_tecson || p.codigo_barras || p.code || '').trim()
   }
-  // Scaglioni ou novos produtos: prioriza sku_novo numérico ou code
+  // Scaglioni ou novos produtos: prioriza sku_novo numérico ou code (sempre gravados como número puro 1, 2, 3...)
   return (p.sku_novo || p.code || p.codigo_barras || '').trim()
 }
 

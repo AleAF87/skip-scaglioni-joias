@@ -408,10 +408,9 @@ export function ImportScaglioniPage() {
           const ts = new Date().getTime().toString().slice(-6)
           const rand1 = Math.floor(1000 + ((idx * 31) % 9000)).toString()
           const generatedProdId = `PROD-${ts}-${rand1}`
-          // Código numérico sequencial crescente (00001, 00002... 100000...)
+          // Código numérico sequencial crescente (1, 2, 3... 99999, 100000...) sem zeros à esquerda
           const seqNum = idx + 1
-          const generatedSkuNovo =
-            seqNum < 100000 ? String(seqNum).padStart(5, '0') : String(seqNum)
+          const generatedSkuNovo = String(seqNum)
 
           const galleryUrls: string[] = extractFrontendGalleryUrls(item.urls_imagens)
           const uniqueGallery = galleryUrls.filter((u) => u && u !== imagemPrincipal)
@@ -572,10 +571,9 @@ export function ImportScaglioniPage() {
           const rand1 = Math.floor(1000 + ((r * 37) % 9000)).toString()
           const generatedProdId = `PROD-${ts}-${rand1}`
 
-          // sku_novo: GERADO pelo próprio sistema com código numérico sequencial crescente (00001... 100000...)
+          // sku_novo: GERADO pelo próprio sistema com código numérico sequencial crescente (1, 2, 3... 100000...) sem zeros à esquerda
           const seqNum = r
-          const generatedSkuNovo =
-            seqNum < 100000 ? String(seqNum).padStart(5, '0') : String(seqNum)
+          const generatedSkuNovo = String(seqNum)
 
           const galleryUrls: string[] = extractFrontendGalleryUrls(rowObj['urls_imagens'])
           const uniqueGallery = galleryUrls.filter((u) => u && u !== imagemPrincipal)
@@ -886,9 +884,9 @@ export function ImportScaglioniPage() {
           <p>
             • <strong>Exclusões e Geração Automática:</strong> A coluna <code>id</code> do CSV NÃO é
             usada como <code>produto_id</code> (o sistema gera <code>PROD-...</code>) e{' '}
-            <code>sku_novo</code> é gerado pelo próprio sistema com numeração sequencial (
-            <code>00001, 00002...</code>). Colunas <code>slug</code> e <code>updated_at</code> não
-            são importadas.
+            <code>sku_novo</code> é gerado pelo próprio sistema com numeração sequencial sem zeros à
+            esquerda (<code>1, 2, 3...</code>). Colunas <code>slug</code> e <code>updated_at</code>{' '}
+            não são importadas.
           </p>
           <p>
             • <strong>Idempotência &amp; Estoque:</strong> <code>estoque</code> alimenta{' '}
