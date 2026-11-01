@@ -103,7 +103,6 @@ export default function Layout() {
     ? [
         { to: '/', label: 'Painel Geral', icon: LayoutDashboard },
         { to: '/voz', label: 'Cadastro por Voz', icon: Mic, highlight: true },
-        { to: '/produtos', label: 'Catálogo de Joias', icon: Gem },
         { to: '/estoque', label: 'Estoque Loja', icon: Boxes },
         {
           to: '/revendedora/estoque-entregas',
@@ -124,6 +123,12 @@ export default function Layout() {
         { to: '/consignacoes', label: 'Consignação em Listas', icon: Handshake },
         { to: '/revendedores', label: 'Revendedores', icon: Users2 },
         // Páginas restritas a nível superior exibidas em vermelho
+        {
+          to: '/produtos',
+          label: 'Catálogo de Joias',
+          icon: Gem,
+          isRestricted: true,
+        },
         {
           to: '/usuarios',
           label: 'Gestão de Usuários',
@@ -156,12 +161,7 @@ export default function Layout() {
         ...(canManageInternal
           ? [{ to: '/voz', label: 'Cadastro por Voz', icon: Mic, highlight: true }]
           : []),
-        ...(canManageInternal
-          ? [
-              { to: '/produtos', label: 'Catálogo de Joias', icon: Gem },
-              { to: '/estoque', label: 'Estoque Loja', icon: Boxes },
-            ]
-          : []),
+        ...(canManageInternal ? [{ to: '/estoque', label: 'Estoque Loja', icon: Boxes }] : []),
 
         // MÓDULO: Estoque Próprio da Revendedora
         {
