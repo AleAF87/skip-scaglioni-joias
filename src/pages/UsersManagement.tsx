@@ -22,23 +22,25 @@ export default function UsersManagement() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [roleFilter, setRoleFilter] = useState('')
 
   // Create user modal
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [newName, setNewName] = useState('')
   const [newEmail, setNewEmail] = useState('')
   const [newPassword, setNewPassword] = useState('')
-  const [newRole, setNewRole] = useState<'admin' | 'operator' | 'reseller'>('operator')
+  const [newRole, setNewRole] = useState<AppUser['role']>('operator')
 
   useEffect(() => {
     loadUsers()
-  }, [search, statusFilter])
+  }, [search, statusFilter, roleFilter])
 
   const loadUsers = async () => {
     setLoading(true)
     try {
       const filters: string[] = []
       if (statusFilter) filters.push(`status = '${statusFilter}'`)
+      if (roleFilter) filters.push(`role = '${roleFilter}'`)
       if (search) {
         const q = search.replace(/'/g, "\\'")
         filters.push(`(name ~ '${q}' || email ~ '${q}')`)
@@ -122,7 +124,7 @@ export default function UsersManagement() {
       {/* Filter toolbar */}
       <Card className="border-[#E5DFD5] bg-white shadow-xs">
         <CardContent className="p-4">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
             <div className="relative sm:col-span-2">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-[#6B655E]" />
               <Input
@@ -131,6 +133,20 @@ export default function UsersManagement() {
                 placeholder="Buscar usuário por nome ou e-mail..."
                 className="pl-9 border-[#E5DFD5] focus-visible:ring-[#C6A664]"
               />
+            </div>
+
+            <div>
+              <select
+                value={roleFilter}
+                onChange={(e) => setRoleFilter(e.target.value)}
+                className="w-full h-10 rounded-md border border-[#E5DFD5] bg-white px-3 py-2 text-sm text-[#2D2A26] focus:outline-none focus:ring-2 focus:ring-[#C6A664]"
+              >
+                <option value="">Todos os Perfis</option>
+                <option value="superadmin">Super Administrador</option>
+                <option value="admin">Administrador</option>
+                <option value="operator">Operador</option>
+                <option value="reseller">Revendedor</option>
+              </select>
             </div>
 
             <div>
@@ -183,13 +199,21 @@ export default function UsersManagement() {
                     <td className="py-3 px-4 font-semibold text-[#2D2A26]">{u.name}</td>
                     <td className="py-3 px-4 text-xs text-[#6B655E]">{u.email}</td>
                     <td className="py-3 px-4">
-                      <span className="font-semibold text-xs capitalize text-[#7A5C2E]">
-                        {u.role === 'admin'
-                          ? 'Administrador'
-                          : u.role === 'operator'
-                            ? 'Operador'
-                            : 'Revendedor'}
-                      </span>
+                      {u.role === 'superadmin' ? (
+                        <Badge
+                          variant="outline"
+                          className="border-red-600/40 text-red-700 bg-red-50 text-xs font-semibold gap-1"
+                        >
+                          <Shield className="h-3 w-3 text-red-600" />
+                          Super Administrador
+                        </Badge>
+                      ) : u.role === 'admin' ? (
+                        <span className="font-semibold text-xs text-[#7A5C2E]">Administrador</span>
+                      ) : u.role === 'operator' ? (
+                        <span className="font-semibold text-xs text-[#7A5C2E]">Operador</span>
+                      ) : (
+                        <span className="font-semibold text-xs text-[#6B655E]">Revendedor</span>
+                      )}
                     </td>
                     <td className="py-3 px-4">
                       {u.status === 'pending' && (
@@ -315,11 +339,12 @@ export default function UsersManagement() {
               <Label className="text-xs font-semibold">Papel no Sistema *</Label>
               <select
                 value={newRole}
-                onChange={(e) => setNewRole(e.target.value as any)}
+                onChange={(e) => setNewRole(e.target.value as AppUser['role'])}
                 className="w-full h-10 rounded-md border border-[#E5DFD5] bg-white px-3 text-sm mt-1"
               >
-                <option value="operator">Operador (Estoque, Vendas, Dashboard)</option>
+                <option value="superadmin">Super Administrador (Acesso Irrestrito)</option>
                 <option value="admin">Administrador (Total)</option>
+                <option value="operator">Operador (Estoque, Vendas, Dashboard)</option>
                 <option value="reseller">Revendedor (Vitrine e Consignação própria)</option>
               </select>
             </div>

@@ -34,8 +34,18 @@ import { LOGO_FULL_URL, LOGO_ICON_URL } from '@/constants/branding'
 
 const SIDEBAR_COLLAPSED_KEY = 'scaglioni_sidebar_collapsed'
 
+interface NavItemDef {
+  to: string
+  label: string
+  icon: React.ComponentType<{ className?: string }>
+  highlight?: boolean
+  badgeText?: string
+  isRestricted?: boolean
+}
+
 export default function Layout() {
-  const { user, isAdmin, isOperator, isReseller, canManageInternal, logout } = useAuth()
+  const { user, isSuperAdmin, isAdmin, isOperator, isReseller, canManageInternal, logout } =
+    useAuth()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
     try {
@@ -86,60 +96,117 @@ export default function Layout() {
       }
 
   // Demais itens de navegação
-  const navItems = [
-    ...(canManageInternal ? [{ to: '/', label: 'Painel Geral', icon: LayoutDashboard }] : []),
-    ...(canManageInternal
-      ? [{ to: '/voz', label: 'Cadastro por Voz', icon: Mic, highlight: true }]
-      : []),
-    ...(canManageInternal
-      ? [
-          { to: '/produtos', label: 'Catálogo de Joias', icon: Gem },
-          { to: '/estoque', label: 'Estoque Loja', icon: Boxes },
-        ]
-      : []),
+  // Para superadmin: NADA fica oculto ou bloqueado. Todas as páginas restritas aparecem no menu
+  // com destaque visual em vermelho (text-red-600, badge 'Restrito').
+  // Para os demais perfis (admin, operator, reseller): o menu se comporta exatamente como antes.
+  const navItems: NavItemDef[] = isSuperAdmin
+    ? [
+        { to: '/', label: 'Painel Geral', icon: LayoutDashboard },
+        { to: '/voz', label: 'Cadastro por Voz', icon: Mic, highlight: true },
+        { to: '/produtos', label: 'Catálogo de Joias', icon: Gem },
+        { to: '/estoque', label: 'Estoque Loja', icon: Boxes },
+        {
+          to: '/revendedora/estoque-entregas',
+          label: 'Entregas & Estoque Vendedora',
+          icon: PackageCheck,
+        },
+        {
+          to: '/revendedora/financeiro',
+          label: 'Lucro & Financeiro Vendedoras',
+          icon: BadgeDollarSign,
+        },
+        {
+          to: '/revendedora/devolucoes-pendencias',
+          label: 'Devoluções & Pendências',
+          icon: RotateCcw,
+        },
+        { to: '/vitrine', label: 'Vitrine de Joias', icon: Store },
+        { to: '/consignacoes', label: 'Consignação em Listas', icon: Handshake },
+        { to: '/revendedores', label: 'Revendedores', icon: Users2 },
+        // Páginas restritas a nível superior exibidas em vermelho
+        {
+          to: '/usuarios',
+          label: 'Gestão de Usuários',
+          icon: UserCheck,
+          isRestricted: true,
+        },
+        {
+          to: '/importar-tecson',
+          label: 'Importar Tecson',
+          icon: FileSpreadsheet,
+          isRestricted: true,
+        },
+        {
+          to: '/importar-scaglioni',
+          label: 'Importar Scaglioni',
+          icon: FileSpreadsheet,
+          isRestricted: true,
+        },
+        {
+          to: '/empresa',
+          label: 'Dados da Empresa (Contrato)',
+          icon: Building2,
+          isRestricted: true,
+        },
+        { to: '/instalar', label: 'Instalar o App (PWA)', icon: Download, badgeText: 'App' },
+        { to: '/perfil', label: 'Meu Perfil', icon: User },
+      ]
+    : [
+        ...(canManageInternal ? [{ to: '/', label: 'Painel Geral', icon: LayoutDashboard }] : []),
+        ...(canManageInternal
+          ? [{ to: '/voz', label: 'Cadastro por Voz', icon: Mic, highlight: true }]
+          : []),
+        ...(canManageInternal
+          ? [
+              { to: '/produtos', label: 'Catálogo de Joias', icon: Gem },
+              { to: '/estoque', label: 'Estoque Loja', icon: Boxes },
+            ]
+          : []),
 
-    // MÓDULO: Estoque Próprio da Revendedora
-    {
-      to: '/revendedora/estoque-entregas',
-      label: canManageInternal ? 'Entregas & Estoque Vendedora' : 'Meu Estoque & Entregas',
-      icon: PackageCheck,
-      highlight: !canManageInternal,
-    },
-    {
-      to: '/revendedora/financeiro',
-      label: canManageInternal ? 'Lucro & Financeiro Vendedoras' : 'Meu Lucro & Acerto',
-      icon: BadgeDollarSign,
-    },
-    {
-      to: '/revendedora/devolucoes-pendencias',
-      label: canManageInternal ? 'Devoluções & Pendências' : 'Minhas Devoluções & Pendências',
-      icon: RotateCcw,
-    },
+        // MÓDULO: Estoque Próprio da Revendedora
+        {
+          to: '/revendedora/estoque-entregas',
+          label: canManageInternal ? 'Entregas & Estoque Vendedora' : 'Meu Estoque & Entregas',
+          icon: PackageCheck,
+          highlight: !canManageInternal,
+        },
+        {
+          to: '/revendedora/financeiro',
+          label: canManageInternal ? 'Lucro & Financeiro Vendedoras' : 'Meu Lucro & Acerto',
+          icon: BadgeDollarSign,
+        },
+        {
+          to: '/revendedora/devolucoes-pendencias',
+          label: canManageInternal ? 'Devoluções & Pendências' : 'Minhas Devoluções & Pendências',
+          icon: RotateCcw,
+        },
 
-    { to: '/vitrine', label: 'Vitrine de Joias', icon: Store },
-    { to: '/consignacoes', label: 'Consignação em Listas', icon: Handshake },
-    ...(isAdmin || (canManageInternal && !isReseller)
-      ? [{ to: '/revendedores', label: 'Revendedores', icon: Users2 }]
-      : []),
-    ...(isAdmin ? [{ to: '/usuarios', label: 'Gestão de Usuários', icon: UserCheck }] : []),
-    ...(isAdmin
-      ? [
-          {
-            to: '/importar-tecson',
-            label: 'Importar Tecson',
-            icon: FileSpreadsheet,
-          },
-          {
-            to: '/importar-scaglioni',
-            label: 'Importar Scaglioni',
-            icon: FileSpreadsheet,
-          },
-        ]
-      : []),
-    ...(isAdmin ? [{ to: '/empresa', label: 'Dados da Empresa (Contrato)', icon: Building2 }] : []),
-    { to: '/instalar', label: 'Instalar o App (PWA)', icon: Download, badgeText: 'App' },
-    { to: '/perfil', label: 'Meu Perfil', icon: User },
-  ]
+        { to: '/vitrine', label: 'Vitrine de Joias', icon: Store },
+        { to: '/consignacoes', label: 'Consignação em Listas', icon: Handshake },
+        ...(isAdmin || (canManageInternal && !isReseller)
+          ? [{ to: '/revendedores', label: 'Revendedores', icon: Users2 }]
+          : []),
+        ...(isAdmin ? [{ to: '/usuarios', label: 'Gestão de Usuários', icon: UserCheck }] : []),
+        ...(isAdmin
+          ? [
+              {
+                to: '/importar-tecson',
+                label: 'Importar Tecson',
+                icon: FileSpreadsheet,
+              },
+              {
+                to: '/importar-scaglioni',
+                label: 'Importar Scaglioni',
+                icon: FileSpreadsheet,
+              },
+            ]
+          : []),
+        ...(isAdmin
+          ? [{ to: '/empresa', label: 'Dados da Empresa (Contrato)', icon: Building2 }]
+          : []),
+        { to: '/instalar', label: 'Instalar o App (PWA)', icon: Download, badgeText: 'App' },
+        { to: '/perfil', label: 'Meu Perfil', icon: User },
+      ]
 
   // Mobile Bottom bar items (focused on mobile-first navigation)
   const mobileBottomItems = [
@@ -256,12 +323,14 @@ export default function Layout() {
                   <p className="text-sm font-semibold truncate text-[#2D2A26]">{user.name}</p>
                   <div className="flex items-center gap-1.5">
                     <span className="inline-block h-2 w-2 rounded-full bg-[#2E7D4F]" />
-                    <span className="text-xs text-[#6B655E] capitalize font-medium">
-                      {user.role === 'admin'
-                        ? 'Administrador'
-                        : user.role === 'operator'
-                          ? 'Operador'
-                          : 'Revendedor'}
+                    <span className="text-xs text-[#6B655E] font-medium">
+                      {user.role === 'superadmin'
+                        ? 'Super Administrador'
+                        : user.role === 'admin'
+                          ? 'Administrador'
+                          : user.role === 'operator'
+                            ? 'Operador'
+                            : 'Revendedor'}
                     </span>
                   </div>
                 </div>
@@ -371,18 +440,34 @@ export default function Layout() {
                         to={item.to}
                         className={cn(
                           'flex items-center justify-center h-10 w-full rounded-xl transition-all duration-150',
-                          isActive
-                            ? 'bg-[#C6A664]/20 text-[#7A5C2E] font-bold shadow-xs'
-                            : 'text-[#6B655E] hover:bg-[#F3EAD8]/70 hover:text-[#2D2A26]',
+                          item.isRestricted
+                            ? isActive
+                              ? 'bg-red-100 text-red-600 font-bold shadow-xs'
+                              : 'text-red-600 hover:bg-red-50 hover:text-red-700'
+                            : isActive
+                              ? 'bg-[#C6A664]/20 text-[#7A5C2E] font-bold shadow-xs'
+                              : 'text-[#6B655E] hover:bg-[#F3EAD8]/70 hover:text-[#2D2A26]',
                         )}
                       >
                         <Icon
-                          className={cn('h-5 w-5', isActive ? 'text-[#7A5C2E]' : 'text-[#6B655E]')}
+                          className={cn(
+                            'h-5 w-5',
+                            item.isRestricted
+                              ? 'text-red-600'
+                              : isActive
+                                ? 'text-[#7A5C2E]'
+                                : 'text-[#6B655E]',
+                          )}
                         />
                       </NavLink>
                     </TooltipTrigger>
                     <TooltipContent side="right">
                       <span>{item.label}</span>
+                      {item.isRestricted && (
+                        <span className="ml-1.5 text-[9px] bg-red-600 text-white px-1.5 py-0.5 rounded font-bold uppercase">
+                          Restrito
+                        </span>
+                      )}
                       {item.highlight && (
                         <span className="ml-1.5 text-[9px] bg-[#C6A664] text-white px-1 py-0.2 rounded font-bold uppercase">
                           IA
@@ -404,11 +489,16 @@ export default function Layout() {
                   to={item.to}
                   className={cn(
                     'flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150',
-                    isActive
-                      ? 'bg-[#C6A664]/15 text-[#7A5C2E] font-semibold shadow-xs'
-                      : 'text-[#6B655E] hover:bg-[#F3EAD8]/60 hover:text-[#2D2A26]',
+                    item.isRestricted
+                      ? isActive
+                        ? 'bg-red-50 text-red-600 font-semibold shadow-xs border border-red-200'
+                        : 'text-red-600 hover:bg-red-50 hover:text-red-700'
+                      : isActive
+                        ? 'bg-[#C6A664]/15 text-[#7A5C2E] font-semibold shadow-xs'
+                        : 'text-[#6B655E] hover:bg-[#F3EAD8]/60 hover:text-[#2D2A26]',
                     item.highlight &&
                       !isActive &&
+                      !item.isRestricted &&
                       'border border-[#C6A664]/40 bg-[#C6A664]/5 text-[#7A5C2E]',
                   )}
                 >
@@ -416,11 +506,20 @@ export default function Layout() {
                     <Icon
                       className={cn(
                         'h-4 w-4 shrink-0',
-                        isActive ? 'text-[#7A5C2E]' : 'text-[#6B655E]',
+                        item.isRestricted
+                          ? 'text-red-600'
+                          : isActive
+                            ? 'text-[#7A5C2E]'
+                            : 'text-[#6B655E]',
                       )}
                     />
                     <span className="truncate">{item.label}</span>
                   </div>
+                  {item.isRestricted && (
+                    <span className="text-[10px] bg-red-600 text-white px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wider shrink-0 shadow-2xs">
+                      Restrito
+                    </span>
+                  )}
                   {item.highlight && (
                     <span className="text-[10px] bg-[#C6A664] text-white px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wider shrink-0">
                       IA
@@ -530,7 +629,15 @@ export default function Layout() {
 
                 <div className="py-3">
                   <p className="text-sm font-semibold text-[#2D2A26]">{user.name}</p>
-                  <p className="text-xs text-[#6B655E] capitalize">{user.role}</p>
+                  <p className="text-xs text-[#6B655E] font-medium">
+                    {user.role === 'superadmin'
+                      ? 'Super Administrador'
+                      : user.role === 'admin'
+                        ? 'Administrador'
+                        : user.role === 'operator'
+                          ? 'Operador'
+                          : 'Revendedor'}
+                  </p>
                 </div>
 
                 {/* PDV EM DESTAQUE NO TOPO DA GAVETA MOBILE */}
@@ -575,21 +682,44 @@ export default function Layout() {
                         onClick={() => setMobileMenuOpen(false)}
                         className={cn(
                           'flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-colors',
-                          isActive
-                            ? 'bg-[#C6A664]/15 text-[#7A5C2E] font-semibold'
-                            : 'text-[#6B655E] hover:bg-[#F3EAD8]',
+                          item.isRestricted
+                            ? isActive
+                              ? 'bg-red-50 text-red-600 font-semibold border border-red-200'
+                              : 'text-red-600 hover:bg-red-50'
+                            : isActive
+                              ? 'bg-[#C6A664]/15 text-[#7A5C2E] font-semibold'
+                              : 'text-[#6B655E] hover:bg-[#F3EAD8]',
                         )}
                       >
                         <div className="flex items-center gap-3">
-                          <Icon className="h-4 w-4" />
+                          <Icon
+                            className={cn(
+                              'h-4 w-4',
+                              item.isRestricted
+                                ? 'text-red-600'
+                                : isActive
+                                  ? 'text-[#7A5C2E]'
+                                  : 'text-[#6B655E]',
+                            )}
+                          />
                           <span>{item.label}</span>
+                          {item.isRestricted && (
+                            <span className="text-[9px] bg-red-600 text-white px-1.5 py-0.5 rounded font-bold uppercase">
+                              Restrito
+                            </span>
+                          )}
                           {item.badgeText && (
                             <span className="text-[9px] bg-[#F3EAD8] text-[#7A5C2E] border border-[#C6A664]/50 px-1.5 py-0.5 rounded font-bold uppercase">
                               {item.badgeText}
                             </span>
                           )}
                         </div>
-                        <ChevronRight className="h-4 w-4 text-[#C6A664]" />
+                        <ChevronRight
+                          className={cn(
+                            'h-4 w-4',
+                            item.isRestricted ? 'text-red-400' : 'text-[#C6A664]',
+                          )}
+                        />
                       </NavLink>
                     )
                   })}

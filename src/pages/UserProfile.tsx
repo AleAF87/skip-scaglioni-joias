@@ -161,13 +161,19 @@ export default function UserProfile() {
           <div className="mt-3 flex items-center gap-1.5">
             <Badge
               variant="outline"
-              className="border-[#C6A664] text-[#7A5C2E] bg-[#C6A664]/10 uppercase tracking-wider text-[10px] font-bold"
+              className={
+                user?.role === 'superadmin'
+                  ? 'border-red-600/40 text-red-700 bg-red-50 uppercase tracking-wider text-[10px] font-bold'
+                  : 'border-[#C6A664] text-[#7A5C2E] bg-[#C6A664]/10 uppercase tracking-wider text-[10px] font-bold'
+              }
             >
-              {user?.role === 'admin'
-                ? 'Administrador'
-                : user?.role === 'operator'
-                  ? 'Operador'
-                  : 'Revendedor'}
+              {user?.role === 'superadmin'
+                ? 'Super Administrador'
+                : user?.role === 'admin'
+                  ? 'Administrador'
+                  : user?.role === 'operator'
+                    ? 'Operador'
+                    : 'Revendedor'}
             </Badge>
 
             <Badge
