@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-01T14:14:29.330Z",
+  "generatedAt": "2026-11-01T15:05:36.501Z",
   "collections": [
     {
       "name": "users",
@@ -1796,8 +1796,8 @@
       "apiRules": {
         "list": "@request.auth.id != ''",
         "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != '' && ((@request.auth.role = 'superadmin' || @request.auth.role = 'admin') || @request.auth.role = 'operator')",
-        "update": "@request.auth.id != '' && ((@request.auth.role = 'superadmin' || @request.auth.role = 'admin') || @request.auth.role = 'operator')",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator')",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator')",
         "delete": "@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin')"
       },
       "fields": [
@@ -1836,9 +1836,9 @@
       "apiRules": {
         "list": "@request.auth.id != ''",
         "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != '' && ((@request.auth.role = 'superadmin' || @request.auth.role = 'admin') || @request.auth.role = 'operator')",
-        "update": "@request.auth.id != '' && ((@request.auth.role = 'superadmin' || @request.auth.role = 'admin') || @request.auth.role = 'operator')",
-        "delete": "@request.auth.id != '' && ((@request.auth.role = 'superadmin' || @request.auth.role = 'admin') || @request.auth.role = 'operator')"
+        "create": "@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator')",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator')",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator')"
       },
       "fields": [
         {

@@ -1,5 +1,12 @@
 import pb from '@/lib/pocketbase/client'
-import { Product, ProductType, ProductMaterial, ProductSize } from '@/types'
+import {
+  Product,
+  ProductType,
+  ProductMaterial,
+  ProductSize,
+  ProductCategory,
+  ProductCategoryLink,
+} from '@/types'
 
 export const productService = {
   async getProducts(params?: {
@@ -461,12 +468,99 @@ export const productService = {
   },
 
   async getAuxiliaryData() {
-    const [types, materials, sizes] = await Promise.all([
+    const [types, materials, sizes, categories] = await Promise.all([
       pb.collection('product_types').getFullList<ProductType>({ sort: 'name' }),
       pb.collection('product_materials').getFullList<ProductMaterial>({ sort: 'name' }),
       pb.collection('product_sizes').getFullList<ProductSize>({ sort: 'name' }),
+      pb
+        .collection('product_categories')
+        .getFullList<ProductCategory>({ sort: 'name' })
+        .catch(() => []),
     ])
-    return { types, materials, sizes }
+    return { types, materials, sizes, categories }
+  },
+
+  async getAllCategories() {
+    return pb.collection('product_categories').getFullList<ProductCategory>({ sort: 'name' })
+  },
+
+  async getProductCategoryLinks(productId: string) {
+    return pb.collection('product_category_links').getFullList<ProductCategoryLink>({
+      filter: `product = '${productId}'`,
+      expand: 'category',
+    })
+  },
+
+  async setProductCategoryLinks(
+    productId: string,
+    categoryIds: string[],
+    principalCategoryId?: string,
+  ) {
+    // Buscar links atuais do produto
+    const currentLinks = await pb
+      .collection('product_category_links')
+      .getFullList<ProductCategoryLink>({
+        filter: `product = '${productId}'`,
+      })
+      .catch(() => [])
+
+    const currentCatIds = new Set(currentLinks.map((l) => l.category))
+    const targetCatIds = new Set(categoryIds)
+
+    // Deletar os que não estão mais no array
+    const toDelete = currentLinks.filter((l) => !targetCatIds.has(l.category))
+    await Promise.all(
+      toDelete.map((l) =>
+        pb
+          .collection('product_category_links')
+          .delete(l.id)
+          .catch(() => null),
+      ),
+    )
+
+    // Para cada categoria selecionada: se já existe, atualizar is_principal se necessário; se não existe, criar
+    const primaryId = principalCategoryId || (categoryIds.length > 0 ? categoryIds[0] : null)
+    const promises: Promise<any>[] = []
+
+    for (const catId of categoryIds) {
+      const existing = currentLinks.find((l) => l.category === catId)
+      const isPrincipal = catId === primaryId
+
+      if (existing) {
+        if (existing.is_principal !== isPrincipal) {
+          promises.push(
+            pb
+              .collection('product_category_links')
+              .update(existing.id, { is_principal: isPrincipal })
+              .catch(() => null),
+          )
+        }
+      } else {
+        promises.push(
+          pb
+            .collection('product_category_links')
+            .create({
+              product: productId,
+              category: catId,
+              is_principal: isPrincipal,
+            })
+            .catch(() => null),
+        )
+      }
+    }
+
+    await Promise.all(promises)
+  },
+
+  async countProductsByCategory(categoryId: string): Promise<number> {
+    try {
+      const res = await pb.collection('product_category_links').getList(1, 1, {
+        filter: `category = '${categoryId}'`,
+      })
+      return res.totalItems
+    } catch {
+      return 0
+    }
   },
 
   async transcribeAudio(audioBlob: Blob, filename = 'audio.mp4') {

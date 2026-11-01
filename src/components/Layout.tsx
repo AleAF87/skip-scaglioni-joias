@@ -130,6 +130,11 @@ export default function Layout() {
           isRestricted: true,
         },
         {
+          to: '/categorias',
+          label: 'Categorias',
+          icon: Tag,
+        },
+        {
           to: '/usuarios',
           label: 'Gestão de Usuários',
           icon: UserCheck,
@@ -183,6 +188,9 @@ export default function Layout() {
 
         { to: '/vitrine', label: 'Vitrine de Joias', icon: Store },
         { to: '/consignacoes', label: 'Consignação em Listas', icon: Handshake },
+        ...(isAdmin || (canManageInternal && !isReseller)
+          ? [{ to: '/categorias', label: 'Categorias', icon: Tag }]
+          : []),
         ...(isAdmin || (canManageInternal && !isReseller)
           ? [{ to: '/revendedores', label: 'Revendedores', icon: Users2 }]
           : []),

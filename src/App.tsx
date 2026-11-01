@@ -13,6 +13,7 @@ import Dashboard from '@/pages/Dashboard'
 import VoiceProductEntry from '@/pages/VoiceProductEntry'
 import StockInventory from '@/pages/StockInventory'
 import AuxiliariesCrud from '@/pages/AuxiliariesCrud'
+import CategoriesCrud from '@/pages/CategoriesCrud'
 import PosSale from '@/pages/PosSale'
 import CatalogVitrine from '@/pages/CatalogVitrine'
 import ConsignmentsManagement from '@/pages/ConsignmentsManagement'
@@ -98,6 +99,16 @@ export default function App() {
               element={
                 <ProtectedRoute allowedRoles={['admin', 'operator']}>
                   <AuxiliariesCrud />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Categories Auxiliary CRUD */}
+            <Route
+              path="categorias"
+              element={
+                <ProtectedRoute allowedRoles={['admin', 'operator']}>
+                  <CategoriesCrud />
                 </ProtectedRoute>
               }
             />
