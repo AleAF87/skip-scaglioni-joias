@@ -11,7 +11,7 @@ routerAdd(
     }
 
     const role = authUser.getString('role')
-    if (role !== 'admin') {
+    if (role !== 'superadmin' && role !== 'admin') {
       return e.json(403, { error: 'Apenas administradores podem executar a limpeza de produtos.' })
     }
 
@@ -154,7 +154,7 @@ routerAdd(
     }
 
     const role = authUser.getString('role')
-    if (role !== 'admin') {
+    if (role !== 'superadmin' && role !== 'admin') {
       return e.json(403, { error: 'Apenas administradores podem importar produtos.' })
     }
 
@@ -483,7 +483,7 @@ routerAdd(
     }
 
     const role = authUser.getString('role')
-    if (role !== 'admin') {
+    if (role !== 'superadmin' && role !== 'admin') {
       return e.json(403, { error: 'Apenas administradores podem importar produtos.' })
     }
 
@@ -1222,7 +1222,7 @@ routerAdd(
     }
 
     const role = authUser.getString('role')
-    if (role !== 'admin' && role !== 'operator') {
+    if (role !== 'superadmin' && role !== 'admin' && role !== 'operator') {
       return e.json(403, { error: 'Permissão negada.' })
     }
 

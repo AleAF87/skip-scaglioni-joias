@@ -6,6 +6,7 @@ interface AuthContextType {
   user: AppUser | null
   isLoading: boolean
   isAuthenticated: boolean
+  isSuperAdmin: boolean
   isAdmin: boolean
   isOperator: boolean
   isReseller: boolean
@@ -114,16 +115,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const role = user?.role
   const status = user?.status
   const isAuthenticated = Boolean(user && status === 'active')
-  const isAdmin = role === 'admin' && isAuthenticated
-  const isOperator = (role === 'operator' || role === 'admin') && isAuthenticated
+  const isSuperAdmin = role === 'superadmin' && isAuthenticated
+  const isAdmin = (role === 'superadmin' || role === 'admin') && isAuthenticated
+  const isOperator =
+    (role === 'superadmin' || role === 'operator' || role === 'admin') && isAuthenticated
   const isReseller = role === 'reseller' && isAuthenticated
-  const canManageInternal = (role === 'admin' || role === 'operator') && isAuthenticated
+  const canManageInternal =
+    (role === 'superadmin' || role === 'admin' || role === 'operator') && isAuthenticated
 
   const value = useMemo(
     () => ({
       user,
       isLoading,
       isAuthenticated,
+      isSuperAdmin,
       isAdmin,
       isOperator,
       isReseller,
@@ -132,7 +137,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       logout,
       refreshUser,
     }),
-    [user, isLoading, isAuthenticated, isAdmin, isOperator, isReseller, canManageInternal],
+    [
+      user,
+      isLoading,
+      isAuthenticated,
+      isSuperAdmin,
+      isAdmin,
+      isOperator,
+      isReseller,
+      canManageInternal,
+    ],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

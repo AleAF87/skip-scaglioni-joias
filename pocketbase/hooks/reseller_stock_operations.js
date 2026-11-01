@@ -22,9 +22,9 @@ routerAdd(
     }
 
     const role = authUser.getString('role')
-    if (role !== 'admin' && role !== 'operator') {
+    if (role !== 'superadmin' && role !== 'admin' && role !== 'operator') {
       return e.json(403, {
-        error: 'Apenas administradores e operadores podem registrar entregas para revendedoras.',
+        error: 'Apenas operadores ou administradores podem despachar entregas.',
       })
     }
 
@@ -199,10 +199,11 @@ routerAdd(
 
         // Verificação de permissão: admin, operador ou a própria revendedora
         const role = authUser.getString('role')
-        const isOwner = reseller.getString('user') === authUser.id
+        const resellerUserId = reseller.getString('user')
+        const isOwner = resellerUserId === authUser.id
 
-        if (role !== 'admin' && role !== 'operator' && !isOwner) {
-          throw new Error('Sem permissão para assinar esta entrega.')
+        if (role !== 'superadmin' && role !== 'admin' && role !== 'operator' && !isOwner) {
+          throw new Error('Você não tem permissão para assinar esta entrega.')
         }
 
         delivery.set('status', 'accepted')
@@ -281,7 +282,7 @@ routerAdd(
 
         const role = authUser.getString('role')
         const isOwner = resellerRecord.getString('user') === authUser.id
-        if (role !== 'admin' && role !== 'operator' && !isOwner) {
+        if (role !== 'superadmin' && role !== 'admin' && role !== 'operator' && !isOwner) {
           throw new Error('Você não tem permissão para lançar vendas para esta revendedora.')
         }
 
@@ -415,9 +416,9 @@ routerAdd(
     }
 
     const role = authUser.getString('role')
-    if (role !== 'admin' && role !== 'operator') {
+    if (role !== 'superadmin' && role !== 'admin' && role !== 'operator') {
       return e.json(403, {
-        error: 'Apenas administradores e operadores podem processar devoluções e conferências.',
+        error: 'Apenas administradores ou operadores podem processar devoluções.',
       })
     }
 
@@ -597,7 +598,7 @@ routerAdd(
     }
 
     const role = authUser.getString('role')
-    if (role !== 'admin' && role !== 'operator') {
+    if (role !== 'superadmin' && role !== 'admin' && role !== 'operator') {
       return e.json(403, {
         error: 'Apenas administradores e operadores podem quitar ou perdoar pendências.',
       })

@@ -9,7 +9,7 @@ routerAdd(
     }
 
     const role = authUser.getString('role')
-    if (role !== 'admin' && role !== 'operator') {
+    if (role !== 'superadmin' && role !== 'admin' && role !== 'operator') {
       return e.json(403, { error: 'Apenas administradores e operadores podem concluir vendas.' })
     }
 

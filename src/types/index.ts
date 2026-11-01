@@ -1,4 +1,4 @@
-export type UserRole = 'admin' | 'operator' | 'reseller'
+export type UserRole = 'superadmin' | 'admin' | 'operator' | 'reseller'
 export type UserStatus = 'pending' | 'active' | 'rejected' | 'disabled'
 
 export interface AppUser {

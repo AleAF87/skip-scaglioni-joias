@@ -34,6 +34,11 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowe
     return <Navigate to="/login" state={{ from: location }} replace />
   }
 
+  // Superadmin has unrestricted access to everything
+  if (user.role === 'superadmin') {
+    return <>{children}</>
+  }
+
   if (allowedRoles && allowedRoles.length > 0 && !allowedRoles.includes(user.role)) {
     // If reseller tries to access operator/admin area, send to vitrine or consignações
     if (user.role === 'reseller') {
