@@ -12,16 +12,12 @@ routerAdd(
     let currentVal = 9999
 
     try {
-      const rows = []
-      $app
-        .db()
-        .newQuery(
-          "SELECT current_value FROM app_sequences WHERE name = 'product_numeric_code' LIMIT 1",
-        )
-        .all(rows)
-
-      if (rows && rows.length > 0 && rows[0].current_value !== undefined) {
-        const valFromDb = parseInt(rows[0].current_value, 10) || 0
+      const seqRecord = $app.findFirstRecordByFilter(
+        'app_sequences',
+        "name = 'product_numeric_code'",
+      )
+      if (seqRecord) {
+        const valFromDb = seqRecord.getInt('current_value') || 0
         if (valFromDb > currentVal) {
           currentVal = valFromDb
         }
@@ -34,33 +30,33 @@ routerAdd(
     // Interpretados como número inteiro puro (zeros à esquerda removidos)
     const usedNumericSet = {}
     try {
-      const prodRows = []
-      $app
-        .db()
-        .newQuery(
-          'SELECT code, sku_novo, codigo_barras_tecson, codigo_produto_tecson, codigo_barras, sku_interno, id_tecson, id_scaglioni FROM products',
-        )
-        .all(prodRows)
+      let page = 1
+      while (true) {
+        const prodRecords = $app.findRecordsByFilter('products', '', '', 1000, (page - 1) * 1000)
+        if (!prodRecords || prodRecords.length === 0) break
 
-      for (let i = 0; i < prodRows.length; i++) {
-        const r = prodRows[i]
-        const checkFields = [
-          r.code,
-          r.sku_novo,
-          r.codigo_barras_tecson,
-          r.codigo_produto_tecson,
-          r.codigo_barras,
-          r.sku_interno,
-        ]
-        for (let j = 0; j < checkFields.length; j++) {
-          const f = (checkFields[j] || '').trim()
-          if (/^\d+$/.test(f)) {
-            const num = parseInt(f, 10)
-            if (!isNaN(num)) {
-              usedNumericSet[num] = true
+        for (let i = 0; i < prodRecords.length; i++) {
+          const r = prodRecords[i]
+          const checkFields = [
+            r.getString('code'),
+            r.getString('sku_novo'),
+            r.getString('codigo_barras_tecson'),
+            r.getString('codigo_produto_tecson'),
+            r.getString('codigo_barras'),
+            r.getString('sku_interno'),
+          ]
+          for (let j = 0; j < checkFields.length; j++) {
+            const f = (checkFields[j] || '').trim()
+            if (/^\d+$/.test(f)) {
+              const num = parseInt(f, 10)
+              if (!isNaN(num)) {
+                usedNumericSet[num] = true
+              }
             }
           }
         }
+        if (prodRecords.length < 1000) break
+        page++
       }
     } catch (err) {
       console.log('Aviso ao carregar números ocupados em products:', err.message)
@@ -106,53 +102,53 @@ onRecordCreateRequest((e) => {
       $app.runInTransaction((txApp) => {
         // Piso inicial da sequência: 9999 (próximo é 10000)
         let currentSeq = 9999
-        const rows = []
-        txApp
-          .db()
-          .newQuery(
-            "SELECT id, current_value FROM app_sequences WHERE name = 'product_numeric_code' LIMIT 1",
-          )
-          .all(rows)
-
-        if (rows && rows.length > 0) {
-          if (rows[0].current_value !== undefined) {
-            const valFromDb = parseInt(rows[0].current_value, 10) || 0
+        let seqRec = null
+        try {
+          seqRec = txApp.findFirstRecordByFilter('app_sequences', "name = 'product_numeric_code'")
+          if (seqRec) {
+            const valFromDb = seqRec.getInt('current_value') || 0
             if (valFromDb > currentSeq) {
               currentSeq = valFromDb
             }
           }
-        }
+        } catch (_) {}
 
         // Mapeia todos os números ocupados no banco (Tecson, Scaglioni, etc.)
         const usedNumericSet = {}
-        const prodRows = []
         try {
-          txApp
-            .db()
-            .newQuery(
-              'SELECT code, sku_novo, codigo_barras_tecson, codigo_produto_tecson, codigo_barras, sku_interno FROM products',
+          let page = 1
+          while (true) {
+            const prodRecords = txApp.findRecordsByFilter(
+              'products',
+              '',
+              '',
+              1000,
+              (page - 1) * 1000,
             )
-            .all(prodRows)
+            if (!prodRecords || prodRecords.length === 0) break
 
-          for (let i = 0; i < prodRows.length; i++) {
-            const r = prodRows[i]
-            const checkFields = [
-              r.code,
-              r.sku_novo,
-              r.codigo_barras_tecson,
-              r.codigo_produto_tecson,
-              r.codigo_barras,
-              r.sku_interno,
-            ]
-            for (let j = 0; j < checkFields.length; j++) {
-              const f = (checkFields[j] || '').trim()
-              if (/^\d+$/.test(f)) {
-                const num = parseInt(f, 10)
-                if (!isNaN(num)) {
-                  usedNumericSet[num] = true
+            for (let i = 0; i < prodRecords.length; i++) {
+              const r = prodRecords[i]
+              const checkFields = [
+                r.getString('code'),
+                r.getString('sku_novo'),
+                r.getString('codigo_barras_tecson'),
+                r.getString('codigo_produto_tecson'),
+                r.getString('codigo_barras'),
+                r.getString('sku_interno'),
+              ]
+              for (let j = 0; j < checkFields.length; j++) {
+                const f = (checkFields[j] || '').trim()
+                if (/^\d+$/.test(f)) {
+                  const num = parseInt(f, 10)
+                  if (!isNaN(num)) {
+                    usedNumericSet[num] = true
+                  }
                 }
               }
             }
+            if (prodRecords.length < 1000) break
+            page++
           }
         } catch (_) {}
 
@@ -168,13 +164,18 @@ onRecordCreateRequest((e) => {
         const formattedCode = String(nextVal)
 
         // Atualiza app_sequences para a posição do número atribuído
-        txApp
-          .db()
-          .newQuery(
-            "UPDATE app_sequences SET current_value = {:val}, updated = {:updated} WHERE name = 'product_numeric_code'",
-          )
-          .bind({ val: nextVal, updated: new Date().toISOString() })
-          .execute()
+        if (seqRec) {
+          seqRec.set('current_value', nextVal)
+          txApp.save(seqRec)
+        } else {
+          try {
+            const seqCol = txApp.findCollectionByNameOrId('app_sequences')
+            const newSeqRec = new Record(seqCol)
+            newSeqRec.set('name', 'product_numeric_code')
+            newSeqRec.set('current_value', nextVal)
+            txApp.save(newSeqRec)
+          } catch (_) {}
+        }
 
         record.set('sku_novo', formattedCode)
         if (!record.getString('sku_interno')) {
