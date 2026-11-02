@@ -220,31 +220,94 @@ export function ProductEditModal({
             </div>
           </div>
 
-          {/* Categorias */}
+          {/* Categorias (agrupadas por Metal e Tipo) */}
           <div>
-            <label className="text-xs font-semibold text-[#2D2A26] block mb-1">
-              Categorias (multi-select)
-            </label>
-            <div className="p-2.5 rounded-xl border border-[#E5DFD5] bg-[#FDFBF7] flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
-              {categories.map((cat) => {
-                const isSelected = categoriaIds.includes(cat.id)
-                return (
-                  <button
-                    key={cat.id}
-                    type="button"
-                    onClick={() => toggleCategory(cat.id)}
-                    className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-all flex items-center gap-1.5 ${
-                      isSelected
-                        ? 'bg-[#7A5C2E] text-white border-[#7A5C2E]'
-                        : 'bg-white text-[#6B655E] border-[#E5DFD5]'
-                    }`}
-                  >
-                    {cat.name}
-                    {isSelected && <Check className="h-3 w-3" />}
-                  </button>
-                )
-              })}
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs font-semibold text-[#2D2A26]">
+                Categorias (seleção múltipla — Metal e Tipo)
+              </label>
+              <span className="text-[11px] font-medium text-[#7A5C2E]">
+                {categoriaIds.length} selecionada(s)
+              </span>
             </div>
+            <div className="p-3 rounded-xl border border-[#E5DFD5] bg-[#FDFBF7] space-y-2.5 max-h-48 overflow-y-auto">
+              {/* Grupo Metal */}
+              <div>
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#C6A664]" />
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-[#7A5C2E]">
+                    Metal
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5 pl-3">
+                  {categories
+                    .filter((c) => c.group === 'metal')
+                    .map((cat) => {
+                      const isSelected = categoriaIds.includes(cat.id)
+                      return (
+                        <button
+                          key={cat.id}
+                          type="button"
+                          onClick={() => toggleCategory(cat.id)}
+                          className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-all flex items-center gap-1.5 ${
+                            isSelected
+                              ? 'bg-[#7A5C2E] text-white border-[#7A5C2E]'
+                              : 'bg-white text-[#6B655E] border-[#E5DFD5] hover:border-[#C6A664]'
+                          }`}
+                        >
+                          {cat.name}
+                          {isSelected && <Check className="h-3 w-3" />}
+                        </button>
+                      )
+                    })}
+                  {categories.filter((c) => c.group === 'metal').length === 0 && (
+                    <span className="text-[11px] text-[#8C8275] italic">
+                      Nenhum metal cadastrado ainda.
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Grupo Tipo */}
+              <div className="pt-1.5 border-t border-[#E5DFD5]/70">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#7A5C2E]" />
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-[#7A5C2E]">
+                    Tipo
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5 pl-3">
+                  {categories
+                    .filter((c) => c.group !== 'metal')
+                    .map((cat) => {
+                      const isSelected = categoriaIds.includes(cat.id)
+                      return (
+                        <button
+                          key={cat.id}
+                          type="button"
+                          onClick={() => toggleCategory(cat.id)}
+                          className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-all flex items-center gap-1.5 ${
+                            isSelected
+                              ? 'bg-[#7A5C2E] text-white border-[#7A5C2E]'
+                              : 'bg-white text-[#6B655E] border-[#E5DFD5] hover:border-[#C6A664]'
+                          }`}
+                        >
+                          {cat.name}
+                          {isSelected && <Check className="h-3 w-3" />}
+                        </button>
+                      )
+                    })}
+                  {categories.filter((c) => c.group !== 'metal').length === 0 && (
+                    <span className="text-[11px] text-[#8C8275] italic">
+                      Nenhum tipo cadastrado ainda.
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+            <span className="text-[10px] text-[#8C8275]">
+              O produto pode conter categorias de ambos os grupos.
+            </span>
           </div>
 
           {/* Valores */}

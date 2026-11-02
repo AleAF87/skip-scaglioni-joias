@@ -52,10 +52,14 @@ export interface Brand {
   updated?: string
 }
 
+export type ProductCategoryGroup = 'metal' | 'tipo'
+
 export interface ProductCategory {
   id: string
   name: string
   slug?: string
+  group?: ProductCategoryGroup
+  archived?: boolean
   created?: string
   updated?: string
 }

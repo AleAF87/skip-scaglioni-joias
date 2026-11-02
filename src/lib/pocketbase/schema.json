@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-02T00:33:33.345Z",
+  "generatedAt": "2026-11-02T00:52:58.035Z",
   "collections": [
     {
       "name": "users",
@@ -1826,6 +1826,19 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "group",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["metal", "tipo"]
+        },
+        {
+          "name": "archived",
+          "type": "bool",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": ["CREATE UNIQUE INDEX idx_product_categories_name ON product_categories (name)"]

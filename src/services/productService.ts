@@ -480,8 +480,12 @@ export const productService = {
     return { types, materials, sizes, categories }
   },
 
-  async getAllCategories() {
-    return pb.collection('product_categories').getFullList<ProductCategory>({ sort: 'name' })
+  async getAllCategories(includeArchived = false) {
+    const filter = includeArchived ? undefined : 'archived != true'
+    return pb.collection('product_categories').getFullList<ProductCategory>({
+      filter,
+      sort: 'name',
+    })
   },
 
   async getProductCategoryLinks(productId: string) {

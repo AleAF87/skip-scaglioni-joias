@@ -158,10 +158,14 @@ export const productCreationService = {
   },
 
   /**
-   * Busca todas as categorias
+   * Busca todas as categorias ativas (não arquivadas por padrão)
    */
-  async getCategories(): Promise<ProductCategory[]> {
-    return pb.collection('product_categories').getFullList<ProductCategory>({ sort: 'name' })
+  async getCategories(includeArchived = false): Promise<ProductCategory[]> {
+    const filter = includeArchived ? undefined : 'archived != true'
+    return pb.collection('product_categories').getFullList<ProductCategory>({
+      filter,
+      sort: 'name',
+    })
   },
 
   /**
