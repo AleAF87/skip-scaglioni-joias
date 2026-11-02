@@ -103,7 +103,7 @@ export default function Layout() {
   const navItems: NavItemDef[] = isSuperAdmin
     ? [
         { to: '/', label: 'Painel Geral', icon: LayoutDashboard },
-        { to: '/produtos', label: 'Produtos', icon: Boxes },
+        { to: '/produtos', label: 'Cadastrar Produtos', icon: Boxes },
         { to: '/estoque', label: 'Estoque Loja', icon: Boxes },
         {
           to: '/revendedora/estoque-entregas',
@@ -170,7 +170,9 @@ export default function Layout() {
       ]
     : [
         ...(canManageInternal ? [{ to: '/', label: 'Painel Geral', icon: LayoutDashboard }] : []),
-        ...(canManageInternal ? [{ to: '/produtos', label: 'Produtos', icon: Boxes }] : []),
+        ...(canManageInternal
+          ? [{ to: '/produtos', label: 'Cadastrar Produtos', icon: Boxes }]
+          : []),
         ...(canManageInternal ? [{ to: '/estoque', label: 'Estoque Loja', icon: Boxes }] : []),
 
         // MÓDULO: Estoque Próprio da Revendedora
@@ -230,7 +232,7 @@ export default function Layout() {
       ? [{ to: '/pdv', label: 'PDV', icon: ShoppingCart }]
       : [{ to: '/revendedora/pdv', label: 'Meu PDV', icon: ShoppingCart }]),
     ...(canManageInternal
-      ? [{ to: '/produtos', label: 'Produtos', icon: Boxes, center: true }]
+      ? [{ to: '/produtos', label: 'Cadastrar Produtos', icon: Boxes, center: true }]
       : [{ to: '/revendedora/financeiro', label: 'Lucro', icon: BadgeDollarSign }]),
     { to: '/vitrine', label: 'Vitrine', icon: Store },
     { to: '/perfil', label: 'Perfil', icon: User },

@@ -46,7 +46,8 @@ export interface CreateProductPayload {
   destaque_ecommerce: boolean
   slug: string
   qtde_inicial: number
-  distribution: StockDistributionItem[]
+  qtde_loja_virtual?: number
+  distribution?: StockDistributionItem[]
   has_variations: boolean
   variations: ProductVariationInput[]
   galleryImages: GalleryImageItem[]
@@ -239,6 +240,9 @@ export const productCreationService = {
 
     formData.append('quantity', String(totalQty))
     formData.append('qtde_inicial', String(totalQty))
+    const virtualQty =
+      typeof payload.qtde_loja_virtual === 'number' ? Math.max(0, payload.qtde_loja_virtual) : 0
+    formData.append('qtde_loja_virtual', String(virtualQty))
     // Alerta de estoque Scaglioni: 30% da quantidade inicial
     const minAlert = Math.max(1, Math.round(totalQty * 0.3))
     formData.append('minimum_quantity', String(minAlert))
@@ -329,31 +333,40 @@ export const productCreationService = {
           })
         }
       } else {
-        // Distribuição do produto simples
+        // Distribuição do produto simples:
+        // Se houver payload.distribution (ex: legado ou custom), calcula;
+        // Caso contrário, usa o modelo simplificado: expedicao = qtde_loja_virtual, e o restante = loja_fisica (geral)
+        const virtualStoreQty =
+          typeof payload.qtde_loja_virtual === 'number' ? payload.qtde_loja_virtual : 0
+        const generalQty = Math.max(0, payload.qtde_inicial - virtualStoreQty)
+
         const distDetails: any = {
-          loja_fisica: 0,
-          expedicao: 0,
+          loja_fisica: generalQty,
+          expedicao: virtualStoreQty,
           revendedoras: [] as any[],
         }
 
-        for (const d of payload.distribution) {
-          if (d.localizacao === 'Loja física') {
-            distDetails.loja_fisica += d.quantidade
-          } else if (d.localizacao === 'Estoque separado para e-commerce') {
-            distDetails.expedicao += d.quantidade
-          } else if (d.localizacao === 'Revendedora' && d.resellerId) {
-            distDetails.revendedoras.push({
-              reseller_id: d.resellerId,
-              reseller_name: d.resellerName,
-              quantidade: d.quantidade,
-            })
-            // Aloca estoque da revendedora
-            await this.assignResellerStock(
-              productId,
-              d.resellerId,
-              d.quantidade,
-              payload.selling_price,
-            )
+        if (Array.isArray(payload.distribution) && payload.distribution.length > 0) {
+          distDetails.loja_fisica = 0
+          distDetails.expedicao = 0
+          for (const d of payload.distribution) {
+            if (d.localizacao === 'Loja física') {
+              distDetails.loja_fisica += d.quantidade
+            } else if (d.localizacao === 'Estoque separado para e-commerce') {
+              distDetails.expedicao += d.quantidade
+            } else if (d.localizacao === 'Revendedora' && d.resellerId) {
+              distDetails.revendedoras.push({
+                reseller_id: d.resellerId,
+                reseller_name: d.resellerName,
+                quantidade: d.quantidade,
+              })
+              await this.assignResellerStock(
+                productId,
+                d.resellerId,
+                d.quantidade,
+                payload.selling_price,
+              )
+            }
           }
         }
 
@@ -362,7 +375,7 @@ export const productCreationService = {
           origem: 'Manual',
           id_origem: payload.produto_id,
           quantidade: payload.qtde_inicial,
-          localizacao: 'Distribuição Inicial',
+          localizacao: 'Entrada Inicial',
           data_registro: new Date().toISOString(),
           is_ativo: true,
           detalhes_distribuicao: distDetails,

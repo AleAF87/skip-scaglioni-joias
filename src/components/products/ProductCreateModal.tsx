@@ -8,7 +8,6 @@ import {
 } from '@/services/productCreationService'
 import { productService } from '@/services/productService'
 import { Brand, Reseller, ProductCategory, Product } from '@/types'
-import { StockDistributionManager } from './StockDistributionManager'
 import { GalleryManager } from './GalleryManager'
 import { VariationsManager } from './VariationsManager'
 import {
@@ -89,20 +88,15 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
   const [comprimentoCm, setComprimentoCm] = useState<number | ''>('')
   const [pesoG, setPesoG] = useState<number | ''>('')
 
-  // 4. E-commerce
+  // 4. Estoque Inicial
+  const [quantidadeInicial, setQuantidadeInicial] = useState<number>(0)
+
+  // 5. E-commerce
   const [publicarNoEcommerce, setPublicarNoEcommerce] = useState(false)
   const [destaqueEcommerce, setDestaqueEcommerce] = useState(false)
   const [slug, setSlug] = useState('')
-
-  // 5. Estoque Inicial
-  const [quantidadeInicial, setQuantidadeInicial] = useState<number>(0)
-  const [distribution, setDistribution] = useState<StockDistributionItem[]>([
-    {
-      id: 'dist-init-1',
-      localizacao: 'Loja física',
-      quantidade: 0,
-    },
-  ])
+  const [qtdeLojaVirtual, setQtdeLojaVirtual] = useState<number>(0)
+  const [ecommerceQtyError, setEcommerceQtyError] = useState('')
 
   // 6. Variações
   const [hasVariations, setHasVariations] = useState(false)
@@ -137,21 +131,30 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
       setBrands(brandList)
       setResellers(resList)
       setCategories(catList)
-      setKnownSuppliers(supList)
 
-      // Se houver marca Scaglioni, seleciona por padrão
-      const scaglioniBrand = brandList.find((b) => b.name.toLowerCase().includes('scaglioni'))
+      // Garante 'Scaglioni Joias' na lista de fornecedores conhecidos
+      const suppliersSet = new Set(supList)
+      suppliersSet.add('Scaglioni Joias')
+      const mergedSuppliers = Array.from(suppliersSet).sort()
+      setKnownSuppliers(mergedSuppliers)
+
+      // Marca padrão: 'Scaglioni' (ou correspondente)
+      const scaglioniBrand =
+        brandList.find((b) => b.name.toLowerCase().trim() === 'scaglioni') ||
+        brandList.find((b) => b.name.toLowerCase().includes('scaglioni'))
       if (scaglioniBrand) {
         setMarcaId(scaglioniBrand.id)
       } else if (brandList.length > 0) {
         setMarcaId(brandList[0].id)
       }
 
+      // Fornecedor padrão: 'Scaglioni Joias'
+      setFornecedor('Scaglioni Joias')
+
       // Reset de campos
       setNomeProduto('')
       setCodigoBarras('')
       setBarcodeError('')
-      setFornecedor('')
       setCategoriaIds([])
       setDescription('')
       setCustoUnitario('')
@@ -167,13 +170,8 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
       setDestaqueEcommerce(false)
       setSlug('')
       setQuantidadeInicial(0)
-      setDistribution([
-        {
-          id: 'dist-init-1',
-          localizacao: 'Loja física',
-          quantidade: 0,
-        },
-      ])
+      setQtdeLojaVirtual(0)
+      setEcommerceQtyError('')
       setHasVariations(false)
       setVariations([])
     } catch (err) {
@@ -204,16 +202,26 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
     }
   }, [publicarNoEcommerce])
 
-  // Sincroniza quantidade inicial com distribuição simples se só houver 1 linha
+  // Valida quantidade e-commerce em relação à quantidade inicial
   const handleQuantidadeInicialChange = (val: number) => {
     setQuantidadeInicial(val)
-    if (distribution.length === 1) {
-      setDistribution([
-        {
-          ...distribution[0],
-          quantidade: val,
-        },
-      ])
+    if (qtdeLojaVirtual > val) {
+      setEcommerceQtyError(
+        `A quantidade para e-commerce (${qtdeLojaVirtual}) não pode exceder a quantidade inicial (${val}).`,
+      )
+    } else {
+      setEcommerceQtyError('')
+    }
+  }
+
+  const handleQtdeLojaVirtualChange = (val: number) => {
+    setQtdeLojaVirtual(val)
+    if (val > quantidadeInicial) {
+      setEcommerceQtyError(
+        `A quantidade para e-commerce (${val}) não pode exceder a quantidade inicial (${quantidadeInicial}).`,
+      )
+    } else {
+      setEcommerceQtyError('')
     }
   }
 
@@ -298,7 +306,24 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
       return
     }
 
-    // 4. Validação do Estoque Inicial e Distribuição
+    // 4. Validação do Estoque Inicial e E-commerce
+    if (quantidadeInicial < 0) {
+      toast.error('A Quantidade inicial deve ser maior ou igual a zero.')
+      return
+    }
+
+    if (qtdeLojaVirtual < 0) {
+      toast.error('A quantidade de e-commerce deve ser maior ou igual a zero.')
+      return
+    }
+
+    if (qtdeLojaVirtual > quantidadeInicial) {
+      toast.error(
+        `A quantidade para e-commerce (${qtdeLojaVirtual}) não pode exceder a quantidade inicial (${quantidadeInicial}).`,
+      )
+      return
+    }
+
     if (hasVariations) {
       if (variations.length === 0) {
         toast.error('Adicione ao menos uma variação ou desmarque a opção de variações.')
@@ -313,38 +338,6 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
         }
         if (!v.price || v.price <= 0) {
           toast.error(`Preço de venda inválido na variação #${i + 1}.`)
-          return
-        }
-        const vSum = v.distribution.reduce((acc, d) => acc + (Number(d.quantidade) || 0), 0)
-        if (vSum !== v.initialQuantity) {
-          toast.error(
-            `A soma das localizações na variação #${i + 1} (${vSum} un.) difere da quantidade inicial da variação (${v.initialQuantity} un.).`,
-          )
-          return
-        }
-        for (const d of v.distribution) {
-          if (d.localizacao === 'Revendedora' && !d.resellerId) {
-            toast.error(`Selecione a revendedora na linha de distribuição da variação #${i + 1}.`)
-            return
-          }
-        }
-      }
-    } else {
-      if (quantidadeInicial < 0) {
-        toast.error('A Quantidade inicial deve ser maior ou igual a zero.')
-        return
-      }
-      const sum = distribution.reduce((acc, d) => acc + (Number(d.quantidade) || 0), 0)
-      if (sum !== quantidadeInicial) {
-        toast.error(
-          `A soma das quantidades distribuídas (${sum} un.) deve ser EXATAMENTE igual à quantidade inicial (${quantidadeInicial} un.). Ajuste a distribuição.`,
-        )
-        return
-      }
-
-      for (const d of distribution) {
-        if (d.localizacao === 'Revendedora' && !d.resellerId) {
-          toast.error('Selecione a revendedora na linha de distribuição correspondente.')
           return
         }
       }
@@ -370,7 +363,7 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
       destaque_ecommerce: publicarNoEcommerce && destaqueEcommerce,
       slug: slug || productCreationService.slugify(nomeProduto),
       qtde_inicial: quantidadeInicial,
-      distribution,
+      qtde_loja_virtual: qtdeLojaVirtual,
       has_variations: hasVariations,
       variations,
       galleryImages,
@@ -428,21 +421,7 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
                 </h3>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                {/* Produto ID */}
-                <div>
-                  <label className="text-xs font-semibold text-[#2D2A26] flex items-center gap-1 mb-1">
-                    <Lock className="h-3 w-3 text-[#8C8275]" /> Produto ID (bloqueado)
-                  </label>
-                  <Input
-                    value={produtoId}
-                    readOnly
-                    disabled
-                    className="h-10 text-xs bg-[#F3EAD8]/40 font-mono text-[#7A5C2E] font-bold"
-                  />
-                  <span className="text-[10px] text-[#8C8275]">Gerado automaticamente</span>
-                </div>
-
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* SKU Novo */}
                 <div>
                   <label className="text-xs font-semibold text-[#2D2A26] flex items-center gap-1 mb-1">
@@ -484,7 +463,97 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
                 </div>
               </div>
 
-              {/* Nome do produto */}
+              {/* Categorias (Multi-select agrupado com Tipo antes de Metal) */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-semibold text-[#2D2A26]">
+                    Categorias (Tipo e Metal)
+                  </label>
+                  <span className="text-[11px] font-medium text-[#7A5C2E]">
+                    {categoriaIds.length} selecionada(s)
+                  </span>
+                </div>
+                <div className="p-3.5 rounded-xl border border-[#E5DFD5] bg-[#FDFBF7] space-y-3 max-h-52 overflow-y-auto">
+                  {/* Grupo Tipo (vem ANTES do grupo Metal conforme solicitado) */}
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <span className="h-1.5 w-1.5 rounded-full bg-[#7A5C2E]" />
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-[#7A5C2E]">
+                        Tipo
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 pl-3">
+                      {categories
+                        .filter((c) => c.group !== 'metal')
+                        .map((cat) => {
+                          const isSelected = categoriaIds.includes(cat.id)
+                          return (
+                            <button
+                              key={cat.id}
+                              type="button"
+                              onClick={() => toggleCategory(cat.id)}
+                              className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-all flex items-center gap-1.5 ${
+                                isSelected
+                                  ? 'bg-[#7A5C2E] text-white border-[#7A5C2E] shadow-xs'
+                                  : 'bg-white text-[#6B655E] border-[#E5DFD5] hover:border-[#C6A664]'
+                              }`}
+                            >
+                              {cat.name}
+                              {isSelected && <Check className="h-3 w-3" />}
+                            </button>
+                          )
+                        })}
+                      {categories.filter((c) => c.group !== 'metal').length === 0 && (
+                        <span className="text-[11px] text-[#8C8275] italic">
+                          Nenhum tipo cadastrado ainda.
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Grupo Metal (vem logo antes do Nome do produto) */}
+                  <div className="pt-1.5 border-t border-[#E5DFD5]/70">
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <span className="h-1.5 w-1.5 rounded-full bg-[#C6A664]" />
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-[#7A5C2E]">
+                        Metal
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 pl-3">
+                      {categories
+                        .filter((c) => c.group === 'metal')
+                        .map((cat) => {
+                          const isSelected = categoriaIds.includes(cat.id)
+                          return (
+                            <button
+                              key={cat.id}
+                              type="button"
+                              onClick={() => toggleCategory(cat.id)}
+                              className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-all flex items-center gap-1.5 ${
+                                isSelected
+                                  ? 'bg-[#7A5C2E] text-white border-[#7A5C2E] shadow-xs'
+                                  : 'bg-white text-[#6B655E] border-[#E5DFD5] hover:border-[#C6A664]'
+                              }`}
+                            >
+                              {cat.name}
+                              {isSelected && <Check className="h-3 w-3" />}
+                            </button>
+                          )
+                        })}
+                      {categories.filter((c) => c.group === 'metal').length === 0 && (
+                        <span className="text-[11px] text-[#8C8275] italic">
+                          Nenhum metal cadastrado ainda.
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <span className="text-[10px] text-[#8C8275]">
+                  Selecione as categorias de Tipo e Metal da joia.
+                </span>
+              </div>
+
+              {/* Nome do produto (posicionado imediatamente após o grupo Metal) */}
               <div>
                 <label className="text-xs font-semibold text-[#2D2A26] block mb-1">
                   Nome do produto <span className="text-[#B3261E]">*</span>
@@ -584,96 +653,6 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
                     </select>
                   )}
                 </div>
-              </div>
-
-              {/* Categorias (Multi-select agrupado por Metal e Tipo) */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs font-semibold text-[#2D2A26]">
-                    Categorias (seleção múltipla — Metal e Tipo)
-                  </label>
-                  <span className="text-[11px] font-medium text-[#7A5C2E]">
-                    {categoriaIds.length} selecionada(s)
-                  </span>
-                </div>
-                <div className="p-3.5 rounded-xl border border-[#E5DFD5] bg-[#FDFBF7] space-y-3 max-h-52 overflow-y-auto">
-                  {/* Grupo Metal */}
-                  <div>
-                    <div className="flex items-center gap-1.5 mb-1.5">
-                      <span className="h-1.5 w-1.5 rounded-full bg-[#C6A664]" />
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-[#7A5C2E]">
-                        Metal
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5 pl-3">
-                      {categories
-                        .filter((c) => c.group === 'metal')
-                        .map((cat) => {
-                          const isSelected = categoriaIds.includes(cat.id)
-                          return (
-                            <button
-                              key={cat.id}
-                              type="button"
-                              onClick={() => toggleCategory(cat.id)}
-                              className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-all flex items-center gap-1.5 ${
-                                isSelected
-                                  ? 'bg-[#7A5C2E] text-white border-[#7A5C2E] shadow-xs'
-                                  : 'bg-white text-[#6B655E] border-[#E5DFD5] hover:border-[#C6A664]'
-                              }`}
-                            >
-                              {cat.name}
-                              {isSelected && <Check className="h-3 w-3" />}
-                            </button>
-                          )
-                        })}
-                      {categories.filter((c) => c.group === 'metal').length === 0 && (
-                        <span className="text-[11px] text-[#8C8275] italic">
-                          Nenhum metal cadastrado ainda.
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Grupo Tipo */}
-                  <div className="pt-1.5 border-t border-[#E5DFD5]/70">
-                    <div className="flex items-center gap-1.5 mb-1.5">
-                      <span className="h-1.5 w-1.5 rounded-full bg-[#7A5C2E]" />
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-[#7A5C2E]">
-                        Tipo
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5 pl-3">
-                      {categories
-                        .filter((c) => c.group !== 'metal')
-                        .map((cat) => {
-                          const isSelected = categoriaIds.includes(cat.id)
-                          return (
-                            <button
-                              key={cat.id}
-                              type="button"
-                              onClick={() => toggleCategory(cat.id)}
-                              className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-all flex items-center gap-1.5 ${
-                                isSelected
-                                  ? 'bg-[#7A5C2E] text-white border-[#7A5C2E] shadow-xs'
-                                  : 'bg-white text-[#6B655E] border-[#E5DFD5] hover:border-[#C6A664]'
-                              }`}
-                            >
-                              {cat.name}
-                              {isSelected && <Check className="h-3 w-3" />}
-                            </button>
-                          )
-                        })}
-                      {categories.filter((c) => c.group !== 'metal').length === 0 && (
-                        <span className="text-[11px] text-[#8C8275] italic">
-                          Nenhum tipo cadastrado ainda.
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                <span className="text-[10px] text-[#8C8275]">
-                  Um produto pode ter categorias de ambos os grupos (vínculo por ID).
-                </span>
               </div>
 
               {/* Descrição */}
@@ -870,13 +849,99 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
               </div>
             </div>
 
-            {/* SEÇÃO 4: E-COMMERCE */}
+            {/* SEÇÃO 4: ESTOQUE INICIAL */}
+            {!hasVariations && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 border-b border-[#E5DFD5] pb-2">
+                  <Boxes className="h-4 w-4 text-[#7A5C2E]" />
+                  <h3 className="font-serif text-sm font-bold uppercase tracking-wider text-[#2D2A26]">
+                    4. Estoque Inicial
+                  </h3>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label className="text-xs font-semibold text-[#2D2A26] block mb-1">
+                      Quantidade inicial <span className="text-[#B3261E]">*</span>
+                    </label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={quantidadeInicial}
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value, 10)
+                        handleQuantidadeInicialChange(isNaN(v) ? 0 : Math.max(0, v))
+                      }}
+                      className="h-10 text-sm font-mono font-bold"
+                      required
+                    />
+                    <span className="text-[10px] text-[#8C8275]">
+                      Número inteiro maior ou igual a zero
+                    </span>
+                  </div>
+
+                  <div className="sm:col-span-2 pt-2 sm:pt-0">
+                    <p className="text-xs text-[#6B655E] leading-relaxed">
+                      A quantidade informada entra como estoque da peça. O valor reservado para o
+                      e-commerce (seção 5) define as unidades separadas para a loja virtual, ficando
+                      o restante no estoque geral da loja física.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* SEÇÃO 5: E-COMMERCE */}
             <div className="space-y-4">
               <div className="flex items-center gap-2 border-b border-[#E5DFD5] pb-2">
                 <Globe className="h-4 w-4 text-[#7A5C2E]" />
                 <h3 className="font-serif text-sm font-bold uppercase tracking-wider text-[#2D2A26]">
-                  4. E-commerce
+                  5. E-commerce
                 </h3>
+              </div>
+
+              {/* Quantidade separada para e-commerce */}
+              <div className="p-4 rounded-xl border border-[#E5DFD5] bg-[#FDFBF7] space-y-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center">
+                  <div>
+                    <label className="text-xs font-bold text-[#2D2A26] block mb-1">
+                      Quantidade para e-commerce (Loja Virtual)
+                    </label>
+                    <span className="text-[11px] text-[#6B655E] block">
+                      Unidades separadas exclusivamente para a loja virtual (no máximo igual à
+                      Quantidade inicial: {quantidadeInicial} un.).
+                    </span>
+                  </div>
+
+                  <div>
+                    <Input
+                      type="number"
+                      min="0"
+                      max={quantidadeInicial}
+                      step="1"
+                      value={qtdeLojaVirtual}
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value, 10)
+                        handleQtdeLojaVirtualChange(isNaN(v) ? 0 : Math.max(0, v))
+                      }}
+                      className={`h-10 text-sm font-mono font-bold ${
+                        ecommerceQtyError ? 'border-red-500 ring-1 ring-red-500' : ''
+                      }`}
+                    />
+                    {ecommerceQtyError ? (
+                      <span className="text-[11px] text-red-600 font-semibold block mt-1 flex items-center gap-1">
+                        <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                        {ecommerceQtyError}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-[#8C8275] block mt-1">
+                        Restante no estoque geral:{' '}
+                        {Math.max(0, quantidadeInicial - qtdeLojaVirtual)} un.
+                      </span>
+                    )}
+                  </div>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -948,57 +1013,6 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
                 </span>
               </div>
             </div>
-
-            {/* SEÇÃO 5: ESTOQUE INICIAL */}
-            {!hasVariations && (
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 border-b border-[#E5DFD5] pb-2">
-                  <Boxes className="h-4 w-4 text-[#7A5C2E]" />
-                  <h3 className="font-serif text-sm font-bold uppercase tracking-wider text-[#2D2A26]">
-                    5. Estoque Inicial
-                  </h3>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div>
-                    <label className="text-xs font-semibold text-[#2D2A26] block mb-1">
-                      Quantidade inicial <span className="text-[#B3261E]">*</span>
-                    </label>
-                    <Input
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={quantidadeInicial}
-                      onChange={(e) => {
-                        const v = parseInt(e.target.value, 10)
-                        handleQuantidadeInicialChange(isNaN(v) ? 0 : Math.max(0, v))
-                      }}
-                      className="h-10 text-sm font-mono font-bold"
-                      required
-                    />
-                    <span className="text-[10px] text-[#8C8275]">
-                      Número inteiro maior ou igual a zero
-                    </span>
-                  </div>
-
-                  <div className="sm:col-span-2 pt-2 sm:pt-0">
-                    <p className="text-xs text-[#6B655E] leading-relaxed">
-                      Ao salvar, o estoque inicial será registrado como movimentação de entrada. O
-                      estoque atual é calculado automaticamente a partir dos lançamentos por
-                      localização.
-                    </p>
-                  </div>
-                </div>
-
-                <StockDistributionManager
-                  distribution={distribution}
-                  onChange={setDistribution}
-                  resellers={resellers}
-                  targetQuantity={quantidadeInicial}
-                  labelPrefix="Estoque Inicial"
-                />
-              </div>
-            )}
 
             {/* SEÇÃO 6: VARIAÇÕES */}
             <div className="space-y-4">
