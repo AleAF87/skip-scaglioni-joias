@@ -54,12 +54,8 @@ export function formatCodeForLabelDisplay(code?: string | null): string {
  * - Se for Tecson, mantém o código de barras tecson original intacto (codigo_barras_tecson || codigo_barras || code)
  */
 export function getProductBarcodeValue(p: Partial<Product>): string {
-  const isTecson = Boolean(p.id_tecson || p.codigo_barras_tecson || p.codigo_produto_tecson)
-  if (isTecson) {
-    return (p.codigo_barras_tecson || p.codigo_barras || p.code || '').trim()
-  }
-  // Scaglioni ou novos produtos: prioriza sku_novo numérico ou code (sempre gravados como número puro 1, 2, 3...)
-  return (p.sku_novo || p.code || p.codigo_barras || '').trim()
+  const rawCode = (p.codigo_barras || p.codigo_barras_tecson || p.sku_novo || p.code || '').trim()
+  return stripLeadingZeros(rawCode)
 }
 
 /**

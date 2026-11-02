@@ -19,7 +19,12 @@ export interface StockSortState {
  * Retorna o código de exibição primário de um produto
  */
 export function getProductDisplayCode(p: Partial<Product>): string {
-  return String(p.codigo_barras || p.codigo_barras_tecson || p.code || '').trim()
+  const raw = String(p.codigo_barras || p.codigo_barras_tecson || p.code || '').trim()
+  if (/^\d+$/.test(raw)) {
+    const stripped = raw.replace(/^0+/, '')
+    return stripped === '' ? '0' : stripped
+  }
+  return raw
 }
 
 /**

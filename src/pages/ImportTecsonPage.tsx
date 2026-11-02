@@ -237,10 +237,17 @@ export function ImportTecsonPage() {
           }
         })
 
+        const stripZeros = (s: string) => {
+          const t = (s || '').trim()
+          if (!/^\d+$/.test(t)) return t
+          const stripped = t.replace(/^0+/, '')
+          return stripped === '' ? '0' : stripped
+        }
         const idTecson = mapped['id_tecson'] ? String(mapped['id_tecson']).trim() : ''
-        const codBarras = mapped['codigo_barras_tecson']
+        const rawCodBarras = mapped['codigo_barras_tecson']
           ? String(mapped['codigo_barras_tecson']).trim()
           : ''
+        const codBarras = stripZeros(rawCodBarras)
         const nomeOriginal = mapped['nome_produto'] ? String(mapped['nome_produto']).trim() : ''
         const nomeTrim = nomeOriginal
 

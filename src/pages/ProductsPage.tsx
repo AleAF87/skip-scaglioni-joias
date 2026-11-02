@@ -103,22 +103,23 @@ export function ProductsPage() {
           `sku_interno ~ '${q}'`,
         ]
 
-        // Se a busca for puramente numérica, adiciona cláusulas para match exato ignorando zeros à esquerda
+        // Se a busca for puramente numérica, adiciona cláusulas para match ignorando zeros à esquerda
         if (/^\d+$/.test(rawSearch)) {
-          const numVal = parseInt(rawSearch, 10)
           const stripped = rawSearch.replace(/^0+/, '') || '0'
-          const padded5 = String(numVal).padStart(5, '0')
 
+          clauses.push(`code = '${stripped}'`)
+          clauses.push(`codigo_barras = '${stripped}'`)
+          clauses.push(`codigo_barras_tecson = '${stripped}'`)
+          clauses.push(`sku_novo = '${stripped}'`)
+          clauses.push(`sku_interno = '${stripped}'`)
+          clauses.push(`produto_id = '${stripped}'`)
+
+          // Caso ainda existissem registros com zeros ou substrings
           if (stripped !== rawSearch) {
-            clauses.push(`code = '${stripped}'`)
-            clauses.push(`codigo_barras_tecson = '${stripped}'`)
-            clauses.push(`sku_novo = '${stripped}'`)
-            clauses.push(`produto_id = '${stripped}'`)
-          }
-          if (padded5 !== rawSearch) {
-            clauses.push(`code = '${padded5}'`)
-            clauses.push(`codigo_barras_tecson = '${padded5}'`)
-            clauses.push(`sku_novo = '${padded5}'`)
+            clauses.push(`code ~ '${stripped}'`)
+            clauses.push(`codigo_barras ~ '${stripped}'`)
+            clauses.push(`codigo_barras_tecson ~ '${stripped}'`)
+            clauses.push(`sku_novo ~ '${stripped}'`)
           }
         }
 
@@ -408,7 +409,7 @@ export function ProductsPage() {
                 <thead>
                   <tr className="border-b border-[#E5DFD5] bg-[#FDFBF7] text-[#6B655E] font-semibold uppercase tracking-wider text-[10px]">
                     <th className="py-3 px-3 w-14 text-center">Foto</th>
-                    <th className="py-3 px-3">Produto ID</th>
+                    <th className="py-3 px-3">CÓDIGO</th>
                     <th className="py-3 px-3 min-w-[200px]">Nome do produto</th>
                     <th className="py-3 px-3">SKU novo</th>
                     <th className="py-3 px-3">Marca</th>
@@ -447,21 +448,21 @@ export function ProductsPage() {
                           </div>
                         </td>
 
-                        {/* Produto ID */}
-                        <td className="py-2.5 px-3 font-mono font-medium text-[#7A5C2E]">
-                          {p.produto_id || p.id.slice(0, 10)}
+                        {/* CÓDIGO (código da peça / código de barras de referência) */}
+                        <td className="py-2.5 px-3 font-mono font-bold text-[#7A5C2E]">
+                          {p.codigo_barras ||
+                            p.codigo_barras_tecson ||
+                            p.code ||
+                            p.sku_novo ||
+                            p.sku_interno ||
+                            '—'}
                         </td>
 
-                        {/* Nome do produto */}
+                        {/* Nome do produto (sem prefixo Cód. Barras: #) */}
                         <td className="py-2.5 px-3">
                           <span className="font-semibold text-xs text-[#2D2A26] block truncate max-w-[260px]">
                             {p.nome_produto || p.description}
                           </span>
-                          {(p.codigo_barras || p.sku_novo || p.code) && (
-                            <span className="text-[10px] text-[#8C8275] font-mono block">
-                              Cód. Barras: {p.codigo_barras || p.sku_novo || p.code}
-                            </span>
-                          )}
                         </td>
 
                         {/* SKU Novo / SKU Herdado / Código */}

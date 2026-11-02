@@ -218,8 +218,14 @@ export function parseProductsCsv(rawText: string, encodingName = 'UTF-8'): CsvPa
 
     // Regra: O código deve vir EXCLUSIVAMENTE da coluna codigo_barras.
     // A coluna codigo_produto é descartada/ignorada.
-    // Preserve string with leading zeros (e.g. "611", "00123", "999984")
-    const code = rawCodeBarras
+    // Zeros à esquerda são removidos se numérico (ex: "00123" -> "123")
+    const stripZeros = (s: string) => {
+      const t = (s || '').trim()
+      if (!/^\d+$/.test(t)) return t
+      const stripped = t.replace(/^0+/, '')
+      return stripped === '' ? '0' : stripped
+    }
+    const code = stripZeros(rawCodeBarras)
     const description = rawNome
 
     if (!code) {

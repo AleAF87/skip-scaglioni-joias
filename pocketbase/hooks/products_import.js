@@ -192,6 +192,16 @@ routerAdd(
             : ''
           const nomeProduto = (item.nome_produto || nomeOriginal).trim()
 
+          // Remove zeros à esquerda se for numérico
+          const stripZeros = (s) => {
+            if (!s) return ''
+            const t = String(s).trim()
+            if (!/^\d+$/.test(t)) return t
+            const stripped = t.replace(/^0+/, '')
+            return stripped === '' ? '0' : stripped
+          }
+          const cleanCodBarrasTecson = stripZeros(codBarrasTecson)
+
           // Validação estrita: codigo_barras é OBRIGATÓRIO (valores de 611 a 999984)
           if (!codBarrasTecson) {
             ignoredCount++
@@ -234,7 +244,16 @@ routerAdd(
                 existing = txApp.findFirstRecordByData('products', 'id_tecson', idTecson)
               } catch (_) {}
             }
-            if (!existing && codBarrasTecson) {
+            if (!existing && cleanCodBarrasTecson) {
+              try {
+                existing = txApp.findFirstRecordByData(
+                  'products',
+                  'codigo_barras_tecson',
+                  cleanCodBarrasTecson,
+                )
+              } catch (_) {}
+            }
+            if (!existing && codBarrasTecson && codBarrasTecson !== cleanCodBarrasTecson) {
               try {
                 existing = txApp.findFirstRecordByData(
                   'products',
@@ -264,9 +283,12 @@ routerAdd(
 
               if (!isDryRun) {
                 existing.set('id_tecson', idTecson)
-                existing.set('codigo_barras_tecson', codBarrasTecson)
-                existing.set('code', codBarrasTecson)
-                existing.set('codigo_barras', codBarrasTecson)
+                existing.set('codigo_barras_tecson', cleanCodBarrasTecson)
+                existing.set('code', cleanCodBarrasTecson)
+                existing.set('codigo_barras', cleanCodBarrasTecson)
+                if (existing.getString('sku_interno')) {
+                  existing.set('sku_interno', stripZeros(existing.getString('sku_interno')))
+                }
                 existing.set(
                   'nome_original_tecson',
                   nomeOriginal || existing.getString('nome_original_tecson'),
@@ -361,14 +383,14 @@ routerAdd(
 
                 const newProd = new Record(productsCol)
                 newProd.set('produto_id', produtoId)
-                // sku_interno recebe o próprio código de barras Tecson para rastreabilidade coerente
-                newProd.set('sku_interno', codBarrasTecson)
+                // sku_interno recebe o próprio código de barras Tecson para rastreabilidade coerente sem zeros à esquerda
+                newProd.set('sku_interno', cleanCodBarrasTecson)
                 newProd.set('nome_produto', nomeProduto)
-                newProd.set('description', nomeProduto || codBarrasTecson || 'Produto Tecson')
-                newProd.set('code', codBarrasTecson)
-                newProd.set('codigo_barras', codBarrasTecson)
+                newProd.set('description', nomeProduto || cleanCodBarrasTecson || 'Produto Tecson')
+                newProd.set('code', cleanCodBarrasTecson)
+                newProd.set('codigo_barras', cleanCodBarrasTecson)
                 newProd.set('id_tecson', idTecson)
-                newProd.set('codigo_barras_tecson', codBarrasTecson)
+                newProd.set('codigo_barras_tecson', cleanCodBarrasTecson)
                 newProd.set('nome_original_tecson', nomeOriginal)
                 newProd.set('data_inclusao_tecson', dataInclusao)
                 newProd.set('fornecedor', fornecedor)

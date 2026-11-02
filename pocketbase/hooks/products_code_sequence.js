@@ -83,6 +83,30 @@ routerAdd(
 onRecordCreateRequest((e) => {
   const record = e.record
   if (record) {
+    const stripZeros = (s) => {
+      if (!s) return ''
+      const t = String(s).trim()
+      if (!/^\d+$/.test(t)) return t
+      const stripped = t.replace(/^0+/, '')
+      return stripped === '' ? '0' : stripped
+    }
+
+    // Higieniza qualquer código numérico enviado com zeros à esquerda
+    const rawSkuNovo = (record.getString('sku_novo') || '').trim()
+    const rawCode = (record.getString('code') || '').trim()
+    const rawCodigoBarras = (record.getString('codigo_barras') || '').trim()
+    const rawSkuInterno = (record.getString('sku_interno') || '').trim()
+    const rawCodTecson = (record.getString('codigo_barras_tecson') || '').trim()
+
+    if (rawSkuNovo && /^\d+$/.test(rawSkuNovo)) record.set('sku_novo', stripZeros(rawSkuNovo))
+    if (rawCode && /^\d+$/.test(rawCode)) record.set('code', stripZeros(rawCode))
+    if (rawCodigoBarras && /^\d+$/.test(rawCodigoBarras))
+      record.set('codigo_barras', stripZeros(rawCodigoBarras))
+    if (rawSkuInterno && /^\d+$/.test(rawSkuInterno))
+      record.set('sku_interno', stripZeros(rawSkuInterno))
+    if (rawCodTecson && /^\d+$/.test(rawCodTecson))
+      record.set('codigo_barras_tecson', stripZeros(rawCodTecson))
+
     const incomingSkuNovo = (record.getString('sku_novo') || '').trim()
     const incomingCode = (record.getString('code') || '').trim()
 
@@ -93,6 +117,9 @@ onRecordCreateRequest((e) => {
       // Já possui numérico no sku_novo
       if (!incomingCode) {
         record.set('code', incomingSkuNovo)
+      }
+      if (!record.getString('codigo_barras')) {
+        record.set('codigo_barras', incomingSkuNovo)
       }
       return e.next()
     }
@@ -194,6 +221,35 @@ onRecordCreateRequest((e) => {
       })
     } catch (seqErr) {
       console.log('Erro ao gerar código numérico sequencial atômico:', seqErr.message)
+    }
+  }
+  e.next()
+}, 'products')
+
+// 3. onRecordUpdateRequest hook for 'products' collection
+// Garante que qualquer atualização manual ou via API de código numérico remova zeros à esquerda
+onRecordUpdateRequest((e) => {
+  const record = e.record
+  if (record) {
+    const stripZeros = (s) => {
+      if (!s) return ''
+      const t = String(s).trim()
+      if (!/^\d+$/.test(t)) return t
+      const stripped = t.replace(/^0+/, '')
+      return stripped === '' ? '0' : stripped
+    }
+
+    const codeFields = ['code', 'codigo_barras', 'codigo_barras_tecson', 'sku_interno', 'sku_novo']
+
+    for (let i = 0; i < codeFields.length; i++) {
+      const f = codeFields[i]
+      const val = (record.getString(f) || '').trim()
+      if (val && /^\d+$/.test(val)) {
+        const cleaned = stripZeros(val)
+        if (cleaned !== val) {
+          record.set(f, cleaned)
+        }
+      }
     }
   }
   e.next()

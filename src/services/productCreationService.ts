@@ -208,7 +208,10 @@ export const productCreationService = {
     formData.append('nome_produto', payload.nome_produto.trim())
     formData.append('description', payload.description.trim() || payload.nome_produto.trim())
     if (payload.codigo_barras?.trim()) {
-      formData.append('codigo_barras', payload.codigo_barras.trim())
+      const cbTrim = payload.codigo_barras.trim()
+      const cleanCb = /^\d+$/.test(cbTrim) ? cbTrim.replace(/^0+/, '') || '0' : cbTrim
+      formData.append('codigo_barras', cleanCb)
+      formData.append('code', cleanCb)
     }
     if (payload.marca_id) {
       formData.append('marca_id', payload.marca_id)
