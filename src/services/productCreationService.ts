@@ -19,8 +19,10 @@ export interface ProductVariationInput {
   attributeValue: string // '15', '16', 'prata', 'dourado'
   sku: string
   price: number
-  initialQuantity: number
-  distribution: StockDistributionItem[]
+  initialQuantity: number // Qtde. Inicial Geral
+  ecommerceQuantity?: number // Qtde. E-commerce (quando publicar_no_ecommerce estiver ativo)
+  physicalQuantity?: number // Qtde. Venda Física (calculado: initialQuantity - ecommerceQuantity)
+  distribution?: StockDistributionItem[] // legado/opcional
   imageFile?: File | null
   imageUrl?: string
 }
@@ -305,25 +307,21 @@ export const productCreationService = {
       if (payload.has_variations && payload.variations.length > 0) {
         // Registra estoque inicial detalhado por variação
         for (const variation of payload.variations) {
+          const ecomQty = payload.publicar_no_ecommerce
+            ? Math.max(
+                0,
+                Math.min(variation.initialQuantity || 0, variation.ecommerceQuantity ?? 0),
+              )
+            : 0
+          const physicalQty =
+            typeof variation.physicalQuantity === 'number'
+              ? variation.physicalQuantity
+              : Math.max(0, (variation.initialQuantity || 0) - ecomQty)
+
           const varDistDetails: any = {
-            loja_fisica: 0,
-            expedicao: 0,
+            loja_fisica: physicalQty,
+            expedicao: ecomQty,
             revendedoras: [] as any[],
-          }
-          for (const d of variation.distribution) {
-            if (d.localizacao === 'Estoque geral' || d.localizacao === 'Loja física') {
-              varDistDetails.loja_fisica += d.quantidade
-            } else if (d.localizacao === 'Estoque separado para e-commerce') {
-              varDistDetails.expedicao += d.quantidade
-            } else if (d.localizacao === 'Revendedora' && d.resellerId) {
-              varDistDetails.revendedoras.push({
-                reseller_id: d.resellerId,
-                reseller_name: d.resellerName,
-                quantidade: d.quantidade,
-              })
-              // Aloca estoque da revendedora se aplicável
-              await this.assignResellerStock(productId, d.resellerId, d.quantidade, variation.price)
-            }
           }
 
           await pb.collection('initial_stocks').create({

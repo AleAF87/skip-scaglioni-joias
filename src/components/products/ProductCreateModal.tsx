@@ -199,11 +199,23 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
   }, [nomeProduto])
 
   // Desabilita destaque no e-commerce se publicar for Não
+  // e se houver variações, sincroniza qtdeLojaVirtual conforme o estado do e-commerce
   useEffect(() => {
     if (!publicarNoEcommerce) {
       setDestaqueEcommerce(false)
+      if (hasVariations) {
+        setQtdeLojaVirtual(0)
+        setEcommerceQtyError('')
+      }
+    } else if (hasVariations) {
+      const sumEcom = variations.reduce(
+        (sum, v) => sum + (typeof v.ecommerceQuantity === 'number' ? v.ecommerceQuantity : 0),
+        0,
+      )
+      setQtdeLojaVirtual(sumEcom)
+      setEcommerceQtyError('')
     }
-  }, [publicarNoEcommerce])
+  }, [publicarNoEcommerce, hasVariations])
 
   // Valida quantidade e-commerce em relação à quantidade inicial
   const handleQuantidadeInicialChange = (val: number) => {
@@ -291,21 +303,23 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
     }
 
     // 4. Validação do Estoque Inicial e E-commerce
-    if (quantidadeInicial < 0) {
-      toast.error('A Quantidade inicial deve ser maior ou igual a zero.')
-      return
-    }
+    if (!hasVariations) {
+      if (quantidadeInicial < 0) {
+        toast.error('A Quantidade inicial deve ser maior ou igual a zero.')
+        return
+      }
 
-    if (qtdeLojaVirtual < 0) {
-      toast.error('A quantidade de e-commerce deve ser maior ou igual a zero.')
-      return
-    }
+      if (qtdeLojaVirtual < 0) {
+        toast.error('A quantidade de e-commerce deve ser maior ou igual a zero.')
+        return
+      }
 
-    if (qtdeLojaVirtual > quantidadeInicial) {
-      toast.error(
-        `A quantidade para e-commerce (${qtdeLojaVirtual}) não pode exceder a quantidade inicial (${quantidadeInicial}).`,
-      )
-      return
+      if (qtdeLojaVirtual > quantidadeInicial) {
+        toast.error(
+          `A quantidade para e-commerce (${qtdeLojaVirtual}) não pode exceder a quantidade inicial (${quantidadeInicial}).`,
+        )
+        return
+      }
     }
 
     if (hasVariations) {
@@ -323,6 +337,35 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
         if (!v.price || v.price <= 0) {
           toast.error(`Preço de venda inválido na variação #${i + 1}.`)
           return
+        }
+        const initQ = typeof v.initialQuantity === 'number' ? v.initialQuantity : -1
+        if (initQ < 0) {
+          toast.error(`A Quantidade Inicial Geral da variação #${i + 1} deve ser informada (≥ 0).`)
+          return
+        }
+        if (publicarNoEcommerce) {
+          if (
+            v.ecommerceQuantity === undefined ||
+            v.ecommerceQuantity === null ||
+            (v.ecommerceQuantity as any) === '' ||
+            isNaN(Number(v.ecommerceQuantity))
+          ) {
+            toast.error(
+              `Informe a Qtde. E-commerce na variação #${i + 1} (não pode ficar vazia, mas pode ser 0).`,
+            )
+            return
+          }
+          const ecomQ = Number(v.ecommerceQuantity)
+          if (ecomQ < 0) {
+            toast.error(`A Qtde. E-commerce da variação #${i + 1} não pode ser negativa.`)
+            return
+          }
+          if (ecomQ > initQ) {
+            toast.error(
+              `A Qtde. E-commerce (${ecomQ}) da variação #${i + 1} não pode ser maior que a Qtde. Inicial Geral (${initQ}).`,
+            )
+            return
+          }
         }
       }
     }
@@ -922,8 +965,9 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
                       Quantidade para e-commerce (Loja Virtual)
                     </label>
                     <span className="text-[11px] text-[#6B655E] block">
-                      Unidades separadas exclusivamente para a loja virtual (no máximo igual à
-                      Quantidade inicial: {quantidadeInicial} un.).
+                      {hasVariations
+                        ? 'Calculada automaticamente pela soma das quantidades de e-commerce das variações da Seção 6.'
+                        : `Unidades separadas exclusivamente para a loja virtual (no máximo igual à Quantidade inicial: ${quantidadeInicial} un.).`}
                     </span>
                   </div>
 
@@ -931,16 +975,23 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
                     <Input
                       type="number"
                       min="0"
-                      max={quantidadeInicial}
+                      max={
+                        hasVariations
+                          ? variations.reduce((sum, v) => sum + (v.initialQuantity || 0), 0)
+                          : quantidadeInicial
+                      }
                       step="1"
                       value={qtdeLojaVirtual}
+                      readOnly={hasVariations}
+                      disabled={hasVariations}
                       onChange={(e) => {
+                        if (hasVariations) return
                         const v = parseInt(e.target.value, 10)
                         handleQtdeLojaVirtualChange(isNaN(v) ? 0 : Math.max(0, v))
                       }}
                       className={`h-10 text-sm font-mono font-bold ${
-                        ecommerceQtyError ? 'border-red-500 ring-1 ring-red-500' : ''
-                      }`}
+                        hasVariations ? 'bg-[#F3EAD8]/40 text-[#7A5C2E]' : ''
+                      } ${ecommerceQtyError ? 'border-red-500 ring-1 ring-red-500' : ''}`}
                     />
                     {ecommerceQtyError ? (
                       <span className="text-[11px] text-red-600 font-semibold block mt-1 flex items-center gap-1">
@@ -950,7 +1001,13 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
                     ) : (
                       <span className="text-[10px] text-[#8C8275] block mt-1">
                         Restante no estoque geral:{' '}
-                        {Math.max(0, quantidadeInicial - qtdeLojaVirtual)} un.
+                        {Math.max(
+                          0,
+                          (hasVariations
+                            ? variations.reduce((sum, v) => sum + (v.initialQuantity || 0), 0)
+                            : quantidadeInicial) - qtdeLojaVirtual,
+                        )}{' '}
+                        un.
                       </span>
                     )}
                   </div>
@@ -1048,10 +1105,23 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
               {hasVariations && (
                 <VariationsManager
                   variations={variations}
-                  onChange={setVariations}
+                  onChange={(newVariations) => {
+                    setVariations(newVariations)
+                    // Se o e-commerce estiver ativo, sincroniza a soma das variações no campo da Seção 5
+                    if (publicarNoEcommerce) {
+                      const totalEcom = newVariations.reduce(
+                        (sum, v) =>
+                          sum + (typeof v.ecommerceQuantity === 'number' ? v.ecommerceQuantity : 0),
+                        0,
+                      )
+                      setQtdeLojaVirtual(totalEcom)
+                      setEcommerceQtyError('')
+                    }
+                  }}
                   resellers={resellers}
                   baseSku={skuNovoPreview || '10000'}
                   basePrice={Number(precoVenda) || 0}
+                  isEcommercePublished={publicarNoEcommerce}
                 />
               )}
             </div>
