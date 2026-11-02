@@ -189,7 +189,7 @@ export default function ResellerFinancial() {
                   {formatCurrency(summary.totalDueToScaglioni)}
                 </div>
                 <p className="text-[11px] text-[#6B655E]">
-                  Vendas consignadas + pendências em aberto
+                  Vendas da revendedora + pendências em aberto
                 </p>
               </CardContent>
             </Card>
@@ -221,7 +221,7 @@ export default function ResellerFinancial() {
                   {summary.currentStockPieces} peças
                 </div>
                 <p className="text-[11px] text-[#6B655E]">
-                  Total de {formatCurrency(summary.currentStockValue)} consignado
+                  Total de {formatCurrency(summary.currentStockValue)} em poder
                 </p>
               </CardContent>
             </Card>
@@ -287,7 +287,7 @@ export default function ResellerFinancial() {
                     Valor Total Pendente de Acerto com a Scaglioni
                   </h4>
                   <p className="text-[11px] text-[#6B655E]">
-                    Soma das vendas consignadas realizadas + pendências não pagas.
+                    Soma das vendas da revendedora realizadas + pendências não pagas.
                   </p>
                 </div>
                 <div className="text-right">

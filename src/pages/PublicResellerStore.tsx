@@ -402,7 +402,7 @@ export default function PublicResellerStore() {
             />
           </div>
           <p className="text-[11px] text-[#C6A664]">
-            Catálogo virtual exclusivo de {reseller.name} • Alta Joalheria & Consignação
+            Catálogo virtual exclusivo de {reseller.name} • Alta Joalheria & Revenda
           </p>
         </div>
       </footer>

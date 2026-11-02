@@ -131,8 +131,8 @@ export default function CompanySettingsPage() {
             </h1>
           </div>
           <p className="text-sm text-[#6B655E] mt-1">
-            Dados institucionais da Scaglioni Joias que preenchem automaticamente o Contrato de
-            Consignação e Termo de Recebimento de Produtos.
+            Dados institucionais da Scaglioni Joias que preenchem automaticamente comprovantes e
+            termos de entrega para revendedoras.
           </p>
         </div>
 
@@ -148,7 +148,7 @@ export default function CompanySettingsPage() {
         <Alert className="border-amber-300 bg-amber-50/80 text-amber-900 rounded-xl">
           <AlertTriangle className="h-5 w-5 text-amber-700" />
           <AlertTitle className="font-serif font-bold text-amber-900">
-            Atenção: O contrato de consignação será gerado com dados incompletos!
+            Atenção: Documentos e comprovantes serão gerados com dados incompletos!
           </AlertTitle>
           <AlertDescription className="text-xs text-amber-800 mt-1">
             Os seguintes campos ainda não foram cadastrados e aparecerão entre colchetes no

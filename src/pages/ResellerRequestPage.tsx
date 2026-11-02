@@ -97,7 +97,7 @@ export default function ResellerRequestPage() {
             Seja um Revendedor Scaglioni
           </h1>
           <p className="text-xs uppercase tracking-wider text-[#7A5C2E] font-semibold">
-            Solicitação de Cadastro para Revenda e Consignação
+            Solicitação de Cadastro para Revendedora Oficial
           </p>
         </div>
 
@@ -111,7 +111,7 @@ export default function ResellerRequestPage() {
               <p className="text-sm text-[#6B655E] max-w-md mx-auto">
                 Seu cadastro está com status <strong>Pendente</strong> e será analisado pela
                 administração da joalheria. Assim que aprovado, você receberá a liberação de acesso
-                para acompanhar suas listas de consignação e vitrine.
+                para acompanhar suas entregas, estoque e vitrine.
               </p>
               <div className="pt-4">
                 <Link to="/login">
@@ -194,9 +194,9 @@ export default function ResellerRequestPage() {
 
               {/* Endereço Residencial Completo */}
               <div className="pt-2 border-t border-[#E5DFD5]">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-[#7A5C2E] mb-2">
-                  Endereço Residencial Completo (Para Contrato de Consignação)
-                </h3>
+                <h3 className="font-serif font-bold text-sm text-[#2D2A26] mb-3">
+                  Endereço Residencial Completo (Para Comprovantes e Entregas)
+                </h3>{' '}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="sm:col-span-2">
                     <Label className="text-xs font-semibold">Rua / Logradouro *</Label>

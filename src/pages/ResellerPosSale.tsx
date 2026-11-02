@@ -597,7 +597,7 @@ export default function ResellerPosSale() {
                 Venda Realizada com Sucesso!
               </h3>
               <p className="text-xs text-[#6B655E]">
-                As joias foram baixadas do seu estoque consignado.
+                As joias foram baixadas do seu estoque de revendedora.
               </p>
             </div>
 

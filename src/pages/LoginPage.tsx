@@ -54,7 +54,7 @@ export default function LoginPage() {
             />
           </div>
           <p className="text-xs uppercase tracking-widest text-[#7A5C2E] font-semibold">
-            Sistema de Gestão & Consignação
+            Sistema de Gestão & Revendedoras
           </p>
         </div>
 

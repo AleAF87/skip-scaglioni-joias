@@ -106,9 +106,9 @@ export default function Layout() {
         { to: '/produtos', label: 'Cadastrar Produtos', icon: Boxes },
         { to: '/estoque', label: 'Estoque', icon: Boxes },
         {
-          to: '/revendedora/estoque-entregas',
-          label: 'Entregas & Estoque Vendedora',
-          icon: PackageCheck,
+          to: '/revendedoras',
+          label: 'Revendedoras',
+          icon: Users2,
         },
         {
           to: '/revendedora/financeiro',
@@ -121,8 +121,6 @@ export default function Layout() {
           icon: RotateCcw,
         },
         { to: '/vitrine', label: 'Vitrine de Joias', icon: Store },
-        { to: '/consignacoes', label: 'Consignação em Listas', icon: Handshake },
-        { to: '/revendedores', label: 'Revendedores', icon: Users2 },
         // Páginas restritas a nível superior exibidas em vermelho
         {
           to: '/voz',
@@ -175,11 +173,11 @@ export default function Layout() {
           : []),
         ...(canManageInternal ? [{ to: '/estoque', label: 'Estoque', icon: Boxes }] : []),
 
-        // MÓDULO: Estoque Próprio da Revendedora
+        // PÁGINA UNIFICADA: Revendedoras (substitui Consignações e Entregas)
         {
-          to: '/revendedora/estoque-entregas',
-          label: canManageInternal ? 'Entregas & Estoque Vendedora' : 'Meu Estoque & Entregas',
-          icon: PackageCheck,
+          to: '/revendedoras',
+          label: 'Revendedoras',
+          icon: Users2,
           highlight: !canManageInternal,
         },
         {
@@ -194,12 +192,8 @@ export default function Layout() {
         },
 
         { to: '/vitrine', label: 'Vitrine de Joias', icon: Store },
-        { to: '/consignacoes', label: 'Consignação em Listas', icon: Handshake },
         ...(isAdmin || (canManageInternal && !isReseller)
           ? [{ to: '/categorias', label: 'Categorias', icon: Tag }]
-          : []),
-        ...(isAdmin || (canManageInternal && !isReseller)
-          ? [{ to: '/revendedores', label: 'Revendedores', icon: Users2 }]
           : []),
         ...(isAdmin ? [{ to: '/usuarios', label: 'Gestão de Usuários', icon: UserCheck }] : []),
         ...(isAdmin
@@ -227,7 +221,7 @@ export default function Layout() {
   const mobileBottomItems = [
     ...(canManageInternal
       ? [{ to: '/', label: 'Painel', icon: LayoutDashboard }]
-      : [{ to: '/revendedora/estoque-entregas', label: 'Estoque', icon: PackageCheck }]),
+      : [{ to: '/revendedoras', label: 'Revendedora', icon: Users2 }]),
     ...(canManageInternal
       ? [{ to: '/pdv', label: 'PDV', icon: ShoppingCart }]
       : [{ to: '/revendedora/pdv', label: 'Meu PDV', icon: ShoppingCart }]),

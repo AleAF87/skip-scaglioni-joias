@@ -18,6 +18,7 @@ import {
   ShoppingCart,
   Mic,
   Sparkles,
+  Users2,
 } from 'lucide-react'
 import {
   BarChart,
@@ -181,7 +182,7 @@ export default function Dashboard() {
             Painel Executivo
           </h1>
           <p className="text-sm text-[#6B655E] mt-1">
-            Visão geral em tempo real da Scaglioni Joias: vendas, estoque, consignação e alertas.
+            Visão geral em tempo real da Scaglioni Joias: vendas, estoque, revendedoras e alertas.
           </p>
         </div>
 
@@ -257,9 +258,11 @@ export default function Dashboard() {
 
         <Card className="border-[#E5DFD5] bg-white shadow-xs p-3">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold uppercase text-[#6B655E]">Consignados</span>
+            <span className="text-[11px] font-semibold uppercase text-[#6B655E]">
+              Com Revendedoras
+            </span>
             <span className="p-1.5 rounded-lg bg-[#B26A00]/10 text-[#B26A00]">
-              <Handshake className="h-3.5 w-3.5" />
+              <Users2 className="h-3.5 w-3.5" />
             </span>
           </div>
           <p className="font-serif text-lg font-bold text-[#2D2A26] mt-2 truncate">
@@ -271,15 +274,15 @@ export default function Dashboard() {
         <Card className="border-[#E5DFD5] bg-white shadow-xs p-3">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-semibold uppercase text-[#6B655E]">
-              Listas Abertas
+              Entregas Ativas
             </span>
             <span className="p-1.5 rounded-lg bg-[#7A5C2E]/10 text-[#7A5C2E]">
-              <Handshake className="h-3.5 w-3.5" />
+              <Users2 className="h-3.5 w-3.5" />
             </span>
           </div>
           <p className="font-serif text-lg font-bold text-[#2D2A26] mt-2 truncate">
             {openConsignmentsCount}{' '}
-            <span className="text-xs font-sans font-normal text-[#6B655E]">listas</span>
+            <span className="text-xs font-sans font-normal text-[#6B655E]">entregas</span>
           </p>
         </Card>
       </div>

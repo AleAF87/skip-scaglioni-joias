@@ -201,7 +201,8 @@ export const DeliveryReceiptModal: React.FC<DeliveryReceiptModalProps> = ({
             <p className="text-[11px] text-[#6B655E] leading-relaxed">
               Declaro que conferi e recebi integralmente as joias descritas neste documento em
               perfeito estado de conservação, ficando as mesmas sob minha responsabilidade de
-              estoque consignado para comercialização conforme as regras da Scaglioni Joias.
+              estoque em poder da revendedora para comercialização conforme as regras da Scaglioni
+              Joias.
             </p>
 
             <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-[#E5DFD5]">

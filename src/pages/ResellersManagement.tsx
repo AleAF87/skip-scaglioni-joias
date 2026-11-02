@@ -69,7 +69,7 @@ export default function ResellersManagement() {
   const handleApprove = async (id: string, name: string) => {
     if (
       window.confirm(
-        `Aprovar o cadastro do revendedor "${name}"? Ele terá acesso imediato à vitrine e consignações.`,
+        `Aprovar o cadastro da revendedora "${name}"? Ela terá acesso imediato à vitrine e painel de revendedoras.`,
       )
     ) {
       try {

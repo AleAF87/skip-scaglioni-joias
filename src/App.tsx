@@ -28,6 +28,7 @@ import CompanySettingsPage from '@/pages/CompanySettingsPage'
 import NotFound from '@/pages/NotFound'
 
 // New Pages - Módulo de Revendedora com Estoque Próprio
+import ResellersUnifiedPage from '@/pages/ResellersUnifiedPage'
 import ResellerDeliveriesAndStock from '@/pages/ResellerDeliveriesAndStock'
 import ResellerPosSale from '@/pages/ResellerPosSale'
 import ResellerReturnsAndIssues from '@/pages/ResellerReturnsAndIssues'
@@ -147,8 +148,15 @@ export default function App() {
             {/* Catalog / Vitrine (Accessible to Resellers, Operators, Admins) */}
             <Route path="vitrine" element={<CatalogVitrine />} />
 
-            {/* Consignments (Fluxo tradicional de listas mantido intacto) */}
-            <Route path="consignacoes" element={<ConsignmentsManagement />} />
+            {/* PÁGINA UNIFICADA: Revendedoras (substitui Consignações e Entregas de Joias) */}
+            <Route path="revendedoras" element={<ResellersUnifiedPage />} />
+
+            {/* Redirecionamentos / Rotas Legadas para a nova página unificada */}
+            <Route path="consignacoes" element={<Navigate to="/revendedoras" replace />} />
+            <Route
+              path="revendedora/estoque-entregas"
+              element={<Navigate to="/revendedoras" replace />}
+            />
 
             {/* Configurações da Empresa (Somente Administrador) */}
             <Route
@@ -160,8 +168,7 @@ export default function App() {
               }
             />
 
-            {/* Módulo de Estoque Próprio da Revendedora (NOVO) */}
-            <Route path="revendedora/estoque-entregas" element={<ResellerDeliveriesAndStock />} />
+            {/* Demais módulos da revendedora */}
             <Route path="revendedora/pdv" element={<ResellerPosSale />} />
             <Route
               path="revendedora/devolucoes-pendencias"
@@ -169,7 +176,7 @@ export default function App() {
             />
             <Route path="revendedora/financeiro" element={<ResellerFinancial />} />
 
-            {/* Resellers management (Admin & Operator) */}
+            {/* Resellers cadastros (Admin & Operator) */}
             <Route
               path="revendedores"
               element={

@@ -462,12 +462,11 @@ export default function ResellerDeliveriesAndStock() {
                         </strong>
                       </div>
                       <div className="flex justify-between items-center text-[#6B655E]">
-                        <span>Valor Total Consignado:</span>
+                        <span>Valor Total da Entrega:</span>
                         <strong className="text-[#7A5C2E] font-bold text-sm">
-                          {formatCurrency(del.total_value)}
+                          {formatCurrency(totalDeliveryValue)}
                         </strong>
                       </div>
-
                       {del.notes && (
                         <p className="text-[11px] text-[#8C8275] bg-[#FDFBF7] p-2 rounded border border-[#E5DFD5]/60 italic truncate">
                           "{del.notes}"
@@ -774,7 +773,7 @@ export default function ResellerDeliveriesAndStock() {
                     <strong className="text-[#2D2A26]">{totalDeliveryItemsCount} peças</strong>
                   </div>
                   <div className="flex justify-between text-[#6B655E]">
-                    <span>Valor Total Consignado:</span>
+                    <span>Valor Total da Entrega:</span>
                     <strong className="text-[#7A5C2E] font-bold text-sm">
                       {formatCurrency(totalDeliveryValue)}
                     </strong>
