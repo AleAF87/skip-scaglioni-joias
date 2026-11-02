@@ -107,7 +107,15 @@ export function CategoriesCrud() {
       loadCategories()
     } catch (err: any) {
       console.error(err)
-      toast.error('Erro ao cadastrar: ' + (err.message || 'Item já existe.'))
+      const data = err?.response?.data
+      if (
+        data?.name?.code === 'validation_not_unique' ||
+        data?.slug?.code === 'validation_not_unique'
+      ) {
+        toast.error('Já existe um item com este nome nesta aba.')
+      } else {
+        toast.error('Erro ao cadastrar: ' + (err.message || 'Item já existe.'))
+      }
     } finally {
       setIsCreating(false)
     }
@@ -137,7 +145,15 @@ export function CategoriesCrud() {
       loadCategories()
     } catch (err: any) {
       console.error(err)
-      toast.error('Erro ao atualizar: ' + (err.message || ''))
+      const data = err?.response?.data
+      if (
+        data?.name?.code === 'validation_not_unique' ||
+        data?.slug?.code === 'validation_not_unique'
+      ) {
+        toast.error('Já existe um item com este nome nesta aba.')
+      } else {
+        toast.error('Erro ao atualizar: ' + (err.message || ''))
+      }
     } finally {
       setIsUpdating(false)
     }

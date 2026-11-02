@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-02T00:52:58.035Z",
+  "generatedAt": "2026-11-02T00:59:45.041Z",
   "collections": [
     {
       "name": "users",
@@ -1841,7 +1841,10 @@
           "system": false
         }
       ],
-      "indexes": ["CREATE UNIQUE INDEX idx_product_categories_name ON product_categories (name)"]
+      "indexes": [
+        "CREATE UNIQUE INDEX `idx_product_categories_name_group_active` ON `product_categories` (name, \"group\") WHERE archived = false",
+        "CREATE UNIQUE INDEX `idx_product_categories_slug_group_active` ON `product_categories` (slug, \"group\") WHERE archived = false"
+      ]
     },
     {
       "name": "product_category_links",
