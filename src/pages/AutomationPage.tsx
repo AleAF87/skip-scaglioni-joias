@@ -22,9 +22,12 @@ import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import { automationService, AutomationStep, AutomationResult } from '@/services/automationService'
 
+const XPATH_DEFAULT = '/html/body/div/div/div/main/main/div/div/div[1]/a[1]/div/div/p[1]'
+
 export default function AutomationPage() {
   const [email, setEmail] = useState('')
   const [senha, setSenha] = useState('')
+  const [xpath, setXpath] = useState(XPATH_DEFAULT)
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [passos, setPassos] = useState<AutomationStep[]>([])
@@ -37,6 +40,7 @@ export default function AutomationPage() {
 
     const emailTrimmed = email.trim()
     const senhaTrimmed = senha.trim()
+    const xpathTrimmed = xpath.trim() || XPATH_DEFAULT
 
     if (!emailTrimmed) {
       toast.error('Informe o e-mail de acesso ao site.')
@@ -61,6 +65,7 @@ export default function AutomationPage() {
       const res = await automationService.executarLoginScaglioni({
         email: emailTrimmed,
         senha: senhaTrimmed,
+        xpath: xpathTrimmed,
       })
 
       setResultado(res)
@@ -199,6 +204,42 @@ export default function AutomationPage() {
                   </div>
                 </div>
 
+                {/* Campo de Xpath alvo liberado para digitação */}
+                <div className="space-y-1.5 pt-1">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="xpath" className="text-xs font-semibold text-[#2D2A26]">
+                      Xpath alvo
+                    </Label>
+                    {xpath !== XPATH_DEFAULT && (
+                      <button
+                        type="button"
+                        onClick={() => setXpath(XPATH_DEFAULT)}
+                        disabled={loading}
+                        className="text-[11px] text-[#7A5C2E] hover:underline"
+                      >
+                        Restaurar padrão
+                      </button>
+                    )}
+                  </div>
+                  <Input
+                    id="xpath"
+                    type="text"
+                    placeholder="/html/body/div/div/div/main/main/div/div/div[1]/a[1]/div/div/p[1]"
+                    value={xpath}
+                    onChange={(e) => setXpath(e.target.value)}
+                    disabled={loading}
+                    required
+                    className="font-mono text-xs border-[#E5DFD5] focus-visible:ring-[#C6A664]"
+                  />
+                  <p className="text-[11px] text-[#8C8275] leading-tight">
+                    Alvo padrão: Card 1 (Produtos). Você pode alterar para outros cards (ex:{' '}
+                    <code className="bg-[#FAF7F0] px-1 py-0.2 rounded text-[10px]">a[2]</code> para
+                    Categorias,{' '}
+                    <code className="bg-[#FAF7F0] px-1 py-0.2 rounded text-[10px]">a[3]</code> para
+                    Vendas).
+                  </p>
+                </div>
+
                 <div className="pt-2">
                   <Button
                     type="submit"
@@ -250,14 +291,17 @@ export default function AutomationPage() {
                 </code>
               </p>
               <p>
-                <strong>3. XPath Alvo:</strong>
+                <strong>3. XPath Alvo Atual:</strong>
               </p>
               <div className="font-mono text-[10px] bg-white p-2 rounded border border-[#E5DFD5] text-[#2D2A26] break-all">
-                /html/body/div/div/div/main/main/div/div/div[1]/a[1]/div/div/p[1]
+                {xpath || XPATH_DEFAULT}
               </div>
               <p className="text-[11px] text-[#8C8275]">
-                Representa o primeiro card do painel administrativo (card de Produtos, exibindo a
-                quantidade de peças cadastradas).
+                O campo acima do botão Iniciar permite digitar o XPath alvo desejado. Alvos
+                reconhecidos: Card 1 (Produtos, <code className="text-[10px]">a[1]</code>), Card 2
+                (Categorias, <code className="text-[10px]">a[2]</code>), Card 3 (Vendas,{' '}
+                <code className="text-[10px]">a[3]</code>), Card 4 (Revendedores,{' '}
+                <code className="text-[10px]">a[4]</code>).
               </p>
             </CardContent>
           </Card>
@@ -337,11 +381,15 @@ export default function AutomationPage() {
                 <div className="p-3.5 rounded-xl border border-red-200 bg-red-50/90 text-red-900 flex items-start gap-3">
                   <AlertTriangle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
                   <div className="space-y-1">
-                    <p className="text-sm font-semibold text-red-800">{errorMessage}</p>
-                    <p className="text-xs text-red-700 leading-relaxed">
-                      Verifique se digitou o e-mail e a senha cadastrados corretamente no site
-                      scaglionijoias.com.br e tente novamente.
+                    <p className="text-sm font-semibold text-red-800 whitespace-pre-line">
+                      {errorMessage}
                     </p>
+                    {!errorMessage.includes('XPath não reconhecido') && (
+                      <p className="text-xs text-red-700 leading-relaxed">
+                        Verifique se digitou o e-mail e a senha cadastrados corretamente no site
+                        scaglionijoias.com.br e tente novamente.
+                      </p>
+                    )}
                   </div>
                 </div>
               )}
@@ -351,7 +399,10 @@ export default function AutomationPage() {
                 <div className="p-4 rounded-xl border border-[#C6A664]/30 bg-[#FDFBF7] space-y-3">
                   <div className="flex items-center gap-2 text-sm font-semibold text-[#7A5C2E]">
                     <CheckCircle2 className="h-4 w-4 text-[#2E7D4F]" />
-                    <span>Conferência dos Detalhes do Primeiro Card</span>
+                    <span>
+                      Conferência dos Detalhes do Card (
+                      {resultado.detalhes_do_card.card_rotulo || 'Extraído'})
+                    </span>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3 text-xs">

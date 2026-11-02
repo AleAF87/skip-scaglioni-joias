@@ -32,6 +32,7 @@ export interface AutomationResult {
 export interface AutomationCredentials {
   email: string
   senha: string
+  xpath?: string
 }
 
 export const automationService = {
@@ -42,6 +43,7 @@ export const automationService = {
         body: {
           email: creds.email,
           senha: creds.senha,
+          xpath: creds.xpath,
         },
       })
       return response
