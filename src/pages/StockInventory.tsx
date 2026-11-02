@@ -52,6 +52,8 @@ import {
   Image as ImageIcon,
   DollarSign,
   TrendingUp,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Link } from 'react-router-dom'
@@ -145,6 +147,11 @@ export default function StockInventory() {
   const [productResellerStock, setProductResellerStock] = useState<ResellerStockItem[]>([])
   const [loadingResellerStock, setLoadingResellerStock] = useState(false)
   const [editVirtualStoreQtyError, setEditVirtualStoreQtyError] = useState<string | null>(null)
+  const [showInvestedColumn, setShowInvestedColumn] = useState(false)
+  const [showProfitColumn, setShowProfitColumn] = useState(false)
+  const [resellerAllocatedProductIds, setResellerAllocatedProductIds] = useState<Set<string>>(
+    new Set(),
+  )
   const [editForm, setEditForm] = useState({
     code: '',
     description: '',
@@ -164,7 +171,28 @@ export default function StockInventory() {
 
   useEffect(() => {
     loadAuxiliaries()
+    loadResellerAllocations()
   }, [])
+
+  const loadResellerAllocations = async () => {
+    try {
+      const client = (await import('@/lib/pocketbase/client')).default
+      // Busca itens de estoque de revendedoras com quantidade > 0
+      const items = await client
+        .collection('reseller_stock_items')
+        .getFullList<{ product: string }>({
+          filter: 'quantity > 0',
+          fields: 'product',
+        })
+      const allocatedSet = new Set<string>()
+      items.forEach((it) => {
+        if (it.product) allocatedSet.add(it.product)
+      })
+      setResellerAllocatedProductIds(allocatedSet)
+    } catch (err) {
+      console.error('Erro ao buscar alocações de revendedoras:', err)
+    }
+  }
 
   useEffect(() => {
     loadProducts()
@@ -328,6 +356,7 @@ export default function StockInventory() {
   const reloadData = () => {
     loadProducts()
     loadFilteredTotals()
+    loadResellerAllocations()
   }
 
   const toggleArrayFilter = (
@@ -1242,7 +1271,7 @@ export default function StockInventory() {
                     )}
                   </button>
                 </th>
-                <th className="py-3 px-4 w-16">Foto</th>
+                <th className="py-3 px-4 w-16">FOTO</th>
                 <th className="py-3 px-4">
                   <button
                     type="button"
@@ -1250,14 +1279,12 @@ export default function StockInventory() {
                     className="group inline-flex items-center gap-1.5 focus:outline-none hover:text-[#7A5C2E] transition-colors"
                     title="Ordenar por Código (numérico menor/maior)"
                   >
-                    <span>Código</span>
+                    <span>CÓDIGO</span>
                     {renderSortIndicator('code')}
                   </button>
                 </th>
-                <th className="py-3 px-4">Tipo</th>
-                <th className="py-3 px-4">Material</th>
-                <th className="py-3 px-4">Perfil</th>
-                <th className="py-3 px-4">Tamanho</th>
+                <th className="py-3 px-4">TIPO</th>
+                <th className="py-3 px-4">MATERIAL</th>
                 <th className="py-3 px-4 min-w-[220px]">
                   <button
                     type="button"
@@ -1265,20 +1292,38 @@ export default function StockInventory() {
                     className="group inline-flex items-center gap-1.5 focus:outline-none hover:text-[#7A5C2E] transition-colors"
                     title="Ordenar por Nome do Produto (alfabética A-Z / Z-A)"
                   >
-                    <span>Nome do Produto</span>
+                    <span>NOME DO PRODUTO</span>
                     {renderSortIndicator('name')}
                   </button>
                 </th>
                 <th className="py-3 px-4">
-                  <button
-                    type="button"
-                    onClick={() => handleSortToggle('invested_value')}
-                    className="group inline-flex items-center gap-1.5 focus:outline-none hover:text-[#7A5C2E] transition-colors"
-                    title="Ordenar por Valor Investido (menor/maior)"
-                  >
-                    <span>Investido</span>
-                    {renderSortIndicator('invested_value')}
-                  </button>
+                  <div className="inline-flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => handleSortToggle('invested_value')}
+                      className="group inline-flex items-center gap-1.5 focus:outline-none hover:text-[#7A5C2E] transition-colors"
+                      title="Ordenar por Valor Investido (menor/maior)"
+                    >
+                      <span>INVESTIDO</span>
+                      {renderSortIndicator('invested_value')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowInvestedColumn((prev) => !prev)}
+                      className="p-1 rounded hover:bg-[#E5DFD5]/60 text-[#6B655E] hover:text-[#2D2A26] transition-colors focus:outline-none"
+                      title={
+                        showInvestedColumn
+                          ? 'Ocultar valores investidos'
+                          : 'Exibir valores investidos'
+                      }
+                    >
+                      {showInvestedColumn ? (
+                        <Eye className="h-3.5 w-3.5 text-[#7A5C2E]" />
+                      ) : (
+                        <EyeOff className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  </div>
                 </th>
                 <th className="py-3 px-4">
                   <button
@@ -1287,9 +1332,28 @@ export default function StockInventory() {
                     className="group inline-flex items-center gap-1.5 focus:outline-none hover:text-[#7A5C2E] transition-colors"
                     title="Ordenar por Preço de Venda (menor/maior)"
                   >
-                    <span>Preço Venda</span>
+                    <span>PREÇO VENDA</span>
                     {renderSortIndicator('selling_price')}
                   </button>
+                </th>
+                <th className="py-3 px-4">
+                  <div className="inline-flex items-center gap-1.5">
+                    <span>LUCRO</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowProfitColumn((prev) => !prev)}
+                      className="p-1 rounded hover:bg-[#E5DFD5]/60 text-[#6B655E] hover:text-[#2D2A26] transition-colors focus:outline-none"
+                      title={
+                        showProfitColumn ? 'Ocultar valores de lucro' : 'Exibir valores de lucro'
+                      }
+                    >
+                      {showProfitColumn ? (
+                        <Eye className="h-3.5 w-3.5 text-[#7A5C2E]" />
+                      ) : (
+                        <EyeOff className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  </div>
                 </th>
                 <th className="py-3 px-4 text-center">
                   <button
@@ -1298,7 +1362,7 @@ export default function StockInventory() {
                     className="group inline-flex items-center gap-1.5 focus:outline-none hover:text-[#7A5C2E] transition-colors justify-center"
                     title="Ordenar por Quantidade em Estoque (menor/maior)"
                   >
-                    <span>Estoque</span>
+                    <span>ESTOQUE</span>
                     {renderSortIndicator('quantity')}
                   </button>
                 </th>
@@ -1309,18 +1373,18 @@ export default function StockInventory() {
                     className="group inline-flex items-center gap-1.5 focus:outline-none hover:text-[#7A5C2E] transition-colors"
                     title="Ordenar por Data de Cadastro (mais recente / mais antigo)"
                   >
-                    <span>Data de Cadastro</span>
+                    <span>DATA DE CADASTRO</span>
                     {renderSortIndicator('created')}
                   </button>
                 </th>
-                <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4 text-right">Ações</th>
+                <th className="py-3 px-4">STATUS</th>
+                <th className="py-3 px-4 text-right">AÇÕES</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#E5DFD5] text-sm">
               {loading ? (
                 <tr>
-                  <td colSpan={14} className="py-12 text-center text-[#6B655E]">
+                  <td colSpan={13} className="py-12 text-center text-[#6B655E]">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#C6A664] border-t-transparent" />
                       <span>Carregando joias do estoque...</span>
@@ -1329,7 +1393,7 @@ export default function StockInventory() {
                 </tr>
               ) : products.length === 0 ? (
                 <tr>
-                  <td colSpan={14} className="py-12 text-center text-[#6B655E]">
+                  <td colSpan={13} className="py-12 text-center text-[#6B655E]">
                     <PackageCheck className="h-10 w-10 text-[#C6A664] mx-auto mb-2 opacity-50" />
                     <p className="font-semibold text-[#2D2A26]">Nenhuma peça encontrada.</p>
                     <p className="text-xs text-[#6B655E] mt-1">
@@ -1350,6 +1414,18 @@ export default function StockInventory() {
                   const isLowStock = p.quantity <= effectiveMinStock
                   const photo = getProductDisplayPhoto(p)
                   const hasPhoto = Boolean(photo)
+
+                  // Cálculo do Lucro (Preço de Venda − Valor Investido)
+                  const hasSelling = typeof p.selling_price === 'number' && !isNaN(p.selling_price)
+                  const hasInvested =
+                    typeof p.invested_value === 'number' &&
+                    !isNaN(p.invested_value) &&
+                    p.invested_value !== null
+                  const profitValue =
+                    hasSelling && hasInvested
+                      ? p.selling_price - (p.invested_value as number)
+                      : null
+                  const hasResellerStock = resellerAllocatedProductIds.has(p.id)
 
                   return (
                     <tr
@@ -1432,7 +1508,7 @@ export default function StockInventory() {
                         )}
                       </td>
 
-                      {/* Ordem obrigatória: Tipo, Material, Perfil, Tamanho, Nome do Produto */}
+                      {/* Ordem obrigatória: Tipo, Material, Nome do Produto */}
                       <td className="py-3 px-4">
                         <span className="font-medium text-[#2D2A26]">
                           {p.expand?.type?.name || '—'}
@@ -1443,22 +1519,12 @@ export default function StockInventory() {
                         {p.expand?.material?.name || '—'}
                       </td>
 
-                      <td className="py-3 px-4">
-                        <span className="capitalize text-xs font-medium px-2 py-0.5 rounded-full bg-[#F3EAD8] text-[#7A5C2E] inline-block">
-                          {p.target_audience || 'Unissex'}
-                        </span>
-                      </td>
-
-                      <td className="py-3 px-4 text-[#6B655E]">
-                        {p.expand?.size?.name || 'Único'}
-                      </td>
-
                       {/* Nome do Produto com fallback para description */}
                       <td className="py-3 px-4">
                         <div className="font-medium text-[#2D2A26] whitespace-normal break-words leading-relaxed">
                           {p.nome_produto?.trim() || p.description}
                         </div>
-                        {/* Indicadores de E-commerce e Origem */}
+                        {/* Indicadores de E-commerce e Revendedora */}
                         <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                           {p.publicar_no_ecommerce ? (
                             <Badge className="bg-[#C6A664] hover:bg-[#b0914f] text-[#2D2A26] font-semibold text-[10px] px-1.5 py-0 h-4.5 border border-[#B38F48] shadow-2xs">
@@ -1473,64 +1539,35 @@ export default function StockInventory() {
                             </Badge>
                           )}
 
-                          {(() => {
-                            const isScaglioni = Boolean(
-                              p.id_scaglioni ||
-                              p.sku_scaglioni ||
-                              (p.origem && p.origem.toLowerCase() === 'scaglioni') ||
-                              (p.origem_importacao &&
-                                p.origem_importacao.toLowerCase() === 'scaglioni'),
-                            )
-                            const isTecson = Boolean(
-                              p.id_tecson ||
-                              p.codigo_barras_tecson ||
-                              p.codigo_produto_tecson ||
-                              (p.origem && p.origem.toLowerCase() === 'tecson') ||
-                              (p.origem_importacao &&
-                                p.origem_importacao.toLowerCase() === 'tecson'),
-                            )
-
-                            if (isScaglioni) {
-                              return (
-                                <Badge
-                                  variant="outline"
-                                  className="border-[#C6A664]/60 bg-[#F3EAD8] text-[#7A5C2E] font-medium text-[10px] px-1.5 py-0 h-4.5"
-                                >
-                                  Scaglioni
-                                </Badge>
-                              )
-                            }
-                            if (isTecson) {
-                              return (
-                                <Badge
-                                  variant="outline"
-                                  className="border-slate-300 bg-slate-100 text-slate-700 font-medium text-[10px] px-1.5 py-0 h-4.5"
-                                >
-                                  Tecson
-                                </Badge>
-                              )
-                            }
-                            if (p.origem || p.origem_importacao) {
-                              return (
-                                <Badge
-                                  variant="outline"
-                                  className="border-slate-300 bg-slate-100 text-slate-700 font-medium text-[10px] px-1.5 py-0 h-4.5"
-                                >
-                                  {p.origem || p.origem_importacao}
-                                </Badge>
-                              )
-                            }
-                            return null
-                          })()}
+                          {hasResellerStock && (
+                            <Badge
+                              variant="outline"
+                              className="border-[#7A5C2E]/50 bg-[#F3EAD8] text-[#7A5C2E] font-medium text-[10px] px-1.5 py-0 h-4.5"
+                            >
+                              Revendedora
+                            </Badge>
+                          )}
                         </div>
                       </td>
 
-                      <td className="py-3 px-4 text-[#6B655E]">
-                        {formatCurrency(p.invested_value)}
+                      <td className="py-3 px-4 text-[#6B655E] font-mono text-xs">
+                        {showInvestedColumn
+                          ? p.invested_value !== null && p.invested_value !== undefined
+                            ? formatCurrency(p.invested_value)
+                            : '—'
+                          : 'R$ ••••'}
                       </td>
 
                       <td className="py-3 px-4 font-bold text-[#2D2A26]">
                         {formatCurrency(p.selling_price)}
+                      </td>
+
+                      <td className="py-3 px-4 font-mono text-xs text-[#2E7D4F] font-semibold">
+                        {showProfitColumn
+                          ? profitValue !== null
+                            ? formatCurrency(profitValue)
+                            : '—'
+                          : 'R$ ••••'}
                       </td>
 
                       {/* Direct Quantity edit */}

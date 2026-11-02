@@ -104,7 +104,7 @@ export default function Layout() {
     ? [
         { to: '/', label: 'Painel Geral', icon: LayoutDashboard },
         { to: '/produtos', label: 'Cadastrar Produtos', icon: Boxes },
-        { to: '/estoque', label: 'Estoque Loja', icon: Boxes },
+        { to: '/estoque', label: 'Estoque', icon: Boxes },
         {
           to: '/revendedora/estoque-entregas',
           label: 'Entregas & Estoque Vendedora',
@@ -173,7 +173,7 @@ export default function Layout() {
         ...(canManageInternal
           ? [{ to: '/produtos', label: 'Cadastrar Produtos', icon: Boxes }]
           : []),
-        ...(canManageInternal ? [{ to: '/estoque', label: 'Estoque Loja', icon: Boxes }] : []),
+        ...(canManageInternal ? [{ to: '/estoque', label: 'Estoque', icon: Boxes }] : []),
 
         // MÓDULO: Estoque Próprio da Revendedora
         {
