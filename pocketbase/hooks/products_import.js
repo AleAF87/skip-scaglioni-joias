@@ -590,6 +590,7 @@ routerAdd(
       // Cada item possui seu próprio try/catch e grava independentemente.
       for (let i = 0; i < items.length; i++) {
         const item = items[i]
+        const lineItemIndex = typeof item.index === 'number' ? item.index : i
         const idScaglioni = item.id_scaglioni ? String(item.id_scaglioni).trim() : ''
         const skuScaglioni = item.sku_scaglioni ? String(item.sku_scaglioni).trim() : ''
         const slugScaglioni =
@@ -604,7 +605,7 @@ routerAdd(
           // Linha vazia ou sem identificadores nem nome
           if (!idScaglioni && !skuScaglioni && !nomeProduto) {
             falhados.push({
-              index: typeof item.index === 'number' ? item.index : i,
+              index: lineItemIndex,
               sku: skuScaglioni || '—',
               name: nomeProduto || 'Sem identificação',
               reason: 'Linha sem ID Scaglioni, SKU nem nome de produto.',
@@ -629,7 +630,7 @@ routerAdd(
 
           if (precoPromo !== null && precoPromo >= precoVenda && precoVenda > 0) {
             conflicts.push({
-              index: typeof item.index === 'number' ? item.index : i,
+              index: lineItemIndex,
               field: 'preco_promocional',
               reason: 'Preço promocional deve ser menor que o preço de venda.',
               preco_venda: precoVenda,
@@ -835,7 +836,6 @@ routerAdd(
             return /^https?:\/\//i.test(u.trim())
           }
 
-          const lineItemIndex = typeof item.index === 'number' ? item.index : i
           if (imagemPrincipal && !isValidHttpUrl(imagemPrincipal)) {
             imageFailures.push({
               index: lineItemIndex,
