@@ -421,6 +421,15 @@ export const productService = {
       created: number
       updated: number
       ignored: number
+      criados?: Array<{ index: number; code?: string; name: string; product_id?: string }>
+      atualizados?: Array<{ index: number; code?: string; name: string; product_id?: string }>
+      falhados?: Array<{
+        index: number
+        sku?: string
+        name: string
+        message?: string
+        reason?: string
+      }>
       conflicts: any[]
       image_failures: any[]
       sample_reports: any[]

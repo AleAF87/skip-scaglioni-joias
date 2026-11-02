@@ -18,6 +18,7 @@ import {
   HelpCircle,
   ExternalLink,
   ChevronRight,
+  RefreshCw,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -714,34 +715,91 @@ export function ImportScaglioniPage() {
         created: 0,
         updated: 0,
         ignored: 0,
+        criados: [] as Array<{ index: number; code?: string; name: string; product_id?: string }>,
+        atualizados: [] as Array<{
+          index: number
+          code?: string
+          name: string
+          product_id?: string
+        }>,
+        falhados: [] as Array<{
+          index: number
+          sku?: string
+          name: string
+          message?: string
+          reason?: string
+        }>,
         conflicts: [] as any[],
         image_failures: [] as any[],
         sample_reports: [] as any[],
       }
+
+      let hadChunkError = false
 
       for (let offset = 0; offset < totalItems; offset += CHUNK_SIZE) {
         const chunk = parsedRows.slice(offset, offset + CHUNK_SIZE)
         const chunkEnd = Math.min(offset + chunk.length, totalItems)
         setProcessingStatus(`Processando itens ${offset + 1} a ${chunkEnd} de ${totalItems}...`)
 
-        const chunkRes = await productService.importScaglioniBatch(chunk, dryRun)
+        try {
+          const chunkRes = await productService.importScaglioniBatch(chunk, dryRun)
 
-        accumulatedResult.created += chunkRes.created || 0
-        accumulatedResult.updated += chunkRes.updated || 0
-        accumulatedResult.ignored += chunkRes.ignored || 0
+          accumulatedResult.created += chunkRes.created || 0
+          accumulatedResult.updated += chunkRes.updated || 0
+          accumulatedResult.ignored += chunkRes.ignored || 0
 
-        if (chunkRes.conflicts && chunkRes.conflicts.length > 0) {
-          accumulatedResult.conflicts.push(...chunkRes.conflicts)
-        }
-        if (chunkRes.image_failures && chunkRes.image_failures.length > 0) {
-          accumulatedResult.image_failures.push(...chunkRes.image_failures)
-        }
-        if (chunkRes.sample_reports && chunkRes.sample_reports.length > 0) {
-          const adjustedReports = chunkRes.sample_reports.map((sr: any) => ({
-            ...sr,
-            index: typeof sr.index === 'number' ? sr.index + offset : sr.index,
-          }))
-          accumulatedResult.sample_reports.push(...adjustedReports)
+          if (chunkRes.criados && chunkRes.criados.length > 0) {
+            const adjustedCriados = chunkRes.criados.map((item) => ({
+              ...item,
+              index: typeof item.index === 'number' ? item.index + offset : item.index,
+            }))
+            accumulatedResult.criados.push(...adjustedCriados)
+          }
+
+          if (chunkRes.atualizados && chunkRes.atualizados.length > 0) {
+            const adjustedAtualizados = chunkRes.atualizados.map((item) => ({
+              ...item,
+              index: typeof item.index === 'number' ? item.index + offset : item.index,
+            }))
+            accumulatedResult.atualizados.push(...adjustedAtualizados)
+          }
+
+          if (chunkRes.falhados && chunkRes.falhados.length > 0) {
+            const adjustedFalhados = chunkRes.falhados.map((item) => ({
+              ...item,
+              index: typeof item.index === 'number' ? item.index + offset : item.index,
+            }))
+            accumulatedResult.falhados.push(...adjustedFalhados)
+          }
+
+          if (chunkRes.conflicts && chunkRes.conflicts.length > 0) {
+            accumulatedResult.conflicts.push(...chunkRes.conflicts)
+          }
+          if (chunkRes.image_failures && chunkRes.image_failures.length > 0) {
+            accumulatedResult.image_failures.push(...chunkRes.image_failures)
+          }
+          if (chunkRes.sample_reports && chunkRes.sample_reports.length > 0) {
+            const adjustedReports = chunkRes.sample_reports.map((sr: any) => ({
+              ...sr,
+              index: typeof sr.index === 'number' ? sr.index + offset : sr.index,
+            }))
+            accumulatedResult.sample_reports.push(...adjustedReports)
+          }
+        } catch (chunkErr: any) {
+          hadChunkError = true
+          console.error(`Erro ao processar lote ${offset + 1}-${chunkEnd}:`, chunkErr)
+          const errMsg = chunkErr?.data?.error || chunkErr?.message || 'Erro inesperado no lote'
+          for (let cIdx = 0; cIdx < chunk.length; cIdx++) {
+            const failedItem = chunk[cIdx]
+            accumulatedResult.ignored += 1
+            accumulatedResult.falhados.push({
+              index: offset + cIdx,
+              sku: failedItem.sku_scaglioni || failedItem.sku_novo || '—',
+              name: failedItem.nome_produto || failedItem.descricao || 'Item do lote com erro',
+              message: errMsg,
+              reason: errMsg,
+            })
+          }
         }
 
         const currentPct = Math.min(95, Math.round(((offset + chunk.length) / totalItems) * 100))
@@ -1552,59 +1610,192 @@ export function ImportScaglioniPage() {
             </Card>
           </TabsContent>
 
-          {/* Aba 5: Relatório por Linha */}
+          {/* Aba 5: Relatório por Linha com as 3 Listas Separadas: Criados, Atualizados e Falhados */}
           {runResult && (
-            <TabsContent value="report" className="space-y-4">
-              <div className="rounded-md border bg-white overflow-x-auto max-h-[500px]">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-slate-50 text-slate-700 sticky top-0 border-b">
-                    <tr>
-                      <th className="p-2.5">Linha</th>
-                      <th className="p-2.5">Status</th>
-                      <th className="p-2.5">SKU / ID</th>
-                      <th className="p-2.5">Nome</th>
-                      <th className="p-2.5">Motivo / Detalhes</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {runResult.sample_reports?.map((rep: any, idx: number) => (
-                      <tr key={idx} className="hover:bg-slate-50/70">
-                        <td className="p-2.5 font-mono text-slate-400">{rep.index}</td>
-                        <td className="p-2.5">
-                          <Badge
-                            variant={
-                              rep.status === 'created'
-                                ? 'default'
-                                : rep.status === 'updated'
-                                  ? 'secondary'
-                                  : 'destructive'
-                            }
-                            className={
-                              rep.status === 'created'
-                                ? 'bg-sky-600'
-                                : rep.status === 'updated'
-                                  ? 'bg-blue-600'
-                                  : ''
-                            }
-                          >
-                            {rep.status === 'created'
-                              ? 'Criado'
-                              : rep.status === 'updated'
-                                ? 'Atualizado'
-                                : 'Ignorado / Erro'}
-                          </Badge>
-                        </td>
-                        <td className="p-2.5 font-mono">{rep.code || '—'}</td>
-                        <td className="p-2.5 font-medium">{rep.name || '—'}</td>
-                        <td className="p-2.5 text-slate-500">
-                          {rep.reason ||
-                            (rep.status === 'updated' ? 'Reimportação idempotente' : 'Sucesso')}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+            <TabsContent value="report" className="space-y-6">
+              {/* 1. Lista de Falhados com Motivo por Linha */}
+              <Card className="border-red-200 bg-red-50/30">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="w-5 h-5 text-red-600" />
+                      <CardTitle className="text-sm font-bold text-red-950">
+                        Itens com Falha / Não Gravados (
+                        {runResult.falhados?.length ?? runResult.ignored ?? 0})
+                      </CardTitle>
+                    </div>
+                    <Badge variant="destructive" className="text-xs">
+                      {runResult.falhados?.length ?? runResult.ignored ?? 0} falhas
+                    </Badge>
+                  </div>
+                  <CardDescription className="text-xs text-red-800">
+                    Linhas que apresentaram problema durante o processamento com motivo específico.
+                    As demais linhas do arquivo continuam sendo gravadas com sucesso.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {runResult.falhados && runResult.falhados.length > 0 ? (
+                    <div className="rounded-md border border-red-200 bg-white overflow-x-auto max-h-[350px]">
+                      <table className="w-full text-xs text-left">
+                        <thead className="bg-red-50/70 text-red-900 sticky top-0 border-b border-red-200">
+                          <tr>
+                            <th className="p-2.5 w-16">Linha</th>
+                            <th className="p-2.5 w-36">SKU / Identificador</th>
+                            <th className="p-2.5">Nome do Produto</th>
+                            <th className="p-2.5">Motivo do Erro</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-red-100">
+                          {runResult.falhados.map((item: any, idx: number) => (
+                            <tr key={idx} className="hover:bg-red-50/40">
+                              <td className="p-2.5 font-mono text-slate-500">{item.index + 1}</td>
+                              <td className="p-2.5 font-mono font-medium text-red-700">
+                                {item.sku || '—'}
+                              </td>
+                              <td className="p-2.5 font-medium text-slate-800">
+                                {item.name || '—'}
+                              </td>
+                              <td className="p-2.5 text-red-700 font-mono text-[11px] bg-red-50/30">
+                                {item.message || item.reason || 'Erro no processamento da linha'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="p-4 bg-white rounded border border-emerald-200 text-xs text-emerald-800 flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      <span>
+                        Nenhuma linha falhou nesta importação! Todos os itens foram processados com
+                        êxito.
+                      </span>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* 2. Lista de Criados Novos */}
+              <Card className="border-sky-200 bg-sky-50/20">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-5 h-5 text-sky-600" />
+                      <CardTitle className="text-sm font-bold text-sky-950">
+                        Produtos Novos Criados (
+                        {runResult.criados?.length ?? runResult.created ?? 0})
+                      </CardTitle>
+                    </div>
+                    <Badge className="bg-sky-600 text-xs">
+                      {runResult.criados?.length ?? runResult.created ?? 0} novos
+                    </Badge>
+                  </div>
+                  <CardDescription className="text-xs text-slate-600">
+                    Cadastrados com sucesso no sistema com SKU sequencial e saldo inicial
+                    registrado.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {runResult.criados && runResult.criados.length > 0 ? (
+                    <div className="rounded-md border bg-white overflow-x-auto max-h-[350px]">
+                      <table className="w-full text-xs text-left">
+                        <thead className="bg-sky-50 text-sky-900 sticky top-0 border-b">
+                          <tr>
+                            <th className="p-2.5 w-16">Linha</th>
+                            <th className="p-2.5 w-36">Código / SKU</th>
+                            <th className="p-2.5">Nome do Produto</th>
+                            <th className="p-2.5">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {runResult.criados.map((item: any, idx: number) => (
+                            <tr key={idx} className="hover:bg-sky-50/40">
+                              <td className="p-2.5 font-mono text-slate-400">{item.index + 1}</td>
+                              <td className="p-2.5 font-mono font-bold text-sky-700">
+                                {item.code || '—'}
+                              </td>
+                              <td className="p-2.5 font-medium text-slate-900">
+                                {item.name || '—'}
+                              </td>
+                              <td className="p-2.5 text-emerald-700 font-semibold">
+                                <Badge className="bg-emerald-600 text-[10px]">Novo Cadastro</Badge>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-500 italic p-3 bg-white rounded border">
+                      Nenhum produto novo criado nesta execução (todos já constavam ou foram
+                      atualizados).
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* 3. Lista de Atualizados (Idempotente) */}
+              <Card className="border-blue-200 bg-blue-50/20">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <RefreshCw className="w-5 h-5 text-blue-600" />
+                      <CardTitle className="text-sm font-bold text-blue-950">
+                        Produtos Atualizados / Idempotentes (
+                        {runResult.atualizados?.length ?? runResult.updated ?? 0})
+                      </CardTitle>
+                    </div>
+                    <Badge className="bg-blue-600 text-xs">
+                      {runResult.atualizados?.length ?? runResult.updated ?? 0} atualizados
+                    </Badge>
+                  </div>
+                  <CardDescription className="text-xs text-slate-600">
+                    Produtos já existentes que tiveram seus dados de origem e saldos sincronizados
+                    sem duplicidade.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {runResult.atualizados && runResult.atualizados.length > 0 ? (
+                    <div className="rounded-md border bg-white overflow-x-auto max-h-[350px]">
+                      <table className="w-full text-xs text-left">
+                        <thead className="bg-blue-50 text-blue-900 sticky top-0 border-b">
+                          <tr>
+                            <th className="p-2.5 w-16">Linha</th>
+                            <th className="p-2.5 w-36">Código / SKU</th>
+                            <th className="p-2.5">Nome do Produto</th>
+                            <th className="p-2.5">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {runResult.atualizados.map((item: any, idx: number) => (
+                            <tr key={idx} className="hover:bg-blue-50/40">
+                              <td className="p-2.5 font-mono text-slate-400">{item.index + 1}</td>
+                              <td className="p-2.5 font-mono font-bold text-blue-700">
+                                {item.code || '—'}
+                              </td>
+                              <td className="p-2.5 font-medium text-slate-900">
+                                {item.name || '—'}
+                              </td>
+                              <td className="p-2.5 text-blue-700">
+                                <Badge
+                                  variant="secondary"
+                                  className="bg-blue-100 text-blue-800 text-[10px]"
+                                >
+                                  Sincronizado Idempotente
+                                </Badge>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-500 italic p-3 bg-white rounded border">
+                      Nenhum produto já existente foi atualizado nesta execução.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
             </TabsContent>
           )}
         </Tabs>
