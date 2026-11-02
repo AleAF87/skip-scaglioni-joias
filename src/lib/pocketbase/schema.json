@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-02T17:46:13.449Z",
+  "generatedAt": "2026-11-02T17:53:45.482Z",
   "collections": [
     {
       "name": "users",
@@ -436,7 +436,7 @@
         {
           "name": "description",
           "type": "text",
-          "required": true,
+          "required": false,
           "system": false
         },
         {

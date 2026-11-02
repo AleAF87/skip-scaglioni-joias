@@ -961,9 +961,8 @@ routerAdd(
               existing.set('estado_ativo_ecommerce', estadoAtivoEcommerce)
               existing.set('destaque_ecommerce', destaqueEcommerce)
 
-              if (descricao) {
-                existing.set('description', descricao)
-              }
+              // Permite gravar ou atualizar mesmo com descrição vazia
+              existing.set('description', descricao || '')
 
               if (brandRecord) {
                 existing.set('marca_id', brandRecord.id)
@@ -1073,6 +1072,7 @@ routerAdd(
               newProd.set('sku_interno', skuInterno)
               newProd.set('nome_produto', nomeProduto)
               newProd.set('nome_original_scaglioni', nomeOriginal || nomeProduto)
+              // Permite gravar novo produto mesmo com descrição vazia
               newProd.set('description', descricao || '')
               newProd.set('code', skuNovo)
               newProd.set('id_scaglioni', idScaglioni)
