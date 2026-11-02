@@ -8,6 +8,7 @@ export interface AutomationStep {
 export interface AutomationCardDetails {
   card_rotulo?: string
   card_link?: string
+  tabela?: string
   xpath?: string
   descricao_xpath?: string
   valor_exibido?: string

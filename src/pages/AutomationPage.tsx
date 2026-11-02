@@ -72,7 +72,13 @@ export default function AutomationPage() {
       if (res.passos && res.passos.length > 0) {
         setPassos(res.passos)
       }
-      toast.success('Automação concluída com sucesso!')
+      if (res.success) {
+        toast.success('Automação concluída com sucesso!')
+      } else {
+        const msg = res.error || 'Não foi possível extrair os dados do card solicitado.'
+        setErrorMessage(msg)
+        toast.error(msg)
+      }
     } catch (err: unknown) {
       const errorObj = err as {
         error?: string
@@ -419,7 +425,13 @@ export default function AutomationPage() {
                       </strong>
                     </div>
                     <div>
-                      <span className="text-[#8C8275] block">Contagem (REST Supabase):</span>
+                      <span className="text-[#8C8275] block">Tabela REST Supabase:</span>
+                      <strong className="text-[#2D2A26]">
+                        {resultado.detalhes_do_card.tabela || '—'}
+                      </strong>
+                    </div>
+                    <div>
+                      <span className="text-[#8C8275] block">Contagem de Registros:</span>
                       <strong className="text-[#2D2A26]">
                         {resultado.detalhes_do_card.count_produtos ?? '—'}
                       </strong>

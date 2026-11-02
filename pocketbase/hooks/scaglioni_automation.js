@@ -43,8 +43,7 @@ routerAdd(
           cardIndice: 1,
           rotulo: 'Produtos',
           link: '/admin/produtos',
-          tabela: 'produtos',
-          endpoint: 'produtos',
+          tabelasCandidatas: ['produtos', 'products'],
           descricao:
             'Primeiro card do painel admin (Produtos) -> quantidade total de produtos cadastrados',
           xpathExemplo: '/html/body/div/div/div/main/main/div/div/div[1]/a[1]/div/div/p[1]',
@@ -55,8 +54,7 @@ routerAdd(
           cardIndice: 2,
           rotulo: 'Categorias',
           link: '/admin/categorias',
-          tabela: 'categorias',
-          endpoint: 'categorias',
+          tabelasCandidatas: ['categorias', 'categories', 'product_categories'],
           descricao: 'Segundo card do painel admin (Categorias) -> quantidade total de categorias',
           xpathExemplo: '/html/body/div/div/div/main/main/div/div/div[1]/a[2]/div/div/p[1]',
           aliases: ['a[2]', 'div[1]/a[2]', 'categorias', 'card2', 'card 2'],
@@ -66,24 +64,38 @@ routerAdd(
           cardIndice: 3,
           rotulo: 'Vendas / Pedidos',
           link: '/admin/vendas',
-          tabela: 'vendas',
-          endpoint: 'vendas',
+          tabelasCandidatas: ['pedidos', 'vendas', 'orders', 'sales'],
           descricao:
             'Terceiro card do painel admin (Vendas/Pedidos) -> quantidade total de pedidos/vendas',
           xpathExemplo: '/html/body/div/div/div/main/main/div/div/div[1]/a[3]/div/div/p[1]',
-          aliases: ['a[3]', 'div[1]/a[3]', 'vendas', 'pedidos', 'card3', 'card 3'],
+          aliases: ['a[3]', 'div[1]/a[3]', 'vendas', 'pedidos', 'card3', 'card 3', 'orders'],
         },
         {
           id: 'card4',
           cardIndice: 4,
           rotulo: 'Revendedores / Clientes',
           link: '/admin/revendedores',
-          tabela: 'revendedores',
-          endpoint: 'revendedores',
+          tabelasCandidatas: [
+            'revendedores',
+            'clientes',
+            'customers',
+            'resellers',
+            'user_roles',
+            'profiles',
+            'usuarios',
+          ],
           descricao:
             'Quarto card do painel admin (Revendedores/Clientes) -> quantidade total cadastrada',
           xpathExemplo: '/html/body/div/div/div/main/main/div/div/div[1]/a[4]/div/div/p[1]',
-          aliases: ['a[4]', 'div[1]/a[4]', 'revendedores', 'clientes', 'card4', 'card 4'],
+          aliases: [
+            'a[4]',
+            'div[1]/a[4]',
+            'revendedores',
+            'clientes',
+            'card4',
+            'card 4',
+            'customers',
+          ],
         },
       ]
 
@@ -175,7 +187,7 @@ routerAdd(
           timeout: 20,
         })
       } catch (reqErr) {
-        logPasso('Falha na conexão de rede com o site Scaglioni Joias.')
+        logPasso('Falha na conexão de rede com o site Scaglioni Joias: ' + reqErr.message)
         return e.json(502, {
           error: 'Falha de comunicação com o site Scaglioni Joias.',
           passos: passos,
@@ -229,146 +241,199 @@ routerAdd(
       logPasso('Login realizado com sucesso no site Scaglioni Joias!')
       logPasso('Acessando painel administrativo https://scaglionijoias.com.br/admin...')
 
-      // 2. Buscar dados do card resolvido no painel admin
-      const endpointTabela = alvoResolvido.endpoint
-      const supabaseRestUrl =
-        'https://bylhuxvdgplfjsnwlqtq.supabase.co/rest/v1/' + endpointTabela + '?select=*'
-
-      logPasso(
-        'Consultando dados do card (' +
-          alvoResolvido.rotulo +
-          ') via REST Supabase (' +
-          endpointTabela +
-          ')...',
-      )
-
-      let restResponse
-      try {
-        restResponse = $http.send({
-          url: supabaseRestUrl,
-          method: 'HEAD',
-          headers: {
-            apikey: SUPABASE_APIKEY,
-            Authorization: 'Bearer ' + accessToken,
-            Prefer: 'count=exact',
-          },
-          timeout: 20,
-        })
-      } catch (restErr) {
-        logPasso('Aviso: consulta HEAD retornou: ' + restErr.message)
-      }
-
-      let totalRegistros = null
-      if (restResponse && restResponse.statusCode >= 200 && restResponse.statusCode < 300) {
-        const contentRange =
-          (restResponse.headers &&
-            (restResponse.headers['Content-Range'] || restResponse.headers['content-range'])) ||
-          ''
-        if (contentRange && contentRange.indexOf('/') !== -1) {
-          const parts = contentRange.split('/')
-          const parsed = parseInt(parts[1], 10)
-          if (!isNaN(parsed)) {
-            totalRegistros = parsed
+      // Função utilitária para extrair Content-Range de forma tolerante a maiúsculas/minúsculas
+      const extrairContentRange = (resObj) => {
+        if (!resObj) return null
+        const headers = resObj.headers || {}
+        let cr = ''
+        for (const k in headers) {
+          if (k.toLowerCase() === 'content-range') {
+            const val = headers[k]
+            cr = Array.isArray(val) ? val[0] : String(val || '')
+            break
           }
         }
+        if (!cr || cr.indexOf('/') === -1) return null
+        const parts = cr.split('/')
+        const countStr = (parts[1] || '').trim()
+        if (countStr && countStr !== '*') {
+          const parsed = parseInt(countStr, 10)
+          if (!isNaN(parsed)) return parsed
+        }
+        return null
       }
 
-      // Se HEAD não retornou contagem exata, tentar GET limit 1 com Prefer: count=exact
-      if (totalRegistros === null) {
+      // Função utilitária para testar endpoint REST Supabase
+      const consultarTabelaSupabase = (endpoint) => {
+        let count = null
+        let primeiroItem = null
+        let encontrouTabela = false
+
+        logPasso(
+          'Consultando dados do card (' +
+            alvoResolvido.rotulo +
+            ') via tabela "' +
+            endpoint +
+            '"...',
+        )
+
+        // 1. Tentar GET limit 1 com Prefer: count=exact (traz tanto o item quanto o Content-Range)
         try {
           const getRes = $http.send({
             url:
-              'https://bylhuxvdgplfjsnwlqtq.supabase.co/rest/v1/' +
-              endpointTabela +
-              '?select=id&limit=1',
+              'https://bylhuxvdgplfjsnwlqtq.supabase.co/rest/v1/' + endpoint + '?select=*&limit=1',
             method: 'GET',
             headers: {
               apikey: SUPABASE_APIKEY,
               Authorization: 'Bearer ' + accessToken,
               Prefer: 'count=exact',
             },
-            timeout: 20,
+            timeout: 15,
           })
 
           if (getRes.statusCode >= 200 && getRes.statusCode < 300) {
-            const contentRange =
-              (getRes.headers &&
-                (getRes.headers['Content-Range'] || getRes.headers['content-range'])) ||
-              ''
-            if (contentRange && contentRange.indexOf('/') !== -1) {
-              const parts = contentRange.split('/')
-              const parsed = parseInt(parts[1], 10)
-              if (!isNaN(parsed)) {
-                totalRegistros = parsed
+            encontrouTabela = true
+            count = extrairContentRange(getRes)
+
+            try {
+              const items = JSON.parse(getRes.raw || '[]')
+              if (Array.isArray(items) && items.length > 0) {
+                primeiroItem = items[0]
+              }
+              if (count === null && Array.isArray(items)) {
+                count = items.length
+              }
+            } catch (_) {}
+          } else if (getRes.statusCode === 401 || getRes.statusCode === 403) {
+            // Tabela existe mas RLS exige outro role ou bloqueia leitura anônima/admin
+            logPasso(
+              'Aviso: permissão restrita para tabela ' +
+                endpoint +
+                ' (HTTP ' +
+                getRes.statusCode +
+                ')',
+            )
+          }
+        } catch (getErr) {
+          logPasso('Tentativa GET em ' + endpoint + ' falhou: ' + getErr.message)
+        }
+
+        // 2. Se count ainda for null, tentar HEAD com count=exact
+        if (count === null) {
+          try {
+            const headRes = $http.send({
+              url: 'https://bylhuxvdgplfjsnwlqtq.supabase.co/rest/v1/' + endpoint + '?select=*',
+              method: 'HEAD',
+              headers: {
+                apikey: SUPABASE_APIKEY,
+                Authorization: 'Bearer ' + accessToken,
+                Prefer: 'count=exact',
+              },
+              timeout: 15,
+            })
+
+            if (headRes.statusCode >= 200 && headRes.statusCode < 300) {
+              encontrouTabela = true
+              count = extrairContentRange(headRes)
+            }
+          } catch (_) {}
+        }
+
+        // 3. Se tabela foi encontrada e count ainda null, tentar contagem paginada simples
+        if (encontrouTabela && count === null) {
+          try {
+            const allRes = $http.send({
+              url:
+                'https://bylhuxvdgplfjsnwlqtq.supabase.co/rest/v1/' +
+                endpoint +
+                '?select=id&limit=1000',
+              method: 'GET',
+              headers: {
+                apikey: SUPABASE_APIKEY,
+                Authorization: 'Bearer ' + accessToken,
+              },
+              timeout: 15,
+            })
+            if (allRes.statusCode === 200) {
+              const allItems = JSON.parse(allRes.raw || '[]')
+              if (Array.isArray(allItems)) {
+                count = allItems.length
               }
             }
-          }
-        } catch (_) {}
-      }
-
-      // Também buscar o primeiro registro da tabela correspondente para conferência no detalhamento
-      let primeiroRegistro = null
-      try {
-        const itemRes = $http.send({
-          url: 'https://bylhuxvdgplfjsnwlqtq.supabase.co/rest/v1/' + endpointTabela + '?limit=1',
-          method: 'GET',
-          headers: {
-            apikey: SUPABASE_APIKEY,
-            Authorization: 'Bearer ' + accessToken,
-          },
-          timeout: 20,
-        })
-        if (itemRes.statusCode === 200) {
-          const parsedItems = JSON.parse(itemRes.raw || '[]')
-          if (Array.isArray(parsedItems) && parsedItems.length > 0) {
-            primeiroRegistro = parsedItems[0]
-          }
+          } catch (_) {}
         }
-      } catch (_) {}
 
-      // Se a tabela retornar 0 registros, totalRegistros pode ser 0 e é válido!
-      if (totalRegistros === null && !primeiroRegistro) {
-        // Tentar obter registros gerais em GET simples para saber se a tabela existe e está vazia
-        try {
-          const emptyCheck = $http.send({
-            url:
-              'https://bylhuxvdgplfjsnwlqtq.supabase.co/rest/v1/' +
-              endpointTabela +
-              '?select=*&limit=1',
-            method: 'GET',
-            headers: {
-              apikey: SUPABASE_APIKEY,
-              Authorization: 'Bearer ' + accessToken,
-            },
-            timeout: 20,
-          })
-          if (emptyCheck.statusCode === 200) {
-            totalRegistros = 0
-          }
-        } catch (_) {}
+        return {
+          sucesso: count !== null,
+          count: count,
+          primeiroItem: primeiroItem,
+          encontrouTabela: encontrouTabela,
+        }
       }
 
-      if (totalRegistros === null && !primeiroRegistro) {
+      // 2. Iterar sobre tabelas candidatas do card
+      let totalRegistros = null
+      let primeiroRegistro = null
+      let tabelaUtilizada = null
+
+      const candidatas = alvoResolvido.tabelasCandidatas || [alvoResolvido.endpoint]
+
+      for (let i = 0; i < candidatas.length; i++) {
+        const candidata = candidatas[i]
+        const resultadoTabela = consultarTabelaSupabase(candidata)
+
+        if (resultadoTabela.sucesso) {
+          totalRegistros = resultadoTabela.count
+          primeiroRegistro = resultadoTabela.primeiroItem
+          tabelaUtilizada = candidata
+          break
+        }
+      }
+
+      // Se não encontrou contagem em nenhuma candidata, retornar mensagem amigável em português
+      if (totalRegistros === null) {
         logPasso(
-          'Não foi possível extrair a contagem ou os registros do card ' +
+          'Não foi possível extrair a contagem do card "' +
             alvoResolvido.rotulo +
-            '.',
+            '" no painel do site.',
         )
-        return e.json(500, {
+        return e.json(200, {
+          success: false,
           error:
             'Não foi possível localizar os dados do card "' +
             alvoResolvido.rotulo +
-            '" no painel do site.',
+            '" no painel administrativo do site Scaglioni Joias.',
+          texto_extraido: 'Dados indisponíveis para ' + alvoResolvido.rotulo,
+          detalhes_do_card: {
+            card_rotulo: alvoResolvido.rotulo,
+            card_link: alvoResolvido.link,
+            xpath: xpathAlvoFinal,
+            descricao_xpath: alvoResolvido.descricao,
+            valor_exibido: 'Dados indisponíveis',
+            count_produtos: null,
+            primeiro_item_bruto: null,
+            usuario_conectado: {
+              id: loginData.user ? loginData.user.id : null,
+              email: loginData.user ? loginData.user.email : email,
+              role: loginData.user ? loginData.user.role : null,
+            },
+          },
           passos: passos,
+          detalhe:
+            'A tabela correspondente ao card ' +
+            alvoResolvido.rotulo +
+            ' não pôde ser consultada com o perfil do usuário.',
         })
       }
 
-      const textoExtraido = totalRegistros !== null ? String(totalRegistros) : '—'
+      // Formatar o texto extraído do elemento no painel: tipo "104 Produtos" ou "8 Categorias"
+      const textoExtraido = String(totalRegistros) + ' ' + alvoResolvido.rotulo
       logPasso('Dado obtido com sucesso: ' + textoExtraido)
 
       const detalhesDoCard = {
         card_rotulo: alvoResolvido.rotulo,
         card_link: alvoResolvido.link,
+        tabela: tabelaUtilizada,
         xpath: xpathAlvoFinal,
         descricao_xpath: alvoResolvido.descricao,
         valor_exibido: textoExtraido,
