@@ -872,27 +872,39 @@ export default function StockInventory() {
                 }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && search.trim()) {
-                    // Salto no scan exato: se houver exatamente 1 produto que dá match exato com o código escaneado
+                    // Salto no scan exato: se houver exatamente 1 produto que dá match exato com o código/SKU escaneado ou pesquisado
                     const exact = products.find((p) => {
                       const qTrim = search.trim()
+                      const qLower = qTrim.toLowerCase()
                       if (/^\d+$/.test(qTrim)) {
                         const qNum = parseInt(qTrim, 10)
                         const c = (p.code || '').trim()
                         const sn = (p.sku_novo || '').trim()
                         const cb = (p.codigo_barras_tecson || '').trim()
+                        const cbp = (p.codigo_barras || '').trim()
                         if (/^\d+$/.test(c) && parseInt(c, 10) === qNum) return true
                         if (/^\d+$/.test(sn) && parseInt(sn, 10) === qNum) return true
                         if (/^\d+$/.test(cb) && parseInt(cb, 10) === qNum) return true
+                        if (/^\d+$/.test(cbp) && parseInt(cbp, 10) === qNum) return true
                       }
-                      return false
+                      // Match alfanumérico por SKU herdado (Scaglioni), SKU novo, código ou barras
+                      const skuScag = (p.sku_scaglioni || '').trim().toLowerCase()
+                      const skuNov = (p.sku_novo || '').trim().toLowerCase()
+                      const cod = (p.code || '').trim().toLowerCase()
+                      const bar = (p.codigo_barras || '').trim().toLowerCase()
+                      return (
+                        skuScag === qLower || skuNov === qLower || cod === qLower || bar === qLower
+                      )
                     })
                     if (exact) {
                       handleOpenEdit(exact)
-                      toast.info(`Localizado via leitor: ${exact.code || exact.sku_novo}`)
+                      toast.info(
+                        `Localizado via leitor/busca: ${exact.sku_novo || exact.sku_scaglioni || exact.code}`,
+                      )
                     }
                   }
                 }}
-                placeholder="Buscar por código, nome do produto ou descrição..."
+                placeholder="Buscar por código, SKU novo, SKU herdado, nome ou descrição..."
                 className="pl-9 border-[#E5DFD5] focus-visible:ring-[#C6A664]"
               />
             </div>
@@ -1395,11 +1407,27 @@ export default function StockInventory() {
 
                       <td className="py-3 px-4">
                         <span className="font-mono text-xs font-bold text-[#7A5C2E] block">
-                          {p.codigo_barras || p.codigo_barras_tecson || p.code}
+                          {p.codigo_barras ||
+                            p.codigo_barras_tecson ||
+                            p.sku_novo ||
+                            p.sku_scaglioni ||
+                            p.code}
                         </span>
-                        {p.codigo_barras && p.code && p.codigo_barras !== p.code && (
-                          <span className="font-mono text-[10px] text-slate-400 block">
-                            SKU: {p.code}
+                        {(p.sku_scaglioni || p.sku_novo || p.code) && (
+                          <span
+                            className="font-mono text-[10px] text-slate-500 block truncate max-w-[140px]"
+                            title={
+                              p.sku_scaglioni && p.sku_scaglioni !== p.sku_novo
+                                ? `SKU Scaglioni: ${p.sku_scaglioni} | SKU Novo: ${p.sku_novo || p.code || '—'}`
+                                : `SKU: ${p.sku_novo || p.sku_scaglioni || p.code}`
+                            }
+                          >
+                            SKU: {p.sku_novo || p.sku_scaglioni || p.code}
+                            {p.sku_scaglioni && p.sku_novo && p.sku_scaglioni !== p.sku_novo && (
+                              <span className="text-[9px] text-[#7A5C2E] ml-1">
+                                ({p.sku_scaglioni})
+                              </span>
+                            )}
                           </span>
                         )}
                       </td>

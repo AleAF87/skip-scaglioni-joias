@@ -215,19 +215,29 @@ export function matchesProductQuery(p: Partial<Product>, query: string): boolean
     }
   }
 
-  // 4. Busca textual padrão por descrição e nome
+  // 4. Busca textual padrão por descrição, nome e todos os identificadores (SKU novo, herdado Scaglioni, barras, etc.)
   const desc = (p.description || '').toLowerCase()
   const nome = (p.nome_produto || '').toLowerCase()
   const code = (p.code || '').toLowerCase()
   const codTecson = (p.codigo_barras_tecson || '').toLowerCase()
+  const codProdTecson = (p.codigo_produto_tecson || '').toLowerCase()
+  const codBarras = (p.codigo_barras || '').toLowerCase()
   const skuNovo = (p.sku_novo || '').toLowerCase()
+  const skuScaglioni = (p.sku_scaglioni || '').toLowerCase()
+  const skuInterno = (p.sku_interno || '').toLowerCase()
+  const prodId = (p.produto_id || '').toLowerCase()
 
   if (
     desc.includes(qLower) ||
     nome.includes(qLower) ||
     code.includes(qLower) ||
     codTecson.includes(qLower) ||
-    skuNovo.includes(qLower)
+    codProdTecson.includes(qLower) ||
+    codBarras.includes(qLower) ||
+    skuNovo.includes(qLower) ||
+    skuScaglioni.includes(qLower) ||
+    skuInterno.includes(qLower) ||
+    prodId.includes(qLower)
   ) {
     return true
   }

@@ -43,6 +43,7 @@ export const productService = {
         `id_scaglioni ~ '${q}'`,
         `sku_scaglioni ~ '${q}'`,
         `sku_novo ~ '${q}'`,
+        `sku_interno ~ '${q}'`,
         `produto_id ~ '${q}'`,
       ]
 
@@ -165,6 +166,7 @@ export const productService = {
         `id_scaglioni ~ '${q}'`,
         `sku_scaglioni ~ '${q}'`,
         `sku_novo ~ '${q}'`,
+        `sku_interno ~ '${q}'`,
         `produto_id ~ '${q}'`,
       ]
 

@@ -86,18 +86,51 @@ export function ProductsPage() {
     try {
       const filters: string[] = []
 
-      // Busca por nome, Produto ID, SKU novo e código de barras
+      // Busca por nome, Produto ID, SKU novo, SKU herdado (Scaglioni) e código de barras
       if (searchQuery.trim()) {
-        const q = searchQuery.trim().replace(/'/g, "\\'")
+        const rawSearch = searchQuery.trim()
+        const q = rawSearch.replace(/'/g, "\\'")
         const clauses = [
           `nome_produto ~ '${q}'`,
           `description ~ '${q}'`,
           `produto_id ~ '${q}'`,
           `sku_novo ~ '${q}'`,
+          `sku_scaglioni ~ '${q}'`,
           `code ~ '${q}'`,
           `codigo_barras ~ '${q}'`,
           `codigo_barras_tecson ~ '${q}'`,
+          `codigo_produto_tecson ~ '${q}'`,
+          `sku_interno ~ '${q}'`,
         ]
+
+        // Se a busca for puramente numérica, adiciona cláusulas para match exato ignorando zeros à esquerda
+        if (/^\d+$/.test(rawSearch)) {
+          const numVal = parseInt(rawSearch, 10)
+          const stripped = rawSearch.replace(/^0+/, '') || '0'
+          const padded5 = String(numVal).padStart(5, '0')
+
+          if (stripped !== rawSearch) {
+            clauses.push(`code = '${stripped}'`)
+            clauses.push(`codigo_barras_tecson = '${stripped}'`)
+            clauses.push(`sku_novo = '${stripped}'`)
+            clauses.push(`produto_id = '${stripped}'`)
+          }
+          if (padded5 !== rawSearch) {
+            clauses.push(`code = '${padded5}'`)
+            clauses.push(`codigo_barras_tecson = '${padded5}'`)
+            clauses.push(`sku_novo = '${padded5}'`)
+          }
+        }
+
+        // Se contiver C ou Ç, adiciona variação normalizada para SKUs do site
+        if (/[cç]/i.test(rawSearch)) {
+          const withC = rawSearch.replace(/ç/gi, 'c').replace(/'/g, "\\'")
+          const withCedilla = rawSearch.replace(/c/gi, 'ç').replace(/'/g, "\\'")
+          clauses.push(`sku_scaglioni ~ '${withC}'`)
+          clauses.push(`sku_scaglioni ~ '${withCedilla}'`)
+          clauses.push(`code ~ '${withC}'`)
+        }
+
         filters.push(`(${clauses.join(' || ')})`)
       }
 
@@ -431,9 +464,27 @@ export function ProductsPage() {
                           )}
                         </td>
 
-                        {/* SKU Novo / Código */}
+                        {/* SKU Novo / SKU Herdado / Código */}
                         <td className="py-2.5 px-3 font-mono font-bold text-[#2D2A26]">
-                          {p.sku_novo || p.code || p.codigo_barras}
+                          <span
+                            title={
+                              p.sku_novo
+                                ? `SKU Novo: ${p.sku_novo}`
+                                : p.sku_scaglioni
+                                  ? `SKU Scaglioni: ${p.sku_scaglioni}`
+                                  : ''
+                            }
+                          >
+                            {p.sku_novo || p.sku_scaglioni || p.code || p.codigo_barras || '—'}
+                          </span>
+                          {p.sku_scaglioni && p.sku_novo && p.sku_scaglioni !== p.sku_novo && (
+                            <span
+                              className="text-[10px] text-[#8C8275] font-normal block truncate max-w-[120px]"
+                              title={`SKU Scaglioni herdado: ${p.sku_scaglioni}`}
+                            >
+                              Scaglioni: {p.sku_scaglioni}
+                            </span>
+                          )}
                         </td>
 
                         {/* Marca */}
