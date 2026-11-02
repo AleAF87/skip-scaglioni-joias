@@ -25,6 +25,7 @@ import ImportProductsPage from '@/pages/ImportProductsPage'
 import { ImportTecsonPage } from '@/pages/ImportTecsonPage'
 import { ImportScaglioniPage } from '@/pages/ImportScaglioniPage'
 import CompanySettingsPage from '@/pages/CompanySettingsPage'
+import AutomationPage from '@/pages/AutomationPage'
 import NotFound from '@/pages/NotFound'
 
 // New Pages - Módulo de Revendedora com Estoque Próprio
@@ -202,6 +203,16 @@ export default function App() {
               element={
                 <ProtectedRoute allowedRoles={['admin']}>
                   <ImportProductsPage />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Automação Scaglioni Joias (Admin only) */}
+            <Route
+              path="automacao"
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <AutomationPage />
                 </ProtectedRoute>
               }
             />

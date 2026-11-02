@@ -26,6 +26,7 @@ import {
   Zap,
   FileSpreadsheet,
   Tag,
+  Bot,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -163,6 +164,12 @@ export default function Layout() {
           icon: Building2,
           isRestricted: true,
         },
+        {
+          to: '/automacao',
+          label: 'Automação',
+          icon: Bot,
+          isRestricted: true,
+        },
         { to: '/instalar', label: 'Instalar o App (PWA)', icon: Download, badgeText: 'App' },
         { to: '/perfil', label: 'Meu Perfil', icon: User },
       ]
@@ -213,6 +220,7 @@ export default function Layout() {
         ...(isAdmin
           ? [{ to: '/empresa', label: 'Dados da Empresa (Contrato)', icon: Building2 }]
           : []),
+        ...(isAdmin ? [{ to: '/automacao', label: 'Automação', icon: Bot }] : []),
         { to: '/instalar', label: 'Instalar o App (PWA)', icon: Download, badgeText: 'App' },
         { to: '/perfil', label: 'Meu Perfil', icon: User },
       ]

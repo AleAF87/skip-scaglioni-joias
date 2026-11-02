@@ -1,0 +1,85 @@
+import pb from '@/lib/pocketbase/client'
+
+export interface AutomationStep {
+  horario: string
+  mensagem: string
+}
+
+export interface AutomationCardDetails {
+  card_rotulo?: string
+  card_link?: string
+  xpath?: string
+  descricao_xpath?: string
+  valor_exibido?: string
+  count_produtos?: number | null
+  primeiro_item_bruto?: Record<string, unknown> | null
+  usuario_conectado?: {
+    id?: string | null
+    email?: string | null
+    role?: string | null
+  }
+}
+
+export interface AutomationResult {
+  success: boolean
+  texto_extraido: string
+  detalhes_do_card: AutomationCardDetails
+  passos: AutomationStep[]
+  error?: string
+  detalhe?: string
+}
+
+export interface AutomationCredentials {
+  email: string
+  senha: string
+}
+
+export const automationService = {
+  async executarLoginScaglioni(creds: AutomationCredentials): Promise<AutomationResult> {
+    try {
+      const response = await pb.send<AutomationResult>('/backend/v1/automacao/scaglioni-login', {
+        method: 'POST',
+        body: {
+          email: creds.email,
+          senha: creds.senha,
+        },
+      })
+      return response
+    } catch (err: unknown) {
+      // PocketBase ClientResponseError ou erro de requisição
+      const errorObj = err as {
+        status?: number
+        response?: {
+          error?: string
+          detalhe?: string
+          passos?: AutomationStep[]
+        }
+        message?: string
+      }
+
+      const responseData = errorObj?.response
+      if (responseData?.error) {
+        throw {
+          status: errorObj.status || 400,
+          error: responseData.error,
+          detalhe: responseData.detalhe,
+          passos: responseData.passos || [],
+        }
+      }
+
+      if (errorObj?.status === 400 || errorObj?.status === 401) {
+        throw {
+          status: errorObj.status,
+          error: 'Credenciais inválidas no site Scaglioni Joias.',
+          passos: [],
+        }
+      }
+
+      throw {
+        status: errorObj?.status || 500,
+        error: errorObj?.message || 'Falha de comunicação com o servidor.',
+        passos: [],
+      }
+    }
+  },
+}
