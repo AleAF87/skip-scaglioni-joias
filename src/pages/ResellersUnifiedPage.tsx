@@ -22,7 +22,15 @@ import {
   ArrowLeft,
   ChevronRight,
   Sparkles,
+  AlertCircle,
 } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog'
 import { useAuth } from '@/contexts/AuthContext'
 import { resellerService } from '@/services/resellerService'
 import { productService } from '@/services/productService'
@@ -64,10 +72,13 @@ export default function ResellersUnifiedPage() {
   const [allStockItems, setAllStockItems] = useState<ResellerStockItem[]>([])
   const [isLoadingOverview, setIsLoadingOverview] = useState<boolean>(true)
 
-  // Profile Active Tab: 'deliveries' | 'new_delivery' | 'stock' | 'returns' | 'history_closing'
-  const [profileTab, setProfileTab] = useState<
-    'deliveries' | 'new_delivery' | 'stock' | 'returns' | 'history_closing'
-  >('deliveries')
+  // Profile Active Tab: 'deliveries' | 'history_closing' (demais abas migradas para modais e botões contextuais)
+  const [profileTab, setProfileTab] = useState<'deliveries' | 'history_closing'>('deliveries')
+
+  // Modais do Perfil
+  const [isNewDeliveryModalOpen, setIsNewDeliveryModalOpen] = useState(false)
+  const [isStockModalOpen, setIsStockModalOpen] = useState(false)
+  const [isConferenceModalOpen, setIsConferenceModalOpen] = useState(false)
 
   // Deliveries List
   const [deliveries, setDeliveries] = useState<ResellerDelivery[]>([])
@@ -193,19 +204,16 @@ export default function ResellersUnifiedPage() {
   }
 
   // Navigate into a Reseller profile
-  const handleOpenResellerProfile = (
-    reseller: Reseller,
-    initialTab:
-      | 'deliveries'
-      | 'new_delivery'
-      | 'stock'
-      | 'returns'
-      | 'history_closing' = 'deliveries',
-  ) => {
+  const handleOpenResellerProfile = (reseller: Reseller, action?: 'new_delivery' | 'stock') => {
     setCurrentReseller(reseller)
-    setProfileTab(initialTab)
+    setProfileTab('deliveries')
     if (canManage) {
       setSearchParams({ reseller: reseller.id }, { replace: true })
+    }
+    if (action === 'new_delivery') {
+      setIsNewDeliveryModalOpen(true)
+    } else if (action === 'stock') {
+      setIsStockModalOpen(true)
     }
   }
 
@@ -217,6 +225,9 @@ export default function ResellersUnifiedPage() {
     setDeliverySignature(null)
     setShowSignPadInForm(false)
     setReturnNotes('')
+    setIsNewDeliveryModalOpen(false)
+    setIsStockModalOpen(false)
+    setIsConferenceModalOpen(false)
     setSearchParams({}, { replace: true })
   }
 
@@ -318,10 +329,10 @@ export default function ResellersUnifiedPage() {
   }
 
   useEffect(() => {
-    if (currentReseller && profileTab === 'new_delivery') {
+    if (currentReseller && isNewDeliveryModalOpen) {
       loadAvailableProducts()
     }
-  }, [currentReseller?.id, profileTab])
+  }, [currentReseller?.id, isNewDeliveryModalOpen])
 
   // Basket handlers
   const handleAddProductToDelivery = (prod: Product) => {
@@ -402,6 +413,7 @@ export default function ResellersUnifiedPage() {
       setDeliveryNotes('')
       setDeliverySignature(null)
       setShowSignPadInForm(false)
+      setIsNewDeliveryModalOpen(false)
       setProfileTab('deliveries')
       await loadDeliveries(currentReseller.id)
       await loadStock(currentReseller.id)
@@ -513,6 +525,7 @@ export default function ResellersUnifiedPage() {
         `Conferência ${res.code} processada com sucesso! ${res.total_returned_qty} peças retornaram ao estoque geral da loja e ${res.total_pending_qty} pendências foram geradas.`,
       )
       setReturnNotes('')
+      setIsConferenceModalOpen(false)
       await loadStock(currentReseller.id)
       await loadIssues(currentReseller.id)
       await loadReturnsHistory(currentReseller.id)
@@ -520,7 +533,6 @@ export default function ResellersUnifiedPage() {
         const allStock = await resellerStockService.getAllResellerStockItems('')
         setAllStockItems(allStock)
       }
-      setProfileTab('stock')
     } catch (err: any) {
       console.error('Erro na devolução:', err)
       toast.error(err.message || 'Falha ao processar devolução.')
@@ -679,7 +691,7 @@ export default function ResellersUnifiedPage() {
                 ({ reseller, piecesCount, distinctProducts, totalValue }) => (
                   <Card
                     key={reseller.id}
-                    onClick={() => handleOpenResellerProfile(reseller, 'deliveries')}
+                    onClick={() => handleOpenResellerProfile(reseller)}
                     className="border border-[#E5DFD5] hover:border-[#7A5C2E] hover:shadow-md transition-all bg-white flex flex-col justify-between cursor-pointer group"
                   >
                     <CardHeader className="pb-3 border-b border-[#E5DFD5]/60 bg-[#FDFBF7] group-hover:bg-[#F3EAD8]/30 transition-colors">
@@ -850,7 +862,7 @@ export default function ResellersUnifiedPage() {
               {canManage && (
                 <Button
                   size="sm"
-                  onClick={() => setProfileTab('new_delivery')}
+                  onClick={() => setIsNewDeliveryModalOpen(true)}
                   className="bg-[#7A5C2E] hover:bg-[#634923] text-white text-xs flex items-center gap-1.5 shadow-xs"
                 >
                   <PackagePlus className="h-4 w-4" />
@@ -871,47 +883,8 @@ export default function ResellersUnifiedPage() {
               }`}
             >
               <FileText className="h-4 w-4" />
-              Entregas Realizadas ({deliveries.length})
+              Entregas Realizadas
             </button>
-
-            {canManage && (
-              <button
-                onClick={() => setProfileTab('new_delivery')}
-                className={`pb-2.5 px-3 font-serif text-xs md:text-sm font-semibold flex items-center gap-1.5 border-b-2 whitespace-nowrap transition-colors ${
-                  profileTab === 'new_delivery'
-                    ? 'border-[#7A5C2E] text-[#7A5C2E]'
-                    : 'border-transparent text-[#6B655E] hover:text-[#2D2A26]'
-                }`}
-              >
-                <PackagePlus className="h-4 w-4" />+ Registrar Entrega
-              </button>
-            )}
-
-            <button
-              onClick={() => setProfileTab('stock')}
-              className={`pb-2.5 px-3 font-serif text-xs md:text-sm font-semibold flex items-center gap-1.5 border-b-2 whitespace-nowrap transition-colors ${
-                profileTab === 'stock'
-                  ? 'border-[#7A5C2E] text-[#7A5C2E]'
-                  : 'border-transparent text-[#6B655E] hover:text-[#2D2A26]'
-              }`}
-            >
-              <Boxes className="h-4 w-4" />
-              Estoque em Poder ({stockItems.length})
-            </button>
-
-            {canManage && (
-              <button
-                onClick={() => setProfileTab('returns')}
-                className={`pb-2.5 px-3 font-serif text-xs md:text-sm font-semibold flex items-center gap-1.5 border-b-2 whitespace-nowrap transition-colors ${
-                  profileTab === 'returns'
-                    ? 'border-[#7A5C2E] text-[#7A5C2E]'
-                    : 'border-transparent text-[#6B655E] hover:text-[#2D2A26]'
-                }`}
-              >
-                <RotateCcw className="h-4 w-4" />
-                Conferência & Devoluções
-              </button>
-            )}
 
             <button
               onClick={() => setProfileTab('history_closing')}
@@ -933,13 +906,15 @@ export default function ResellersUnifiedPage() {
             <div className="space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-[#FDFBF7] p-3.5 rounded-xl border border-[#E5DFD5]">
                 <p className="text-xs text-[#6B655E]">
-                  Exibindo entregas realizadas para <strong>{currentReseller.name}</strong>
+                  Exibindo entregas realizadas para <strong>{currentReseller.name}</strong>. Clique
+                  em uma entrega ativa/aberta para consultar as joias em poder e realizar a
+                  conferência/devolução.
                 </p>
                 {canManage && (
                   <Button
                     size="sm"
-                    onClick={() => setProfileTab('new_delivery')}
-                    className="bg-[#7A5C2E] text-white text-xs"
+                    onClick={() => setIsNewDeliveryModalOpen(true)}
+                    className="bg-[#7A5C2E] hover:bg-[#634923] text-white text-xs"
                   >
                     <Plus className="h-3.5 w-3.5 mr-1" /> Nova Entrega
                   </Button>
@@ -969,9 +944,10 @@ export default function ResellersUnifiedPage() {
                     return (
                       <Card
                         key={del.id}
-                        className="border-[#E5DFD5] hover:shadow-md transition-shadow bg-white flex flex-col justify-between"
+                        onClick={() => setIsStockModalOpen(true)}
+                        className="border-[#E5DFD5] hover:border-[#7A5C2E] hover:shadow-md transition-all bg-white flex flex-col justify-between cursor-pointer group"
                       >
-                        <CardHeader className="pb-3 border-b border-[#E5DFD5]/60">
+                        <CardHeader className="pb-3 border-b border-[#E5DFD5]/60 group-hover:bg-[#FDFBF7] transition-colors">
                           <div className="flex items-center justify-between">
                             <span className="font-mono text-xs font-bold text-[#7A5C2E] px-2 py-0.5 rounded bg-[#F3EAD8]">
                               {del.code}
@@ -995,8 +971,9 @@ export default function ResellersUnifiedPage() {
                               )}
                             </Badge>
                           </div>
-                          <CardTitle className="font-serif text-base text-[#2D2A26] mt-2 truncate">
-                            {currentReseller.name}
+                          <CardTitle className="font-serif text-base text-[#2D2A26] mt-2 truncate flex items-center justify-between">
+                            <span>{currentReseller.name}</span>
+                            <ChevronRight className="h-4 w-4 text-[#C6A664] opacity-0 group-hover:opacity-100 transition-opacity" />
                           </CardTitle>
                           <p className="text-[11px] text-[#6B655E]">
                             {formatDateTime(del.created)}
@@ -1005,7 +982,7 @@ export default function ResellersUnifiedPage() {
 
                         <CardContent className="py-3 text-xs space-y-2 flex-1">
                           <div className="flex justify-between items-center text-[#6B655E]">
-                            <span>Total de Peças:</span>
+                            <span>Total de Peças Entregues:</span>
                             <strong className="text-[#2D2A26] font-semibold text-sm">
                               {del.total_items_count} peças
                             </strong>
@@ -1031,18 +1008,44 @@ export default function ResellersUnifiedPage() {
                               </span>
                             </div>
                           )}
+
+                          {/* Dica de clique para abrir joias em poder */}
+                          <div className="pt-2 border-t border-[#E5DFD5]/40 flex items-center justify-between text-[11px] text-[#7A5C2E]">
+                            <span className="flex items-center gap-1 font-medium">
+                              <Boxes className="h-3.5 w-3.5" />
+                              Ver joias em poder (
+                              {stockItems.reduce((acc, it) => acc + it.quantity, 0)} un)
+                            </span>
+                            <span className="text-[10px] text-[#6B655E]">Clique para detalhes</span>
+                          </div>
                         </CardContent>
 
-                        <div className="p-3 bg-[#FDFBF7] border-t border-[#E5DFD5] flex items-center justify-between gap-2">
+                        <div
+                          className="p-3 bg-[#FDFBF7] border-t border-[#E5DFD5] flex items-center justify-between gap-2 flex-wrap"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {/* Botão de Conferência & Devolução DENTRO da entrega em aberto */}
+                          {canManage && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setIsConferenceModalOpen(true)}
+                              className="text-xs border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] flex items-center gap-1 flex-1 min-w-[130px]"
+                            >
+                              <RotateCcw className="h-3.5 w-3.5" />
+                              Conferência & Devolução
+                            </Button>
+                          )}
+
                           {!isAccepted && (
                             <Button
                               variant="outline"
                               size="sm"
                               onClick={() => setSigningDelivery(del)}
-                              className="text-xs border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] flex items-center gap-1 flex-1"
+                              className="text-xs border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] flex items-center gap-1 flex-1 min-w-[120px]"
                             >
                               <PenTool className="h-3 w-3" />
-                              Assinar Recebimento
+                              Assinar
                             </Button>
                           )}
 
@@ -1055,12 +1058,12 @@ export default function ResellersUnifiedPage() {
                             }}
                             className={`text-xs flex items-center gap-1 ${
                               isAccepted
-                                ? 'bg-[#7A5C2E] hover:bg-[#634923] text-white flex-1'
-                                : 'border-[#E5DFD5] text-[#2D2A26]'
+                                ? 'bg-[#7A5C2E] hover:bg-[#634923] text-white flex-1 min-w-[110px]'
+                                : 'border-[#E5DFD5] text-[#2D2A26] min-w-[110px]'
                             }`}
                           >
                             <FileText className="h-3 w-3" />
-                            Comprovante / PDF
+                            Comprovante
                           </Button>
                         </div>
                       </Card>
@@ -1071,559 +1074,7 @@ export default function ResellersUnifiedPage() {
             </div>
           )}
 
-          {/* ABA 2: REGISTRAR ENTREGA (ADMIN / OPERADOR) */}
-          {profileTab === 'new_delivery' && canManage && (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              {/* Left Column: Product Picker from general store inventory */}
-              <div className="lg:col-span-7 space-y-4">
-                <Card className="border-[#E5DFD5] bg-white">
-                  <CardHeader className="pb-3 border-b border-[#E5DFD5]">
-                    <CardTitle className="font-serif text-base text-[#2D2A26] flex items-center justify-between">
-                      <span>Selecionar Joias do Estoque Geral da Loja</span>
-                      <span className="text-xs font-normal text-[#6B655E]">
-                        Peças saem do geral e entram para {currentReseller.name}
-                      </span>
-                    </CardTitle>
-                    <div className="relative mt-2">
-                      <Search className="absolute left-3 top-2.5 h-4 w-4 text-[#A8A196]" />
-                      <Input
-                        placeholder="Buscar joia por código ou descrição..."
-                        value={productSearch}
-                        onChange={(e) => {
-                          setProductSearch(e.target.value)
-                          loadAvailableProducts(e.target.value)
-                        }}
-                        className="pl-9 text-xs"
-                      />
-                    </div>
-                  </CardHeader>
-                  <CardContent className="p-3 max-h-[500px] overflow-y-auto space-y-2">
-                    {availableProducts.length === 0 ? (
-                      <p className="text-center py-8 text-xs text-[#8C8275]">
-                        Nenhum produto disponível em estoque geral no momento.
-                      </p>
-                    ) : (
-                      availableProducts.map((prod) => {
-                        const photo =
-                          prod.photos && prod.photos.length > 0
-                            ? getFileUrl('products', prod.id, prod.photos[0])
-                            : null
-                        const hasPhoto = Boolean(photo)
-
-                        return (
-                          <div
-                            key={prod.id}
-                            className="flex items-center justify-between p-2.5 rounded-xl border border-[#E5DFD5] hover:border-[#C6A664] hover:bg-[#FDFBF7] transition-all gap-3"
-                          >
-                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                              <button
-                                type="button"
-                                onClick={() => hasPhoto && handleOpenLightbox(prod)}
-                                disabled={!hasPhoto}
-                                className={`relative group h-10 w-10 rounded-lg bg-neutral-100 border border-[#E5DFD5] shrink-0 overflow-hidden flex items-center justify-center ${
-                                  hasPhoto
-                                    ? 'hover:border-[#C6A664] cursor-pointer'
-                                    : 'cursor-default'
-                                }`}
-                                title={hasPhoto ? 'Ampliar foto' : 'Sem foto'}
-                              >
-                                {photo ? (
-                                  <>
-                                    <img
-                                      src={photo}
-                                      alt={prod.description}
-                                      className="h-full w-full object-cover group-hover:scale-105 transition-transform"
-                                    />
-                                    <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white">
-                                      <ZoomIn className="h-3 w-3" />
-                                    </div>
-                                  </>
-                                ) : (
-                                  <Package className="h-4 w-4 text-[#C6A664]" />
-                                )}
-                              </button>
-
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-mono text-xs font-bold text-[#7A5C2E]">
-                                    {prod.code}
-                                  </span>
-                                  <span className="text-xs font-semibold text-[#2D2A26] truncate">
-                                    {prod.description}
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-3 text-[11px] text-[#6B655E] mt-0.5">
-                                  <span>
-                                    Estoque Geral: <strong>{prod.quantity}</strong> un
-                                  </span>
-                                  <span>•</span>
-                                  <span>
-                                    Preço Venda:{' '}
-                                    <strong>{formatCurrency(prod.selling_price)}</strong>
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleAddProductToDelivery(prod)}
-                              className="text-xs border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] h-8 px-2.5 shrink-0"
-                            >
-                              <Plus className="h-3.5 w-3.5 mr-1" />
-                              Adicionar
-                            </Button>
-                          </div>
-                        )
-                      })
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Right Column: Delivery Basket & Confirmation */}
-              <div className="lg:col-span-5 space-y-4">
-                <Card className="border-[#E5DFD5] bg-white sticky top-20 shadow-sm">
-                  <CardHeader className="pb-3 border-b border-[#E5DFD5] bg-[#FDFBF7]">
-                    <CardTitle className="font-serif text-base text-[#2D2A26] flex items-center justify-between">
-                      <span>Joias na Entrega</span>
-                      <Badge variant="outline" className="border-[#C6A664] text-[#7A5C2E]">
-                        {totalDeliveryItemsCount} peças
-                      </Badge>
-                    </CardTitle>
-                    <div className="mt-2 text-xs text-[#6B655E]">
-                      Destinatária:{' '}
-                      <strong className="text-[#2D2A26]">{currentReseller.name}</strong> (
-                      {currentReseller.phone || currentReseller.email})
-                    </div>
-                  </CardHeader>
-
-                  <CardContent className="p-4 space-y-4">
-                    {deliveryItems.length === 0 ? (
-                      <div className="py-8 text-center text-xs text-[#8C8275]">
-                        Nenhuma joia adicionada à entrega ainda. Selecione peças ao lado.
-                      </div>
-                    ) : (
-                      <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                        {deliveryItems.map((it) => (
-                          <div
-                            key={it.product.id}
-                            className="flex items-center justify-between gap-2 p-2 rounded-lg bg-[#FDFBF7] border border-[#E5DFD5]/80 text-xs"
-                          >
-                            <div className="min-w-0 flex-1">
-                              <p className="font-medium text-[#2D2A26] truncate">
-                                {it.product.description}
-                              </p>
-                              <p className="text-[10px] text-[#6B655E]">
-                                {it.product.code} • {formatCurrency(it.selling_price)} un
-                              </p>
-                            </div>
-
-                            <div className="flex items-center gap-1.5">
-                              <input
-                                type="number"
-                                min="1"
-                                max={it.product.quantity}
-                                value={it.quantity}
-                                onChange={(e) =>
-                                  handleUpdateItemQty(
-                                    it.product.id,
-                                    parseInt(e.target.value, 10) || 1,
-                                  )
-                                }
-                                className="w-12 h-7 text-center rounded border border-[#E5DFD5] text-xs font-bold"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveDeliveryItem(it.product.id)}
-                                className="text-[#B3261E] hover:bg-[#B3261E]/10 p-1 rounded"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Totals Box */}
-                    <div className="p-3 bg-[#F3EAD8]/40 rounded-xl border border-[#C6A664]/40 space-y-1.5 text-xs">
-                      <div className="flex justify-between text-[#6B655E]">
-                        <span>Total de Peças:</span>
-                        <strong className="text-[#2D2A26]">{totalDeliveryItemsCount} peças</strong>
-                      </div>
-                      <div className="flex justify-between text-[#6B655E]">
-                        <span>Valor Total da Entrega:</span>
-                        <strong className="text-[#7A5C2E] font-bold text-sm">
-                          {formatCurrency(totalDeliveryValue)}
-                        </strong>
-                      </div>
-                    </div>
-
-                    {/* Notes */}
-                    <div>
-                      <Label className="text-xs text-[#6B655E]">Observações da entrega:</Label>
-                      <Input
-                        placeholder="Ex: Entregue no estojo de veludo, kit inicial..."
-                        value={deliveryNotes}
-                        onChange={(e) => setDeliveryNotes(e.target.value)}
-                        className="text-xs mt-1"
-                      />
-                    </div>
-
-                    {/* Touch Signature option right on the delivery form */}
-                    <div>
-                      {!showSignPadInForm && !deliverySignature && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setShowSignPadInForm(true)}
-                          className="w-full border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] text-xs flex items-center justify-center gap-1.5"
-                        >
-                          <PenTool className="h-3.5 w-3.5" />
-                          Coletar Assinatura Touch de Recebimento Agora
-                        </Button>
-                      )}
-
-                      {showSignPadInForm && !deliverySignature && (
-                        <TouchSignaturePad
-                          signerName={currentReseller.name}
-                          onConfirm={(dataUrl) => {
-                            setDeliverySignature(dataUrl)
-                            setShowSignPadInForm(false)
-                            toast.success('Assinatura registrada!')
-                          }}
-                          onCancel={() => setShowSignPadInForm(false)}
-                        />
-                      )}
-
-                      {deliverySignature && (
-                        <div className="p-2.5 rounded-xl border border-emerald-300 bg-emerald-50 flex items-center justify-between text-xs">
-                          <div className="flex items-center gap-2 text-emerald-800">
-                            <CheckCircle2 className="h-4 w-4" />
-                            <span>Assinatura capturada</span>
-                          </div>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setDeliverySignature(null)}
-                            className="text-[11px] text-[#B3261E] h-7 px-2"
-                          >
-                            Trocar
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Submit button */}
-                    <Button
-                      onClick={handleCreateDelivery}
-                      disabled={isSubmittingDelivery || deliveryItems.length === 0}
-                      className="w-full bg-[#7A5C2E] hover:bg-[#634923] text-white font-medium text-xs h-10 shadow-sm flex items-center justify-center gap-2"
-                    >
-                      <ArrowRight className="h-4 w-4" />
-                      {isSubmittingDelivery
-                        ? 'Transferindo Estoque...'
-                        : 'Confirmar Entrega e Baixar do Estoque Geral'}
-                    </Button>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-          )}
-
-          {/* ABA 3: ESTOQUE EM PODER DA REVENDEDORA */}
-          {profileTab === 'stock' && (
-            <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-[#FDFBF7] p-4 rounded-xl border border-[#E5DFD5]">
-                <div>
-                  <h3 className="font-serif font-bold text-sm text-[#2D2A26]">
-                    Joias em Poder de {currentReseller.name}
-                  </h3>
-                  <p className="text-xs text-[#6B655E]">
-                    Peças ativas em posse da revendedora prontas para venda pelo PDV dela ou
-                    devolução.
-                  </p>
-                </div>
-                <div className="flex items-center gap-4 text-xs font-semibold flex-wrap">
-                  <span className="text-[#6B655E]">
-                    Total de peças:{' '}
-                    <strong className="text-[#2D2A26] text-sm">
-                      {stockItems.reduce((acc, it) => acc + it.quantity, 0)} un
-                    </strong>
-                  </span>
-                  <span className="text-[#6B655E]">
-                    Valor total:{' '}
-                    <strong className="text-[#7A5C2E] text-sm">
-                      {formatCurrency(
-                        stockItems.reduce(
-                          (acc, it) =>
-                            acc +
-                            it.quantity *
-                              (it.selling_price || it.expand?.product?.selling_price || 0),
-                          0,
-                        ),
-                      )}
-                    </strong>
-                  </span>
-                </div>
-              </div>
-
-              {isLoadingStock ? (
-                <div className="p-12 text-center text-[#8C8275] text-xs">
-                  Carregando estoque da revendedora...
-                </div>
-              ) : stockItems.length === 0 ? (
-                <Card className="border-[#E5DFD5] p-12 text-center bg-white">
-                  <Boxes className="h-10 w-10 text-[#C6A664] mx-auto mb-3 opacity-60" />
-                  <p className="text-base font-semibold text-[#2D2A26]">Nenhuma joia em estoque</p>
-                  <p className="text-xs text-[#6B655E] mt-1">
-                    Todas as peças foram vendidas ou devolvidas. Realize uma nova entrega para repor
-                    o estoque desta revendedora.
-                  </p>
-                </Card>
-              ) : (
-                <div className="border border-[#E5DFD5] rounded-xl overflow-hidden bg-white shadow-xs">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead className="bg-[#F3EAD8]/60 text-[#7A5C2E] uppercase font-semibold border-b border-[#E5DFD5]">
-                        <tr>
-                          <th className="py-3 px-4">Código</th>
-                          <th className="py-3 px-4">Descrição da Joia</th>
-                          <th className="py-3 px-4">Tipo / Material</th>
-                          <th className="py-3 px-4 text-center">Qtd em Poder</th>
-                          <th className="py-3 px-4 text-right">Preço de Venda</th>
-                          <th className="py-3 px-4 text-right">Subtotal</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[#E5DFD5]">
-                        {stockItems.map((item) => {
-                          const prod = item.expand?.product
-                          const price = item.selling_price || prod?.selling_price || 0
-                          return (
-                            <tr key={item.id} className="hover:bg-[#FDFBF7]">
-                              <td className="py-3 px-4 font-mono font-bold text-[#7A5C2E]">
-                                {prod?.code || '—'}
-                              </td>
-                              <td className="py-3 px-4 font-semibold text-[#2D2A26]">
-                                {prod?.description || 'Joia'}
-                              </td>
-                              <td className="py-3 px-4 text-[#6B655E]">
-                                {prod?.expand?.type?.name || '—'} •{' '}
-                                {prod?.expand?.material?.name || '—'}
-                              </td>
-                              <td className="py-3 px-4 text-center">
-                                <span className="inline-block px-2.5 py-1 rounded-md font-bold bg-[#E8D5A3]/30 text-[#7A5C2E]">
-                                  {item.quantity} un
-                                </span>
-                              </td>
-                              <td className="py-3 px-4 text-right text-[#6B655E]">
-                                {formatCurrency(price)}
-                              </td>
-                              <td className="py-3 px-4 text-right font-bold text-[#2D2A26]">
-                                {formatCurrency(price * item.quantity)}
-                              </td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ABA 4: CONFERÊNCIA & DEVOLUÇÕES (ADMIN / OPERADOR) */}
-          {profileTab === 'returns' && canManage && (
-            <div className="space-y-4">
-              <Card className="border-[#E5DFD5] bg-white">
-                <CardHeader className="p-4 border-b border-[#E5DFD5] bg-[#FDFBF7]">
-                  <CardTitle className="font-serif text-base text-[#2D2A26] flex items-center justify-between">
-                    <span>Conferência & Devolução de Joias de {currentReseller.name}</span>
-                    <span className="text-xs font-normal text-[#6B655E]">
-                      Peças devolvidas voltam ao estoque geral da loja
-                    </span>
-                  </CardTitle>
-                </CardHeader>
-
-                <CardContent className="p-4 space-y-4">
-                  {isLoadingStock ? (
-                    <div className="py-12 text-center text-xs text-[#8C8275]">
-                      Carregando estoque da revendedora...
-                    </div>
-                  ) : stockItems.length === 0 ? (
-                    <div className="py-12 text-center text-xs text-[#8C8275]">
-                      <Boxes className="h-10 w-10 text-[#C6A664] mx-auto mb-2 opacity-60" />
-                      <p className="font-semibold text-sm text-[#2D2A26]">
-                        Nenhuma joia em poder desta revendedora.
-                      </p>
-                      <p>O saldo em mãos dela é zero.</p>
-                    </div>
-                  ) : (
-                    <div className="border border-[#E5DFD5] rounded-xl overflow-hidden">
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left text-xs">
-                          <thead className="bg-[#F3EAD8]/60 text-[#7A5C2E] uppercase font-semibold border-b border-[#E5DFD5]">
-                            <tr>
-                              <th className="py-3 px-3">Código</th>
-                              <th className="py-3 px-3">Descrição da Joia</th>
-                              <th className="py-3 px-3 text-center">Saldo em Mãos</th>
-                              <th className="py-3 px-3 text-center bg-emerald-50 text-emerald-800">
-                                Qtd Devolvida (Loja)
-                              </th>
-                              <th className="py-3 px-3 text-center bg-amber-50 text-amber-800">
-                                Qtd Faltante / Pendente
-                              </th>
-                              <th className="py-3 px-3 bg-amber-50 text-amber-800">
-                                Motivo Pendência
-                              </th>
-                              <th className="py-3 px-3 bg-amber-50 text-amber-800">Obs / Motivo</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-[#E5DFD5]">
-                            {stockItems.map((it) => {
-                              const prod = it.expand?.product
-                              const conf = conferenceMap[it.product] || {
-                                returned_qty: 0,
-                                pending_qty: 0,
-                                pending_reason: 'extraviada',
-                                pending_notes: '',
-                              }
-
-                              return (
-                                <tr key={it.id} className="hover:bg-[#FDFBF7]">
-                                  <td className="py-3 px-3 font-mono font-bold text-[#7A5C2E]">
-                                    {prod?.code}
-                                  </td>
-                                  <td className="py-3 px-3 font-medium text-[#2D2A26] max-w-[200px] truncate">
-                                    {prod?.description}
-                                  </td>
-                                  <td className="py-3 px-3 text-center font-bold">
-                                    <span className="inline-block px-2 py-0.5 rounded bg-[#E8D5A3]/40 text-[#7A5C2E]">
-                                      {it.quantity} un
-                                    </span>
-                                  </td>
-
-                                  {/* Devolvidas fisicamente */}
-                                  <td className="py-3 px-3 text-center bg-emerald-50/50">
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      max={it.quantity}
-                                      value={conf.returned_qty || ''}
-                                      placeholder="0"
-                                      onChange={(e) =>
-                                        handleItemChange(
-                                          it.product,
-                                          'returned_qty',
-                                          parseInt(e.target.value, 10) || 0,
-                                        )
-                                      }
-                                      className="w-16 h-8 text-center rounded-md border border-emerald-300 bg-white text-xs font-bold"
-                                    />
-                                  </td>
-
-                                  {/* Pendente / Extraviada */}
-                                  <td className="py-3 px-3 text-center bg-amber-50/50">
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      max={it.quantity - (conf.returned_qty || 0)}
-                                      value={conf.pending_qty || ''}
-                                      placeholder="0"
-                                      onChange={(e) =>
-                                        handleItemChange(
-                                          it.product,
-                                          'pending_qty',
-                                          parseInt(e.target.value, 10) || 0,
-                                        )
-                                      }
-                                      className="w-16 h-8 text-center rounded-md border border-amber-300 bg-white text-xs font-bold"
-                                    />
-                                  </td>
-
-                                  {/* Motivo */}
-                                  <td className="py-3 px-3 bg-amber-50/50">
-                                    <select
-                                      disabled={(conf.pending_qty || 0) === 0}
-                                      value={conf.pending_reason}
-                                      onChange={(e) =>
-                                        handleItemChange(
-                                          it.product,
-                                          'pending_reason',
-                                          e.target.value,
-                                        )
-                                      }
-                                      className="h-8 rounded-md border border-amber-300 bg-white text-[11px] px-2"
-                                    >
-                                      <option value="extraviada">Extraviada / Perdida</option>
-                                      <option value="venda_avulsa_sem_pdv">
-                                        Venda avulsa sem PDV
-                                      </option>
-                                      <option value="outros">Outros motivos</option>
-                                    </select>
-                                  </td>
-
-                                  {/* Notas */}
-                                  <td className="py-3 px-3 bg-amber-50/50">
-                                    <input
-                                      type="text"
-                                      disabled={(conf.pending_qty || 0) === 0}
-                                      placeholder="Detalhes..."
-                                      value={conf.pending_notes}
-                                      onChange={(e) =>
-                                        handleItemChange(
-                                          it.product,
-                                          'pending_notes',
-                                          e.target.value,
-                                        )
-                                      }
-                                      className="w-full h-8 rounded-md border border-amber-300 bg-white text-[11px] px-2"
-                                    />
-                                  </td>
-                                </tr>
-                              )
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  )}
-
-                  <div>
-                    <Label className="text-xs text-[#6B655E]">
-                      Observações gerais da devolução:
-                    </Label>
-                    <Input
-                      placeholder="Ex: Devolução periódica recebida no balcão da loja..."
-                      value={returnNotes}
-                      onChange={(e) => setReturnNotes(e.target.value)}
-                      className="text-xs mt-1"
-                    />
-                  </div>
-
-                  <div className="flex justify-end pt-2">
-                    <Button
-                      onClick={handleSubmitReturn}
-                      disabled={isSubmittingReturn || stockItems.length === 0}
-                      className="bg-[#7A5C2E] hover:bg-[#634923] text-white font-medium text-xs h-10 px-6 shadow-xs flex items-center gap-2"
-                    >
-                      <CheckCircle2 className="h-4 w-4" />
-                      {isSubmittingReturn
-                        ? 'Processando Devolução...'
-                        : 'Confirmar Devolução e Baixar Estoque'}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
-          {/* ABA 5: HISTÓRICO & FECHAMENTOS */}
+          {/* ABA 2: HISTÓRICO & FECHAMENTOS */}
           {profileTab === 'history_closing' && (
             <div className="space-y-6">
               {/* Resumo Consolidado da Revendedora */}
@@ -1881,6 +1332,606 @@ export default function ResellersUnifiedPage() {
         initialIndex={lightboxIndex}
         title={lightboxTitle}
       />
+
+      {/* ------------------------------------------------------------------- */}
+      {/* MODAL 1: NOVA ENTREGA DE JOIAS */}
+      {/* ------------------------------------------------------------------- */}
+      {currentReseller && (
+        <Dialog open={isNewDeliveryModalOpen} onOpenChange={setIsNewDeliveryModalOpen}>
+          <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto p-6 bg-white border-[#E5DFD5]">
+            <DialogHeader className="pb-3 border-b border-[#E5DFD5]">
+              <DialogTitle className="font-serif text-xl text-[#2D2A26] flex items-center gap-2">
+                <PackagePlus className="h-5 w-5 text-[#7A5C2E]" />
+                Nova Entrega de Joias — {currentReseller.name}
+              </DialogTitle>
+              <DialogDescription className="text-xs text-[#6B655E]">
+                Selecione as joias disponíveis no estoque geral da loja. As peças selecionadas serão
+                debitadas do estoque central e creditadas no estoque em poder da revendedora.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pt-2">
+              {/* Left Column: Product Picker */}
+              <div className="lg:col-span-7 space-y-4">
+                <Card className="border-[#E5DFD5] bg-white shadow-xs">
+                  <CardHeader className="pb-3 border-b border-[#E5DFD5] bg-[#FDFBF7]">
+                    <div className="flex items-center justify-between">
+                      <span className="font-serif text-sm font-semibold text-[#2D2A26]">
+                        Estoque Geral Disponível
+                      </span>
+                      <span className="text-[11px] text-[#6B655E]">
+                        {availableProducts.length} itens listados
+                      </span>
+                    </div>
+                    <div className="relative mt-2">
+                      <Search className="absolute left-3 top-2.5 h-4 w-4 text-[#A8A196]" />
+                      <Input
+                        placeholder="Buscar joia por código ou descrição..."
+                        value={productSearch}
+                        onChange={(e) => {
+                          setProductSearch(e.target.value)
+                          loadAvailableProducts(e.target.value)
+                        }}
+                        className="pl-9 text-xs"
+                      />
+                    </div>
+                  </CardHeader>
+
+                  <CardContent className="p-3 max-h-[440px] overflow-y-auto space-y-2">
+                    {availableProducts.length === 0 ? (
+                      <p className="text-center py-8 text-xs text-[#8C8275]">
+                        Nenhum produto disponível no estoque geral da loja no momento.
+                      </p>
+                    ) : (
+                      availableProducts.map((prod) => {
+                        const photo =
+                          prod.photos && prod.photos.length > 0
+                            ? getFileUrl('products', prod.id, prod.photos[0])
+                            : null
+                        const hasPhoto = Boolean(photo)
+
+                        return (
+                          <div
+                            key={prod.id}
+                            className="flex items-center justify-between p-2.5 rounded-xl border border-[#E5DFD5] hover:border-[#C6A664] hover:bg-[#FDFBF7] transition-all gap-3"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                              <button
+                                type="button"
+                                onClick={() => hasPhoto && handleOpenLightbox(prod)}
+                                disabled={!hasPhoto}
+                                className={`relative group h-10 w-10 rounded-lg bg-neutral-100 border border-[#E5DFD5] shrink-0 overflow-hidden flex items-center justify-center ${
+                                  hasPhoto
+                                    ? 'hover:border-[#C6A664] cursor-pointer'
+                                    : 'cursor-default'
+                                }`}
+                                title={hasPhoto ? 'Ampliar foto' : 'Sem foto'}
+                              >
+                                {photo ? (
+                                  <>
+                                    <img
+                                      src={photo}
+                                      alt={prod.description}
+                                      className="h-full w-full object-cover group-hover:scale-105 transition-transform"
+                                    />
+                                    <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white">
+                                      <ZoomIn className="h-3 w-3" />
+                                    </div>
+                                  </>
+                                ) : (
+                                  <Package className="h-4 w-4 text-[#C6A664]" />
+                                )}
+                              </button>
+
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-xs font-bold text-[#7A5C2E]">
+                                    {prod.code}
+                                  </span>
+                                  <span className="text-xs font-semibold text-[#2D2A26] truncate">
+                                    {prod.description}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-3 text-[11px] text-[#6B655E] mt-0.5">
+                                  <span>
+                                    Disponível: <strong>{prod.quantity}</strong> un
+                                  </span>
+                                  <span>•</span>
+                                  <span>
+                                    Preço Venda:{' '}
+                                    <strong>{formatCurrency(prod.selling_price)}</strong>
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleAddProductToDelivery(prod)}
+                              className="text-xs border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] h-8 px-2.5 shrink-0"
+                            >
+                              <Plus className="h-3.5 w-3.5 mr-1" />
+                              Adicionar
+                            </Button>
+                          </div>
+                        )
+                      })
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Right Column: Delivery Basket & Confirmation */}
+              <div className="lg:col-span-5 space-y-4">
+                <Card className="border-[#E5DFD5] bg-white shadow-xs">
+                  <CardHeader className="pb-3 border-b border-[#E5DFD5] bg-[#FDFBF7]">
+                    <div className="flex items-center justify-between">
+                      <span className="font-serif text-sm font-semibold text-[#2D2A26]">
+                        Cesta da Entrega
+                      </span>
+                      <Badge variant="outline" className="border-[#C6A664] text-[#7A5C2E]">
+                        {totalDeliveryItemsCount} peças
+                      </Badge>
+                    </div>
+                    <div className="text-[11px] text-[#6B655E] mt-1 truncate">
+                      Destinatária:{' '}
+                      <strong className="text-[#2D2A26]">{currentReseller.name}</strong>
+                    </div>
+                  </CardHeader>
+
+                  <CardContent className="p-4 space-y-4">
+                    {deliveryItems.length === 0 ? (
+                      <div className="py-8 text-center text-xs text-[#8C8275]">
+                        Nenhuma joia adicionada à entrega ainda. Selecione peças ao lado.
+                      </div>
+                    ) : (
+                      <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                        {deliveryItems.map((it) => (
+                          <div
+                            key={it.product.id}
+                            className="flex items-center justify-between gap-2 p-2 rounded-lg bg-[#FDFBF7] border border-[#E5DFD5]/80 text-xs"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="font-medium text-[#2D2A26] truncate">
+                                {it.product.description}
+                              </p>
+                              <p className="text-[10px] text-[#6B655E]">
+                                {it.product.code} • {formatCurrency(it.selling_price)} un
+                              </p>
+                            </div>
+
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="number"
+                                min="1"
+                                max={it.product.quantity}
+                                value={it.quantity}
+                                onChange={(e) =>
+                                  handleUpdateItemQty(
+                                    it.product.id,
+                                    parseInt(e.target.value, 10) || 1,
+                                  )
+                                }
+                                className="w-12 h-7 text-center rounded border border-[#E5DFD5] text-xs font-bold"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveDeliveryItem(it.product.id)}
+                                className="text-[#B3261E] hover:bg-[#B3261E]/10 p-1 rounded"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Totals Box */}
+                    <div className="p-3 bg-[#F3EAD8]/40 rounded-xl border border-[#C6A664]/40 space-y-1 text-xs">
+                      <div className="flex justify-between text-[#6B655E]">
+                        <span>Total de Peças:</span>
+                        <strong className="text-[#2D2A26]">{totalDeliveryItemsCount} peças</strong>
+                      </div>
+                      <div className="flex justify-between text-[#6B655E]">
+                        <span>Valor Total da Entrega:</span>
+                        <strong className="text-[#7A5C2E] font-bold text-sm">
+                          {formatCurrency(totalDeliveryValue)}
+                        </strong>
+                      </div>
+                    </div>
+
+                    {/* Notes */}
+                    <div>
+                      <Label className="text-xs text-[#6B655E]">Observações da entrega:</Label>
+                      <Input
+                        placeholder="Ex: Entregue no estojo de veludo, kit inicial..."
+                        value={deliveryNotes}
+                        onChange={(e) => setDeliveryNotes(e.target.value)}
+                        className="text-xs mt-1"
+                      />
+                    </div>
+
+                    {/* Touch Signature option right on the delivery form */}
+                    <div>
+                      {!showSignPadInForm && !deliverySignature && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowSignPadInForm(true)}
+                          className="w-full border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] text-xs flex items-center justify-center gap-1.5"
+                        >
+                          <PenTool className="h-3.5 w-3.5" />
+                          Coletar Assinatura Touch de Recebimento Agora
+                        </Button>
+                      )}
+
+                      {showSignPadInForm && !deliverySignature && (
+                        <TouchSignaturePad
+                          signerName={currentReseller.name}
+                          onConfirm={(dataUrl) => {
+                            setDeliverySignature(dataUrl)
+                            setShowSignPadInForm(false)
+                            toast.success('Assinatura registrada!')
+                          }}
+                          onCancel={() => setShowSignPadInForm(false)}
+                        />
+                      )}
+
+                      {deliverySignature && (
+                        <div className="p-2.5 rounded-xl border border-emerald-300 bg-emerald-50 flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-2 text-emerald-800">
+                            <CheckCircle2 className="h-4 w-4" />
+                            <span>Assinatura capturada</span>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setDeliverySignature(null)}
+                            className="text-[11px] text-[#B3261E] h-7 px-2"
+                          >
+                            Trocar
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Submit button */}
+                    <Button
+                      onClick={handleCreateDelivery}
+                      disabled={isSubmittingDelivery || deliveryItems.length === 0}
+                      className="w-full bg-[#7A5C2E] hover:bg-[#634923] text-white font-medium text-xs h-10 shadow-sm flex items-center justify-center gap-2"
+                    >
+                      <ArrowRight className="h-4 w-4" />
+                      {isSubmittingDelivery
+                        ? 'Transferindo Estoque...'
+                        : 'Confirmar Entrega e Baixar do Estoque Geral'}
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* ------------------------------------------------------------------- */}
+      {/* MODAL 2: ESTOQUE EM PODER DA REVENDEDORA (Joias em mãos) */}
+      {/* ------------------------------------------------------------------- */}
+      {currentReseller && (
+        <Dialog open={isStockModalOpen} onOpenChange={setIsStockModalOpen}>
+          <DialogContent className="max-w-4xl max-h-[88vh] overflow-y-auto p-6 bg-white border-[#E5DFD5]">
+            <DialogHeader className="pb-3 border-b border-[#E5DFD5]">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <DialogTitle className="font-serif text-xl text-[#2D2A26] flex items-center gap-2">
+                  <Boxes className="h-5 w-5 text-[#7A5C2E]" />
+                  Joias em Poder — {currentReseller.name}
+                </DialogTitle>
+                <div className="flex items-center gap-3 text-xs">
+                  <span className="text-[#6B655E]">
+                    Total de peças:{' '}
+                    <strong className="text-[#2D2A26]">
+                      {stockItems.reduce((acc, it) => acc + it.quantity, 0)} un
+                    </strong>
+                  </span>
+                  <span>•</span>
+                  <span className="text-[#6B655E]">
+                    Valor total:{' '}
+                    <strong className="text-[#7A5C2E]">
+                      {formatCurrency(
+                        stockItems.reduce(
+                          (acc, it) =>
+                            acc +
+                            it.quantity *
+                              (it.selling_price || it.expand?.product?.selling_price || 0),
+                          0,
+                        ),
+                      )}
+                    </strong>
+                  </span>
+                </div>
+              </div>
+              <DialogDescription className="text-xs text-[#6B655E]">
+                Listagem detalhada das joias em posse da revendedora para venda ou devolução, com
+                código, quantidade, preço de venda e subtotal.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 pt-2">
+              {isLoadingStock ? (
+                <div className="p-12 text-center text-[#8C8275] text-xs">
+                  Carregando estoque da revendedora...
+                </div>
+              ) : stockItems.length === 0 ? (
+                <div className="border border-[#E5DFD5] p-10 text-center rounded-xl bg-[#FDFBF7]">
+                  <Boxes className="h-10 w-10 text-[#C6A664] mx-auto mb-3 opacity-60" />
+                  <p className="text-base font-semibold text-[#2D2A26]">
+                    Nenhuma joia em poder desta revendedora
+                  </p>
+                  <p className="text-xs text-[#6B655E] mt-1">
+                    O saldo em mãos dela é zero. Realize uma nova entrega para transferir peças da
+                    loja.
+                  </p>
+                </div>
+              ) : (
+                <div className="border border-[#E5DFD5] rounded-xl overflow-hidden bg-white shadow-xs">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-[#F3EAD8]/60 text-[#7A5C2E] uppercase font-semibold border-b border-[#E5DFD5]">
+                        <tr>
+                          <th className="py-3 px-4">Código</th>
+                          <th className="py-3 px-4">Descrição da Joia</th>
+                          <th className="py-3 px-4">Tipo / Material</th>
+                          <th className="py-3 px-4 text-center">Quantidade</th>
+                          <th className="py-3 px-4 text-right">Preço de Venda</th>
+                          <th className="py-3 px-4 text-right">Subtotal</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#E5DFD5]">
+                        {stockItems.map((item) => {
+                          const prod = item.expand?.product
+                          const price = item.selling_price || prod?.selling_price || 0
+                          const subtotal = price * item.quantity
+                          return (
+                            <tr key={item.id} className="hover:bg-[#FDFBF7]">
+                              <td className="py-3 px-4 font-mono font-bold text-[#7A5C2E]">
+                                {prod?.code || '—'}
+                              </td>
+                              <td className="py-3 px-4 font-semibold text-[#2D2A26]">
+                                {prod?.description || 'Joia'}
+                              </td>
+                              <td className="py-3 px-4 text-[#6B655E]">
+                                {prod?.expand?.type?.name || '—'} •{' '}
+                                {prod?.expand?.material?.name || '—'}
+                              </td>
+                              <td className="py-3 px-4 text-center">
+                                <span className="inline-block px-2.5 py-1 rounded-md font-bold bg-[#E8D5A3]/30 text-[#7A5C2E]">
+                                  {item.quantity} un
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-right text-[#6B655E]">
+                                {formatCurrency(price)}
+                              </td>
+                              <td className="py-3 px-4 text-right font-bold text-[#2D2A26]">
+                                {formatCurrency(subtotal)}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {canManage && stockItems.length > 0 && (
+                <div className="flex justify-end pt-2">
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      setIsStockModalOpen(false)
+                      setIsConferenceModalOpen(true)
+                    }}
+                    className="text-xs bg-[#7A5C2E] hover:bg-[#634923] text-white flex items-center gap-1.5"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    Abrir Conferência & Devolução
+                  </Button>
+                </div>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* ------------------------------------------------------------------- */}
+      {/* MODAL 3: CONFERÊNCIA & DEVOLUÇÃO (Dentro da entrega em aberto) */}
+      {/* ------------------------------------------------------------------- */}
+      {currentReseller && (
+        <Dialog open={isConferenceModalOpen} onOpenChange={setIsConferenceModalOpen}>
+          <DialogContent className="max-w-5xl max-h-[88vh] overflow-y-auto p-6 bg-white border-[#E5DFD5]">
+            <DialogHeader className="pb-3 border-b border-[#E5DFD5]">
+              <DialogTitle className="font-serif text-xl text-[#2D2A26] flex items-center gap-2">
+                <RotateCcw className="h-5 w-5 text-[#7A5C2E]" />
+                Conferência & Devolução de Joias — {currentReseller.name}
+              </DialogTitle>
+              <DialogDescription className="text-xs text-[#6B655E]">
+                Informe a quantidade de peças que retornam fisicamente ao estoque geral da loja e
+                registre eventuais extravios ou pendências com justificativa.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 pt-2">
+              {isLoadingStock ? (
+                <div className="py-12 text-center text-xs text-[#8C8275]">
+                  Carregando estoque da revendedora...
+                </div>
+              ) : stockItems.length === 0 ? (
+                <div className="py-12 text-center text-xs text-[#8C8275] border border-[#E5DFD5] rounded-xl bg-[#FDFBF7]">
+                  <Boxes className="h-10 w-10 text-[#C6A664] mx-auto mb-2 opacity-60" />
+                  <p className="font-semibold text-sm text-[#2D2A26]">
+                    Nenhuma joia em poder desta revendedora.
+                  </p>
+                  <p className="text-xs text-[#6B655E] mt-1">O saldo em mãos dela é zero.</p>
+                </div>
+              ) : (
+                <div className="border border-[#E5DFD5] rounded-xl overflow-hidden shadow-xs">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-[#F3EAD8]/60 text-[#7A5C2E] uppercase font-semibold border-b border-[#E5DFD5]">
+                        <tr>
+                          <th className="py-3 px-3">Código</th>
+                          <th className="py-3 px-3">Descrição da Joia</th>
+                          <th className="py-3 px-3 text-center">Saldo em Mãos</th>
+                          <th className="py-3 px-3 text-center bg-emerald-50 text-emerald-800">
+                            Qtd Devolvida (Loja)
+                          </th>
+                          <th className="py-3 px-3 text-center bg-amber-50 text-amber-800">
+                            Qtd Faltante / Pendente
+                          </th>
+                          <th className="py-3 px-3 bg-amber-50 text-amber-800">Motivo Pendência</th>
+                          <th className="py-3 px-3 bg-amber-50 text-amber-800">
+                            Obs / Justificativa
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#E5DFD5]">
+                        {stockItems.map((it) => {
+                          const prod = it.expand?.product
+                          const conf = conferenceMap[it.product] || {
+                            returned_qty: 0,
+                            pending_qty: 0,
+                            pending_reason: 'extraviada',
+                            pending_notes: '',
+                          }
+
+                          return (
+                            <tr key={it.id} className="hover:bg-[#FDFBF7]">
+                              <td className="py-3 px-3 font-mono font-bold text-[#7A5C2E]">
+                                {prod?.code}
+                              </td>
+                              <td className="py-3 px-3 font-medium text-[#2D2A26] max-w-[200px] truncate">
+                                {prod?.description}
+                              </td>
+                              <td className="py-3 px-3 text-center font-bold">
+                                <span className="inline-block px-2 py-0.5 rounded bg-[#E8D5A3]/40 text-[#7A5C2E]">
+                                  {it.quantity} un
+                                </span>
+                              </td>
+
+                              {/* Devolvidas fisicamente */}
+                              <td className="py-3 px-3 text-center bg-emerald-50/50">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max={it.quantity}
+                                  value={conf.returned_qty || ''}
+                                  placeholder="0"
+                                  onChange={(e) =>
+                                    handleItemChange(
+                                      it.product,
+                                      'returned_qty',
+                                      parseInt(e.target.value, 10) || 0,
+                                    )
+                                  }
+                                  className="w-16 h-8 text-center rounded-md border border-emerald-300 bg-white text-xs font-bold"
+                                />
+                              </td>
+
+                              {/* Pendente / Extraviada */}
+                              <td className="py-3 px-3 text-center bg-amber-50/50">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max={it.quantity - (conf.returned_qty || 0)}
+                                  value={conf.pending_qty || ''}
+                                  placeholder="0"
+                                  onChange={(e) =>
+                                    handleItemChange(
+                                      it.product,
+                                      'pending_qty',
+                                      parseInt(e.target.value, 10) || 0,
+                                    )
+                                  }
+                                  className="w-16 h-8 text-center rounded-md border border-amber-300 bg-white text-xs font-bold"
+                                />
+                              </td>
+
+                              {/* Motivo */}
+                              <td className="py-3 px-3 bg-amber-50/50">
+                                <select
+                                  disabled={(conf.pending_qty || 0) === 0}
+                                  value={conf.pending_reason}
+                                  onChange={(e) =>
+                                    handleItemChange(it.product, 'pending_reason', e.target.value)
+                                  }
+                                  className="h-8 rounded-md border border-amber-300 bg-white text-[11px] px-2"
+                                >
+                                  <option value="extraviada">Extraviada / Perdida</option>
+                                  <option value="venda_avulsa_sem_pdv">Venda avulsa sem PDV</option>
+                                  <option value="outros">Outros motivos</option>
+                                </select>
+                              </td>
+
+                              {/* Notas */}
+                              <td className="py-3 px-3 bg-amber-50/50">
+                                <input
+                                  type="text"
+                                  disabled={(conf.pending_qty || 0) === 0}
+                                  placeholder="Detalhes..."
+                                  value={conf.pending_notes}
+                                  onChange={(e) =>
+                                    handleItemChange(it.product, 'pending_notes', e.target.value)
+                                  }
+                                  className="w-full h-8 rounded-md border border-amber-300 bg-white text-[11px] px-2"
+                                />
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <Label className="text-xs text-[#6B655E]">Observações gerais da devolução:</Label>
+                <Input
+                  placeholder="Ex: Devolução periódica recebida no balcão da loja..."
+                  value={returnNotes}
+                  onChange={(e) => setReturnNotes(e.target.value)}
+                  className="text-xs mt-1"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-[#E5DFD5]">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsConferenceModalOpen(false)}
+                  className="text-xs border-[#E5DFD5]"
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={handleSubmitReturn}
+                  disabled={isSubmittingReturn || stockItems.length === 0}
+                  className="bg-[#7A5C2E] hover:bg-[#634923] text-white font-medium text-xs h-9 px-6 shadow-xs flex items-center gap-2"
+                >
+                  <CheckCircle2 className="h-4 w-4" />
+                  {isSubmittingReturn
+                    ? 'Processando Devolução...'
+                    : 'Confirmar Devolução e Baixar Estoque'}
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }
