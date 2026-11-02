@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
   Users2,
@@ -23,7 +23,10 @@ import {
   ChevronRight,
   Sparkles,
   AlertCircle,
+  Barcode,
+  AlertTriangle,
 } from 'lucide-react'
+import { isExactCodeMatch, matchesProductQuery } from '@/lib/barcodeSearch'
 import {
   Dialog,
   DialogContent,
@@ -46,7 +49,13 @@ import {
   ConsignmentList,
   AppSettings,
 } from '@/types'
-import { formatCurrency, formatDate, formatDateTime, getFileUrl } from '@/lib/formatters'
+import {
+  formatCurrency,
+  formatDate,
+  formatDateTime,
+  getFileUrl,
+  getProductDisplayPhoto,
+} from '@/lib/formatters'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -110,6 +119,12 @@ export default function ResellersUnifiedPage() {
   const [showSignPadInForm, setShowSignPadInForm] = useState(false)
   const [isSubmittingDelivery, setIsSubmittingDelivery] = useState(false)
 
+  // Barcode Scanner State - Modal de Entrega
+  const [deliveryBarcodeScan, setDeliveryBarcodeScan] = useState('')
+  const [deliveryScanAlert, setDeliveryScanAlert] = useState<string | null>(null)
+  const [isSearchingDeliveryBarcode, setIsSearchingDeliveryBarcode] = useState(false)
+  const deliveryBarcodeInputRef = useRef<HTMLInputElement>(null)
+
   // Returns / Devoluções & Conferência State
   const [conferenceMap, setConferenceMap] = useState<
     Record<
@@ -127,6 +142,11 @@ export default function ResellersUnifiedPage() {
   const [returnsHistory, setReturnsHistory] = useState<ResellerReturn[]>([])
   const [issues, setIssues] = useState<ResellerIssue[]>([])
 
+  // Barcode Scanner State - Modal de Conferência & Devolução
+  const [returnBarcodeScan, setReturnBarcodeScan] = useState('')
+  const [returnScanAlert, setReturnScanAlert] = useState<string | null>(null)
+  const returnBarcodeInputRef = useRef<HTMLInputElement>(null)
+
   // Legacy / Historical Consignment Lists
   const [legacyLists, setLegacyLists] = useState<ConsignmentList[]>([])
   const [companySettings, setCompanySettings] = useState<AppSettings | null>(null)
@@ -140,10 +160,15 @@ export default function ResellersUnifiedPage() {
   const [lightboxIndex, setLightboxIndex] = useState(0)
 
   const handleOpenLightbox = (p: Product, initialIdx: number = 0) => {
-    if (!p.photos || p.photos.length === 0) return
-    const urls = p.photos.map((ph) => getFileUrl('products', p.id, ph))
+    const urls: string[] = []
+    if (p.photos && p.photos.length > 0) {
+      urls.push(...p.photos.map((ph) => getFileUrl('products', p.id, ph)))
+    } else if (p.image_url) {
+      urls.push(p.image_url)
+    }
+    if (urls.length === 0) return
     setLightboxPhotos(urls)
-    setLightboxTitle(`${p.code} — ${p.description}`)
+    setLightboxTitle(`${p.code} — ${p.description || p.nome_produto || ''}`)
     setLightboxIndex(initialIdx)
     setLightboxOpen(true)
   }
@@ -331,8 +356,155 @@ export default function ResellersUnifiedPage() {
   useEffect(() => {
     if (currentReseller && isNewDeliveryModalOpen) {
       loadAvailableProducts()
+      setDeliveryBarcodeScan('')
+      setDeliveryScanAlert(null)
+      // Auto-foco imediato no leitor de código de barras
+      setTimeout(() => {
+        deliveryBarcodeInputRef.current?.focus()
+      }, 100)
     }
   }, [currentReseller?.id, isNewDeliveryModalOpen])
+
+  useEffect(() => {
+    if (currentReseller && isConferenceModalOpen) {
+      setReturnBarcodeScan('')
+      setReturnScanAlert(null)
+      // Auto-foco imediato no leitor de código de barras
+      setTimeout(() => {
+        returnBarcodeInputRef.current?.focus()
+      }, 100)
+    }
+  }, [currentReseller?.id, isConferenceModalOpen])
+
+  // Handler de leitura de código de barras - Modal de Entrega
+  const handleDeliveryBarcodeKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      const rawCode = deliveryBarcodeScan.trim()
+      if (!rawCode) return
+
+      setDeliveryScanAlert(null)
+      setIsSearchingDeliveryBarcode(true)
+
+      try {
+        // 1. Primeiro tenta na lista em memória (disponíveis carregados)
+        let found = availableProducts.find((p) => isExactCodeMatch(p, rawCode))
+
+        // 2. Se não achar na página atual ou estoque local, busca no banco geral
+        if (!found) {
+          const res = await productService.getProducts({
+            search: rawCode,
+            perPage: 10,
+          })
+          found = res.items.find((p) => isExactCodeMatch(p, rawCode))
+        }
+
+        // Se ainda não encontrou nenhuma joia com esse código
+        if (!found) {
+          setDeliveryScanAlert(`Código "${rawCode}" não encontrado no cadastro de produtos.`)
+          toast.error(`Produto "${rawCode}" não encontrado.`)
+          setDeliveryBarcodeScan('')
+          return
+        }
+
+        // Se o produto não possui saldo disponível no estoque geral (sem saldo)
+        if (found.quantity <= 0) {
+          setDeliveryScanAlert(
+            `Peça "${found.code} — ${found.description || found.nome_produto}" sem saldo disponível no estoque geral da loja (0 unidades).`,
+          )
+          toast.error(`Sem saldo no estoque geral para ${found.code}.`)
+          setDeliveryBarcodeScan('')
+          return
+        }
+
+        // Verifica se a quantidade a adicionar excede o saldo da loja
+        const existingInDelivery = deliveryItems.find((it) => it.product.id === found!.id)
+        const currentQtyInBasket = existingInDelivery ? existingInDelivery.quantity : 0
+
+        if (currentQtyInBasket >= found.quantity) {
+          setDeliveryScanAlert(
+            `Estoque geral da loja possui apenas ${found.quantity} unidade(s) de "${found.code}". Não é possível adicionar mais.`,
+          )
+          toast.warning(`Limite de estoque atingido para ${found.code} (${found.quantity} un).`)
+          setDeliveryBarcodeScan('')
+          return
+        }
+
+        // Sucesso: adiciona/incrementa em 1
+        handleAddProductToDelivery(found)
+        toast.success(`+1 lido: ${found.code} (${currentQtyInBasket + 1} na entrega)`)
+        setDeliveryScanAlert(null)
+        setDeliveryBarcodeScan('')
+      } catch (err: any) {
+        console.error('Erro na leitura de código de barras para entrega:', err)
+        setDeliveryScanAlert('Erro ao pesquisar código de barras.')
+      } finally {
+        setIsSearchingDeliveryBarcode(false)
+        // Mantém o input focado para a próxima leitura do leitor físico
+        deliveryBarcodeInputRef.current?.focus()
+      }
+    }
+  }
+
+  // Handler de leitura de código de barras - Modal de Conferência & Devolução
+  const handleReturnBarcodeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      const rawCode = returnBarcodeScan.trim()
+      if (!rawCode) return
+
+      setReturnScanAlert(null)
+
+      // Busca nas joias que estão EM PODER desta revendedora (stockItems)
+      const foundStockItem = stockItems.find((it) => {
+        const prod = it.expand?.product
+        return prod && isExactCodeMatch(prod, rawCode)
+      })
+
+      // Regra 4: Se o produto não estiver relacionado à revendedora, exibir alerta destacado
+      if (!foundStockItem) {
+        setReturnScanAlert(
+          `ALERTA: A peça código "${rawCode}" NÃO pertence ao estoque em poder de ${currentReseller?.name || 'esta revendedora'}! Não foi entregue a ela.`,
+        )
+        toast.error(`Peça "${rawCode}" não pertence a esta revendedora!`)
+        setReturnBarcodeScan('')
+        return
+      }
+
+      const prodId = foundStockItem.product
+      const currentConf = conferenceMap[prodId] || {
+        returned_qty: 0,
+        pending_qty: 0,
+        pending_reason: 'extraviada',
+        pending_notes: '',
+      }
+
+      const newReturnedQty = (currentConf.returned_qty || 0) + 1
+      const totalCount = newReturnedQty + (currentConf.pending_qty || 0)
+
+      if (totalCount > foundStockItem.quantity) {
+        setReturnScanAlert(
+          `A revendedora possui apenas ${foundStockItem.quantity} unidade(s) de "${foundStockItem.expand?.product?.code}". A quantidade devolvida não pode exceder o saldo em poder.`,
+        )
+        toast.warning(
+          `Saldo máximo em mãos atingido (${foundStockItem.quantity} un) para ${foundStockItem.expand?.product?.code}.`,
+        )
+        setReturnBarcodeScan('')
+        return
+      }
+
+      // Incrementa a quantidade devolvida em 1
+      handleItemChange(prodId, 'returned_qty', newReturnedQty)
+      toast.success(
+        `+1 devolvido: ${foundStockItem.expand?.product?.code} (${newReturnedQty} de ${foundStockItem.quantity} un)`,
+      )
+      setReturnScanAlert(null)
+      setReturnBarcodeScan('')
+
+      // Mantém o foco no leitor
+      returnBarcodeInputRef.current?.focus()
+    }
+  }
 
   // Basket handlers
   const handleAddProductToDelivery = (prod: Product) => {
@@ -1363,16 +1535,50 @@ export default function ResellersUnifiedPage() {
                         {availableProducts.length} itens listados
                       </span>
                     </div>
+                    {/* Leitor de Código de Barras (Ativo e Focado por Padrão) */}
+                    <div className="mt-2.5 p-2.5 bg-[#F3EAD8]/50 rounded-xl border border-[#C6A664]/60 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-bold text-[#7A5C2E] flex items-center gap-1.5">
+                          <Barcode className="h-4 w-4 text-[#7A5C2E]" />
+                          Modo Leitor de Código de Barras
+                          <span className="text-[10px] font-normal text-[#2E7D4F] bg-emerald-100 px-1.5 py-0.5 rounded">
+                            Ativo (Auto-Foco)
+                          </span>
+                        </Label>
+                        <span className="text-[10px] text-[#6B655E]">
+                          Cada leitura = +1 na cesta
+                        </span>
+                      </div>
+                      <div className="relative">
+                        <Barcode className="absolute left-3 top-2.5 h-4 w-4 text-[#7A5C2E]" />
+                        <Input
+                          ref={deliveryBarcodeInputRef}
+                          placeholder="Escaneie o código de barras com o leitor físico (Enter automático)..."
+                          value={deliveryBarcodeScan}
+                          onChange={(e) => setDeliveryBarcodeScan(e.target.value)}
+                          onKeyDown={handleDeliveryBarcodeKeyDown}
+                          disabled={isSearchingDeliveryBarcode}
+                          className="pl-9 text-xs bg-white border-[#C6A664] focus-visible:ring-[#7A5C2E] font-mono font-medium h-9"
+                        />
+                      </div>
+                      {deliveryScanAlert && (
+                        <div className="p-2 rounded-lg bg-red-100 border border-red-300 text-red-900 text-xs font-semibold flex items-center gap-2 animate-fade-in">
+                          <AlertTriangle className="h-4 w-4 text-red-600 shrink-0" />
+                          <span>{deliveryScanAlert}</span>
+                        </div>
+                      )}
+                    </div>
+
                     <div className="relative mt-2">
                       <Search className="absolute left-3 top-2.5 h-4 w-4 text-[#A8A196]" />
                       <Input
-                        placeholder="Buscar joia por código ou descrição..."
+                        placeholder="Ou busque manualmente por código ou descrição..."
                         value={productSearch}
                         onChange={(e) => {
                           setProductSearch(e.target.value)
                           loadAvailableProducts(e.target.value)
                         }}
-                        className="pl-9 text-xs"
+                        className="pl-9 text-xs bg-white"
                       />
                     </div>
                   </CardHeader>
@@ -1384,10 +1590,7 @@ export default function ResellersUnifiedPage() {
                       </p>
                     ) : (
                       availableProducts.map((prod) => {
-                        const photo =
-                          prod.photos && prod.photos.length > 0
-                            ? getFileUrl('products', prod.id, prod.photos[0])
-                            : null
+                        const photo = getProductDisplayPhoto(prod)
                         const hasPhoto = Boolean(photo)
 
                         return (
@@ -1486,45 +1689,84 @@ export default function ResellersUnifiedPage() {
                         Nenhuma joia adicionada à entrega ainda. Selecione peças ao lado.
                       </div>
                     ) : (
-                      <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                        {deliveryItems.map((it) => (
-                          <div
-                            key={it.product.id}
-                            className="flex items-center justify-between gap-2 p-2 rounded-lg bg-[#FDFBF7] border border-[#E5DFD5]/80 text-xs"
-                          >
-                            <div className="min-w-0 flex-1">
-                              <p className="font-medium text-[#2D2A26] truncate">
-                                {it.product.description}
-                              </p>
-                              <p className="text-[10px] text-[#6B655E]">
-                                {it.product.code} • {formatCurrency(it.selling_price)} un
-                              </p>
-                            </div>
+                      <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                        {deliveryItems.map((it) => {
+                          const photo = getProductDisplayPhoto(it.product)
+                          const hasPhoto = Boolean(photo)
+                          const itemSubtotal = it.quantity * it.selling_price
 
-                            <div className="flex items-center gap-1.5">
-                              <input
-                                type="number"
-                                min="1"
-                                max={it.product.quantity}
-                                value={it.quantity}
-                                onChange={(e) =>
-                                  handleUpdateItemQty(
-                                    it.product.id,
-                                    parseInt(e.target.value, 10) || 1,
-                                  )
-                                }
-                                className="w-12 h-7 text-center rounded border border-[#E5DFD5] text-xs font-bold"
-                              />
+                          return (
+                            <div
+                              key={it.product.id}
+                              className="flex items-center justify-between gap-2.5 p-2 rounded-lg bg-[#FDFBF7] border border-[#E5DFD5]/80 text-xs"
+                            >
+                              {/* Foto do produto */}
                               <button
                                 type="button"
-                                onClick={() => handleRemoveDeliveryItem(it.product.id)}
-                                className="text-[#B3261E] hover:bg-[#B3261E]/10 p-1 rounded"
+                                onClick={() => hasPhoto && handleOpenLightbox(it.product)}
+                                disabled={!hasPhoto}
+                                className={`relative group h-10 w-10 rounded-lg bg-neutral-100 border border-[#E5DFD5] shrink-0 overflow-hidden flex items-center justify-center ${
+                                  hasPhoto
+                                    ? 'hover:border-[#C6A664] cursor-pointer'
+                                    : 'cursor-default'
+                                }`}
+                                title={hasPhoto ? 'Ampliar foto' : 'Sem foto'}
                               >
-                                <Trash2 className="h-3.5 w-3.5" />
+                                {photo ? (
+                                  <img
+                                    src={photo}
+                                    alt={it.product.description || it.product.nome_produto}
+                                    className="h-full w-full object-cover group-hover:scale-105 transition-transform"
+                                  />
+                                ) : (
+                                  <Package className="h-4 w-4 text-[#C6A664]" />
+                                )}
                               </button>
+
+                              <div className="min-w-0 flex-1">
+                                <p className="font-semibold text-[#2D2A26] truncate">
+                                  {it.product.description || it.product.nome_produto}
+                                </p>
+                                <p className="text-[11px] text-[#6B655E] flex items-center gap-2">
+                                  <span className="font-mono font-bold text-[#7A5C2E]">
+                                    {it.product.code}
+                                  </span>
+                                  <span>•</span>
+                                  <span>{formatCurrency(it.selling_price)}/un</span>
+                                  <span>•</span>
+                                  <span className="font-bold text-[#2D2A26]">
+                                    Subtotal: {formatCurrency(itemSubtotal)}
+                                  </span>
+                                </p>
+                              </div>
+
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <input
+                                  type="number"
+                                  min="1"
+                                  max={it.product.quantity}
+                                  value={it.quantity}
+                                  onChange={(e) =>
+                                    handleUpdateItemQty(
+                                      it.product.id,
+                                      parseInt(e.target.value, 10) || 1,
+                                    )
+                                  }
+                                  className="w-12 h-7 text-center rounded border border-[#E5DFD5] text-xs font-bold bg-white"
+                                  title="Quantidade (incrementada a cada leitura)"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveDeliveryItem(it.product.id)}
+                                  className="text-[#B3261E] hover:bg-[#B3261E]/10 p-1 rounded"
+                                  title="Remover da cesta"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          )
+                        })}
                       </div>
                     )}
 
@@ -1682,6 +1924,7 @@ export default function ResellersUnifiedPage() {
                     <table className="w-full text-left text-xs">
                       <thead className="bg-[#F3EAD8]/60 text-[#7A5C2E] uppercase font-semibold border-b border-[#E5DFD5]">
                         <tr>
+                          <th className="py-3 px-3 w-12 text-center">Foto</th>
                           <th className="py-3 px-4">Código</th>
                           <th className="py-3 px-4">Descrição da Joia</th>
                           <th className="py-3 px-4">Tipo / Material</th>
@@ -1693,15 +1936,40 @@ export default function ResellersUnifiedPage() {
                       <tbody className="divide-y divide-[#E5DFD5]">
                         {stockItems.map((item) => {
                           const prod = item.expand?.product
+                          const photo = prod ? getProductDisplayPhoto(prod) : null
+                          const hasPhoto = Boolean(photo)
                           const price = item.selling_price || prod?.selling_price || 0
                           const subtotal = price * item.quantity
                           return (
                             <tr key={item.id} className="hover:bg-[#FDFBF7]">
+                              <td className="py-2.5 px-3 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => prod && hasPhoto && handleOpenLightbox(prod)}
+                                  disabled={!hasPhoto}
+                                  className={`relative group h-10 w-10 mx-auto rounded-lg bg-neutral-100 border border-[#E5DFD5] overflow-hidden flex items-center justify-center ${
+                                    hasPhoto
+                                      ? 'hover:border-[#C6A664] cursor-pointer'
+                                      : 'cursor-default'
+                                  }`}
+                                  title={hasPhoto ? 'Ampliar foto' : 'Sem foto'}
+                                >
+                                  {photo ? (
+                                    <img
+                                      src={photo}
+                                      alt={prod?.description || prod?.nome_produto || 'Joia'}
+                                      className="h-full w-full object-cover group-hover:scale-105 transition-transform"
+                                    />
+                                  ) : (
+                                    <Package className="h-4 w-4 text-[#C6A664]" />
+                                  )}
+                                </button>
+                              </td>
                               <td className="py-3 px-4 font-mono font-bold text-[#7A5C2E]">
                                 {prod?.code || '—'}
                               </td>
                               <td className="py-3 px-4 font-semibold text-[#2D2A26]">
-                                {prod?.description || 'Joia'}
+                                {prod?.description || prod?.nome_produto || 'Joia'}
                               </td>
                               <td className="py-3 px-4 text-[#6B655E]">
                                 {prod?.expand?.type?.name || '—'} •{' '}
@@ -1765,6 +2033,46 @@ export default function ResellersUnifiedPage() {
             </DialogHeader>
 
             <div className="space-y-4 pt-2">
+              {/* Leitor de Código de Barras (Ativo e Focado por Padrão) */}
+              <div className="p-3 bg-[#F3EAD8]/50 rounded-xl border border-[#C6A664]/60 space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-bold text-[#7A5C2E] flex items-center gap-1.5">
+                    <Barcode className="h-4 w-4 text-[#7A5C2E]" />
+                    Modo Leitor de Código de Barras — Devolução Física
+                    <span className="text-[10px] font-normal text-[#2E7D4F] bg-emerald-100 px-1.5 py-0.5 rounded">
+                      Ativo (Auto-Foco)
+                    </span>
+                  </Label>
+                  <span className="text-[10px] text-[#6B655E]">
+                    Cada leitura = +1 devolução contada
+                  </span>
+                </div>
+                <div className="relative">
+                  <Barcode className="absolute left-3 top-2.5 h-4 w-4 text-[#7A5C2E]" />
+                  <Input
+                    ref={returnBarcodeInputRef}
+                    placeholder="Escaneie a peça com o leitor físico para registrar retorno (Enter automático)..."
+                    value={returnBarcodeScan}
+                    onChange={(e) => setReturnBarcodeScan(e.target.value)}
+                    onKeyDown={handleReturnBarcodeKeyDown}
+                    className="pl-9 text-xs bg-white border-[#C6A664] focus-visible:ring-[#7A5C2E] font-mono font-medium h-9"
+                  />
+                </div>
+
+                {/* Alerta Destacado (Vermelho bem visível se não pertencer à revendedora) */}
+                {returnScanAlert && (
+                  <div className="p-3 rounded-xl bg-red-600 text-white font-semibold text-xs flex items-center gap-2.5 shadow-md animate-fade-in">
+                    <AlertTriangle className="h-5 w-5 text-amber-200 shrink-0" />
+                    <div className="flex-1 leading-relaxed">
+                      <p className="font-bold uppercase tracking-wider text-[11px] text-amber-200">
+                        Atenção — Peça não autorizada
+                      </p>
+                      <p>{returnScanAlert}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {isLoadingStock ? (
                 <div className="py-12 text-center text-xs text-[#8C8275]">
                   Carregando estoque da revendedora...
@@ -1783,11 +2091,13 @@ export default function ResellersUnifiedPage() {
                     <table className="w-full text-left text-xs">
                       <thead className="bg-[#F3EAD8]/60 text-[#7A5C2E] uppercase font-semibold border-b border-[#E5DFD5]">
                         <tr>
+                          <th className="py-3 px-3 w-12 text-center">Foto</th>
                           <th className="py-3 px-3">Código</th>
                           <th className="py-3 px-3">Descrição da Joia</th>
+                          <th className="py-3 px-3 text-right">Preço Venda</th>
                           <th className="py-3 px-3 text-center">Saldo em Mãos</th>
-                          <th className="py-3 px-3 text-center bg-emerald-50 text-emerald-800">
-                            Qtd Devolvida (Loja)
+                          <th className="py-3 px-3 text-center bg-emerald-50 text-emerald-800 font-bold">
+                            Qtd Devolvida (Lida)
                           </th>
                           <th className="py-3 px-3 text-center bg-amber-50 text-amber-800">
                             Qtd Faltante / Pendente
@@ -1801,6 +2111,8 @@ export default function ResellersUnifiedPage() {
                       <tbody className="divide-y divide-[#E5DFD5]">
                         {stockItems.map((it) => {
                           const prod = it.expand?.product
+                          const photo = prod ? getProductDisplayPhoto(prod) : null
+                          const hasPhoto = Boolean(photo)
                           const conf = conferenceMap[it.product] || {
                             returned_qty: 0,
                             pending_qty: 0,
@@ -1809,12 +2121,45 @@ export default function ResellersUnifiedPage() {
                           }
 
                           return (
-                            <tr key={it.id} className="hover:bg-[#FDFBF7]">
+                            <tr
+                              key={it.id}
+                              className={`hover:bg-[#FDFBF7] transition-colors ${
+                                (conf.returned_qty || 0) > 0 ? 'bg-emerald-50/30' : ''
+                              }`}
+                            >
+                              {/* Foto da Joia */}
+                              <td className="py-2.5 px-3 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => prod && hasPhoto && handleOpenLightbox(prod)}
+                                  disabled={!hasPhoto}
+                                  className={`relative group h-10 w-10 mx-auto rounded-lg bg-neutral-100 border border-[#E5DFD5] overflow-hidden flex items-center justify-center ${
+                                    hasPhoto
+                                      ? 'hover:border-[#C6A664] cursor-pointer'
+                                      : 'cursor-default'
+                                  }`}
+                                  title={hasPhoto ? 'Ampliar foto' : 'Sem foto'}
+                                >
+                                  {photo ? (
+                                    <img
+                                      src={photo}
+                                      alt={prod?.description || prod?.nome_produto || 'Joia'}
+                                      className="h-full w-full object-cover group-hover:scale-105 transition-transform"
+                                    />
+                                  ) : (
+                                    <Package className="h-4 w-4 text-[#C6A664]" />
+                                  )}
+                                </button>
+                              </td>
+
                               <td className="py-3 px-3 font-mono font-bold text-[#7A5C2E]">
                                 {prod?.code}
                               </td>
-                              <td className="py-3 px-3 font-medium text-[#2D2A26] max-w-[200px] truncate">
-                                {prod?.description}
+                              <td className="py-3 px-3 font-semibold text-[#2D2A26] max-w-[200px] truncate">
+                                {prod?.description || prod?.nome_produto}
+                              </td>
+                              <td className="py-3 px-3 text-right text-[#6B655E]">
+                                {formatCurrency(prod?.selling_price || it.selling_price || 0)}
                               </td>
                               <td className="py-3 px-3 text-center font-bold">
                                 <span className="inline-block px-2 py-0.5 rounded bg-[#E8D5A3]/40 text-[#7A5C2E]">
@@ -1838,6 +2183,7 @@ export default function ResellersUnifiedPage() {
                                     )
                                   }
                                   className="w-16 h-8 text-center rounded-md border border-emerald-300 bg-white text-xs font-bold"
+                                  title="Contagem lida ou inserida"
                                 />
                               </td>
 
