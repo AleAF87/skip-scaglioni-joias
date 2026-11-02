@@ -12,6 +12,7 @@ import ResellerRequestPage from '@/pages/ResellerRequestPage'
 import Dashboard from '@/pages/Dashboard'
 import VoiceProductEntry from '@/pages/VoiceProductEntry'
 import StockInventory from '@/pages/StockInventory'
+import ProductsPage from '@/pages/ProductsPage'
 import AuxiliariesCrud from '@/pages/AuxiliariesCrud'
 import CategoriesCrud from '@/pages/CategoriesCrud'
 import PosSale from '@/pages/PosSale'
@@ -93,9 +94,19 @@ export default function App() {
               }
             />
 
-            {/* Products / Auxiliaries CRUD */}
+            {/* Nova Página "Produtos" (Cadastrar produtos) */}
             <Route
               path="produtos"
+              element={
+                <ProtectedRoute allowedRoles={['admin', 'operator']}>
+                  <ProductsPage />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Auxiliaries CRUD (Catálogo de Joias - Restrito Superadmin) */}
+            <Route
+              path="auxiliares"
               element={
                 <ProtectedRoute allowedRoles={['admin', 'operator']}>
                   <AuxiliariesCrud />

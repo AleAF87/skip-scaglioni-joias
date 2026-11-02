@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-01T16:58:39.383Z",
+  "generatedAt": "2026-11-02T00:33:33.345Z",
   "collections": [
     {
       "name": "users",
@@ -2078,6 +2078,18 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "custo_unitario_anterior",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "custo_unitario_novo",
+          "type": "number",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [

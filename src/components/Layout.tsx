@@ -103,7 +103,7 @@ export default function Layout() {
   const navItems: NavItemDef[] = isSuperAdmin
     ? [
         { to: '/', label: 'Painel Geral', icon: LayoutDashboard },
-        { to: '/voz', label: 'Cadastro por Voz', icon: Mic, highlight: true },
+        { to: '/produtos', label: 'Produtos', icon: Boxes },
         { to: '/estoque', label: 'Estoque Loja', icon: Boxes },
         {
           to: '/revendedora/estoque-entregas',
@@ -125,7 +125,13 @@ export default function Layout() {
         { to: '/revendedores', label: 'Revendedores', icon: Users2 },
         // Páginas restritas a nível superior exibidas em vermelho
         {
-          to: '/produtos',
+          to: '/voz',
+          label: 'Cadastro por Voz',
+          icon: Mic,
+          isRestricted: true,
+        },
+        {
+          to: '/auxiliares',
           label: 'Catálogo de Joias',
           icon: Gem,
           isRestricted: true,
@@ -164,9 +170,7 @@ export default function Layout() {
       ]
     : [
         ...(canManageInternal ? [{ to: '/', label: 'Painel Geral', icon: LayoutDashboard }] : []),
-        ...(canManageInternal
-          ? [{ to: '/voz', label: 'Cadastro por Voz', icon: Mic, highlight: true }]
-          : []),
+        ...(canManageInternal ? [{ to: '/produtos', label: 'Produtos', icon: Boxes }] : []),
         ...(canManageInternal ? [{ to: '/estoque', label: 'Estoque Loja', icon: Boxes }] : []),
 
         // MÓDULO: Estoque Próprio da Revendedora
@@ -226,7 +230,7 @@ export default function Layout() {
       ? [{ to: '/pdv', label: 'PDV', icon: ShoppingCart }]
       : [{ to: '/revendedora/pdv', label: 'Meu PDV', icon: ShoppingCart }]),
     ...(canManageInternal
-      ? [{ to: '/voz', label: 'Voz IA', icon: Mic, center: true }]
+      ? [{ to: '/produtos', label: 'Produtos', icon: Boxes, center: true }]
       : [{ to: '/revendedora/financeiro', label: 'Lucro', icon: BadgeDollarSign }]),
     { to: '/vitrine', label: 'Vitrine', icon: Store },
     { to: '/perfil', label: 'Perfil', icon: User },
@@ -768,7 +772,7 @@ export default function Layout() {
                     <div className="h-12 w-12 rounded-full bg-gradient-to-tr from-[#7A5C2E] via-[#C6A664] to-[#E8D5A3] shadow-lg flex items-center justify-center text-white ring-4 ring-[#FFFFFF]">
                       <Icon className="h-6 w-6" />
                     </div>
-                    <span className="text-[10px] font-bold text-[#7A5C2E] mt-1">Voz IA</span>
+                    <span className="text-[10px] font-bold text-[#7A5C2E] mt-1">{item.label}</span>
                   </NavLink>
                 )
               }
