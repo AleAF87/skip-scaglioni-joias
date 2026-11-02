@@ -28,7 +28,7 @@ export function VariationsManager({
     const varSku = baseSku ? `${baseSku}-V${nextIdx}` : `VAR-${Date.now().toString().slice(-4)}`
     const initialDist: StockDistributionItem = {
       id: `dist-var-${Date.now()}`,
-      localizacao: 'Loja física',
+      localizacao: 'Estoque geral',
       quantidade: 1,
     }
 

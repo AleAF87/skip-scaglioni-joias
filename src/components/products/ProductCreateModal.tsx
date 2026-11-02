@@ -8,6 +8,7 @@ import {
 } from '@/services/productCreationService'
 import { productService } from '@/services/productService'
 import { Brand, Reseller, ProductCategory, Product } from '@/types'
+import { formatCurrency } from '@/lib/formatters'
 import { GalleryManager } from './GalleryManager'
 import { VariationsManager } from './VariationsManager'
 import {
@@ -68,8 +69,6 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
   const [produtoId, setProdutoId] = useState('')
   const [nomeProduto, setNomeProduto] = useState('')
   const [skuNovoPreview, setSkuNovoPreview] = useState('')
-  const [codigoBarras, setCodigoBarras] = useState('')
-  const [barcodeError, setBarcodeError] = useState('')
   const [marcaId, setMarcaId] = useState('')
   const [fornecedor, setFornecedor] = useState('')
   const [categoriaIds, setCategoriaIds] = useState<string[]>([])
@@ -80,6 +79,12 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
   const [precoVenda, setPrecoVenda] = useState<number | ''>('')
   const [precoPromocional, setPrecoPromocional] = useState<number | ''>('')
   const [priceError, setPriceError] = useState('')
+
+  // Cálculos automáticos de Lucro e Percentual de ganho (não editáveis)
+  const sellNum = typeof precoVenda === 'number' ? precoVenda : 0
+  const costNum = typeof custoUnitario === 'number' ? custoUnitario : 0
+  const calculatedProfit = sellNum - costNum
+  const calculatedMarginPercent = costNum > 0 ? (calculatedProfit / costNum) * 100 : null
 
   // 3. Imagens e medidas
   const [galleryImages, setGalleryImages] = useState<GalleryImageItem[]>([])
@@ -153,8 +158,6 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
 
       // Reset de campos
       setNomeProduto('')
-      setCodigoBarras('')
-      setBarcodeError('')
       setCategoriaIds([])
       setDescription('')
       setCustoUnitario('')
@@ -225,20 +228,6 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
     }
   }
 
-  // Validação de código de barras inline
-  const handleBarcodeBlur = async () => {
-    if (!codigoBarras.trim()) {
-      setBarcodeError('')
-      return
-    }
-    const isUnique = await productCreationService.checkBarcodeUnique(codigoBarras)
-    if (!isUnique) {
-      setBarcodeError('Código de barras já cadastrado em outro produto.')
-    } else {
-      setBarcodeError('')
-    }
-  }
-
   // Validação de preço promocional
   const validatePrices = (): boolean => {
     const sell = Number(precoVenda) || 0
@@ -281,11 +270,6 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
     // 1. Validações de Identificação
     if (!nomeProduto.trim()) {
       toast.error('O Nome do produto é obrigatório.')
-      return
-    }
-
-    if (barcodeError) {
-      toast.error('Corrija o código de barras duplicado antes de salvar.')
       return
     }
 
@@ -347,7 +331,6 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
     const payload: CreateProductPayload = {
       produto_id: produtoId,
       nome_produto: nomeProduto,
-      codigo_barras: codigoBarras.trim() || undefined,
       marca_id: marcaId || undefined,
       fornecedor: fornecedor.trim() || undefined,
       categoria_ids: categoriaIds,
@@ -421,45 +404,27 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
                 </h3>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* SKU Novo */}
+              <div className="grid grid-cols-1 gap-4">
+                {/* SKU Novo / Código sequencial */}
                 <div>
                   <label className="text-xs font-semibold text-[#2D2A26] flex items-center gap-1 mb-1">
-                    <Lock className="h-3 w-3 text-[#8C8275]" /> SKU novo (bloqueado)
+                    <Lock className="h-3 w-3 text-[#8C8275]" /> SKU novo / Código de barras
+                    (bloqueado)
                   </label>
                   <Input
-                    value={skuNovoPreview ? `${skuNovoPreview} (sequência)` : 'Gerando...'}
+                    value={
+                      skuNovoPreview
+                        ? `${skuNovoPreview} (código sequencial gerado ao salvar)`
+                        : 'Gerando...'
+                    }
                     readOnly
                     disabled
                     className="h-10 text-xs bg-[#F3EAD8]/40 font-mono text-[#7A5C2E] font-bold"
                   />
                   <span className="text-[10px] text-[#8C8275]">
-                    Sequencial do sistema (10000+), sem zeros à esquerda
+                    Código numérico e código de barras sequenciais (10000+), gerados automaticamente
+                    e com segurança atômica no ato de salvar
                   </span>
-                </div>
-
-                {/* Código de barras */}
-                <div>
-                  <label className="text-xs font-semibold text-[#2D2A26] block mb-1">
-                    Código de barras (opcional)
-                  </label>
-                  <Input
-                    value={codigoBarras}
-                    onChange={(e) => {
-                      setCodigoBarras(e.target.value)
-                      setBarcodeError('')
-                    }}
-                    onBlur={handleBarcodeBlur}
-                    placeholder="Ex: 7891234567890"
-                    className={`h-10 text-xs ${barcodeError ? 'border-red-500' : ''}`}
-                  />
-                  {barcodeError ? (
-                    <span className="text-[11px] text-red-600 font-medium block mt-0.5">
-                      {barcodeError}
-                    </span>
-                  ) : (
-                    <span className="text-[10px] text-[#8C8275]">Validado contra duplicidades</span>
-                  )}
                 </div>
               </div>
 
@@ -561,7 +526,7 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
                 <Input
                   value={nomeProduto}
                   onChange={(e) => setNomeProduto(e.target.value)}
-                  placeholder="Ex: Anel Solitário Ouro 18k com Zircônia"
+                  placeholder="Ex: Malha e Riviera com Ponto de Luz"
                   className="h-11 text-sm font-medium"
                   required
                 />
@@ -578,7 +543,7 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
                       onClick={() => setIsCreatingBrand(!isCreatingBrand)}
                       className="text-[11px] text-[#7A5C2E] hover:underline font-semibold"
                     >
-                      {isCreatingBrand ? 'Cancelar' : '+ Nova marca inline'}
+                      {isCreatingBrand ? 'Cancelar' : '+ Nova marca'}
                     </button>
                   </div>
 
@@ -624,7 +589,7 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
                       onClick={() => setIsAddingSupplier(!isAddingSupplier)}
                       className="text-[11px] text-[#7A5C2E] hover:underline font-semibold"
                     >
-                      {isAddingSupplier ? 'Selecionar existente' : '+ Novo fornecedor inline'}
+                      {isAddingSupplier ? 'Selecionar existente' : '+ Novo fornecedor'}
                     </button>
                   </div>
 
@@ -749,6 +714,54 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
                       Deve ser menor que o preço de venda
                     </span>
                   )}
+                </div>
+              </div>
+
+              {/* Campos calculados ao vivo: Lucro e Percentual de ganho (não editáveis) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-3.5 rounded-xl bg-[#FDFBF7] border border-[#E5DFD5]">
+                {/* Lucro */}
+                <div>
+                  <label className="text-xs font-semibold text-[#2D2A26] flex items-center gap-1 mb-1">
+                    <Lock className="h-3 w-3 text-[#8C8275]" /> Lucro (venda − custo)
+                  </label>
+                  <Input
+                    value={sellNum > 0 ? formatCurrency(calculatedProfit) : 'R$ 0,00'}
+                    readOnly
+                    disabled
+                    className={`h-10 text-xs font-mono font-bold bg-white ${
+                      calculatedProfit >= 0 ? 'text-[#2E7D4F]' : 'text-[#B3261E]'
+                    }`}
+                  />
+                  <span className="text-[10px] text-[#8C8275]">
+                    {costNum > 0
+                      ? 'Calculado automaticamente: preço de venda menos o custo unitário'
+                      : 'Sem custo informado: lucro equivale ao preço de venda'}
+                  </span>
+                </div>
+
+                {/* Percentual de ganho */}
+                <div>
+                  <label className="text-xs font-semibold text-[#2D2A26] flex items-center gap-1 mb-1">
+                    <Lock className="h-3 w-3 text-[#8C8275]" /> Percentual de ganho
+                  </label>
+                  <Input
+                    value={
+                      calculatedMarginPercent !== null
+                        ? `${calculatedMarginPercent.toLocaleString('pt-BR', {
+                            minimumFractionDigits: 1,
+                            maximumFractionDigits: 1,
+                          })}%`
+                        : '—'
+                    }
+                    readOnly
+                    disabled
+                    className="h-10 text-xs font-mono font-bold bg-white text-[#7A5C2E]"
+                  />
+                  <span className="text-[10px] text-[#8C8275]">
+                    {costNum > 0
+                      ? 'Margem sobre o custo (lucro / custo × 100)'
+                      : 'Exibido como "—" quando custo estiver vazio ou zero'}
+                  </span>
                 </div>
               </div>
               <p className="text-[11px] text-[#8C8275] italic">

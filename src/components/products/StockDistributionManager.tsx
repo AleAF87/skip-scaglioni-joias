@@ -13,13 +13,7 @@ interface StockDistributionManagerProps {
   labelPrefix?: string
 }
 
-export const LOCATION_OPTIONS = [
-  'Loja física',
-  'Revendedora',
-  'Estoque separado para e-commerce',
-  'Depósito Geral',
-  'Showroom',
-]
+export const LOCATION_OPTIONS = ['Estoque geral', 'Estoque separado para e-commerce', 'Revendedora']
 
 export function StockDistributionManager({
   distribution,
@@ -35,7 +29,7 @@ export function StockDistributionManager({
   const handleAddLine = () => {
     const newItem: StockDistributionItem = {
       id: `dist-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      localizacao: 'Loja física',
+      localizacao: 'Estoque geral',
       quantidade: diff > 0 ? diff : 0,
     }
     onChange([...distribution, newItem])
@@ -47,7 +41,7 @@ export function StockDistributionManager({
       onChange([
         {
           id: `dist-${Date.now()}`,
-          localizacao: 'Loja física',
+          localizacao: 'Estoque geral',
           quantidade: 0,
         },
       ])

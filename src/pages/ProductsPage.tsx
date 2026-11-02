@@ -424,16 +424,16 @@ export function ProductsPage() {
                           <span className="font-semibold text-xs text-[#2D2A26] block truncate max-w-[260px]">
                             {p.nome_produto || p.description}
                           </span>
-                          {p.codigo_barras && (
-                            <span className="text-[10px] text-[#8C8275] font-mono">
-                              EAN: {p.codigo_barras}
+                          {(p.codigo_barras || p.sku_novo || p.code) && (
+                            <span className="text-[10px] text-[#8C8275] font-mono block">
+                              Cód. Barras: {p.codigo_barras || p.sku_novo || p.code}
                             </span>
                           )}
                         </td>
 
-                        {/* SKU Novo */}
+                        {/* SKU Novo / Código */}
                         <td className="py-2.5 px-3 font-mono font-bold text-[#2D2A26]">
-                          {p.sku_novo || p.code}
+                          {p.sku_novo || p.code || p.codigo_barras}
                         </td>
 
                         {/* Marca */}

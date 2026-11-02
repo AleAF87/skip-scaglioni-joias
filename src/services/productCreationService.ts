@@ -3,7 +3,12 @@ import { Brand, Reseller, ProductCategory, Product, ProductVariation, InitialSto
 
 export interface StockDistributionItem {
   id: string
-  localizacao: 'Loja física' | 'Revendedora' | 'Estoque separado para e-commerce' | string
+  localizacao:
+    | 'Estoque geral'
+    | 'Loja física'
+    | 'Revendedora'
+    | 'Estoque separado para e-commerce'
+    | string
   resellerId?: string
   resellerName?: string
   quantidade: number
@@ -306,7 +311,7 @@ export const productCreationService = {
             revendedoras: [] as any[],
           }
           for (const d of variation.distribution) {
-            if (d.localizacao === 'Loja física') {
+            if (d.localizacao === 'Estoque geral' || d.localizacao === 'Loja física') {
               varDistDetails.loja_fisica += d.quantidade
             } else if (d.localizacao === 'Estoque separado para e-commerce') {
               varDistDetails.expedicao += d.quantidade
@@ -350,7 +355,7 @@ export const productCreationService = {
           distDetails.loja_fisica = 0
           distDetails.expedicao = 0
           for (const d of payload.distribution) {
-            if (d.localizacao === 'Loja física') {
+            if (d.localizacao === 'Estoque geral' || d.localizacao === 'Loja física') {
               distDetails.loja_fisica += d.quantidade
             } else if (d.localizacao === 'Estoque separado para e-commerce') {
               distDetails.expedicao += d.quantidade

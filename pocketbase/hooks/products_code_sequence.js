@@ -183,6 +183,9 @@ onRecordCreateRequest((e) => {
         if (!incomingCode || incomingCode.startsWith('SCG-')) {
           record.set('code', formattedCode)
         }
+        if (!record.getString('codigo_barras')) {
+          record.set('codigo_barras', formattedCode)
+        }
         console.log(
           'Código numérico sequencial atômico gerado para produto (pulando ocupados):',
           formattedCode,
