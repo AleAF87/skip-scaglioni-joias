@@ -660,10 +660,36 @@ routerAdd(
             })
           }
 
-          const saldoInicialQty = Math.max(
-            0,
-            parseInt(item.estoque || item.quantidade || item.saldo_inicial_scaglioni, 10) || 0,
-          )
+          // Quantidade inicial: valor bruto preservado para validar presença/validade
+          const rawEstoqueScag =
+            item.estoque !== undefined && item.estoque !== null
+              ? String(item.estoque)
+              : item.quantidade !== undefined && item.quantidade !== null
+                ? String(item.quantidade)
+                : item.saldo_inicial_scaglioni !== undefined &&
+                    item.saldo_inicial_scaglioni !== null
+                  ? String(item.saldo_inicial_scaglioni)
+                  : item.qtde_inicial !== undefined && item.qtde_inicial !== null
+                    ? String(item.qtde_inicial)
+                    : ''
+          const rawEstoqueScagTrim = rawEstoqueScag.trim()
+          const parsedEstoqueScag = parseInt(rawEstoqueScagTrim, 10)
+          const estoqueInvalido =
+            rawEstoqueScagTrim === '' || isNaN(parsedEstoqueScag) || parsedEstoqueScag < 0
+          const saldoInicialQty = estoqueInvalido ? 0 : Math.max(0, parsedEstoqueScag)
+
+          // Linha sem quantidade inicial válida NÃO grava produto com qtde_inicial 0:
+          // aparece no relatório de linhas (falhados) com o motivo explícito.
+          if (estoqueInvalido) {
+            falhados.push({
+              index: lineItemIndex,
+              sku: skuScaglioni || idScaglioni || '—',
+              name: nomeProduto || rowIdentifier,
+              reason:
+                'Quantidade inicial (estoque/quantidade) ausente ou inválida nesta linha do CSV — produto não gravado com qtde_inicial zerada.',
+            })
+            continue
+          }
 
           // Descrição com preservação integral de parágrafos/quebras de linha
           const descricao = item.descricao ? String(item.descricao) : ''
@@ -998,28 +1024,59 @@ routerAdd(
                 existing.set('minimum_quantity', Math.max(1, Math.round(saldoInicialQty * 0.3)))
               }
 
-              // Saldo inicial Scaglioni: idempotente
-              const initStockFilter = "product = '" + existing.id + "' && origem = 'Scaglioni'"
+              // Causa raiz corrigida:
+              // Ao ATUALIZAR produto existente, só preencher qtde_inicial se estiver zerado/ausente
+              // e o CSV trouxer valor > 0 — NUNCA sobrescrever uma qtde_inicial já preenchida.
+              const currentInitQty = existing.getInt('qtde_inicial') || 0
+              if (currentInitQty === 0 && saldoInicialQty > 0) {
+                existing.set('qtde_inicial', saldoInicialQty)
+              }
+
+              // Se o produto já foi distribuído para e-commerce (Ajuste E-commerce),
+              // não sobrescrevemos o saldo inicial como "A definir".
+              // Só atualizamos ou criamos initial_stocks se a origem for Scaglioni.
+              const isEcommercePublished = existing.getBool('publicar_no_ecommerce')
+              const initStockFilter =
+                "product = '" +
+                existing.id +
+                "' && (origem = 'Scaglioni' || origem = 'Ajuste E-commerce')"
               const existInitStocks = $app.findRecordsByFilter(
                 'initial_stocks',
                 initStockFilter,
-                '',
+                '-created',
                 1,
                 0,
               )
               if (existInitStocks.length > 0) {
                 const initRec = existInitStocks[0]
-                initRec.set('quantidade', saldoInicialQty)
-                initRec.set('id_origem', idScaglioni)
-                initRec.set('localizacao', 'A definir')
-                $app.save(initRec)
+                if (initRec.getString('origem') === 'Scaglioni') {
+                  initRec.set('quantidade', saldoInicialQty)
+                  initRec.set('id_origem', idScaglioni)
+                  initRec.set('localizacao', 'A definir')
+                  $app.save(initRec)
+                }
+                // Se origem for 'Ajuste E-commerce', preserva intacto
               } else {
                 const initRec = new Record(initStockCol)
                 initRec.set('product', existing.id)
-                initRec.set('origem', 'Scaglioni')
-                initRec.set('id_origem', idScaglioni)
+                if (isEcommercePublished) {
+                  initRec.set('origem', 'Ajuste E-commerce')
+                  initRec.set('id_origem', 'ecom-import-' + existing.id)
+                  initRec.set('localizacao', 'Estoque separado para e-commerce')
+                  initRec.set(
+                    'detalhes_distribuicao',
+                    JSON.stringify({
+                      loja_fisica: 0,
+                      expedicao: saldoInicialQty,
+                      revendedoras: [],
+                    }),
+                  )
+                } else {
+                  initRec.set('origem', 'Scaglioni')
+                  initRec.set('id_origem', idScaglioni)
+                  initRec.set('localizacao', 'A definir')
+                }
                 initRec.set('quantidade', saldoInicialQty)
-                initRec.set('localizacao', 'A definir')
                 initRec.set('data_registro', new Date().toISOString())
                 initRec.set('is_ativo', true)
                 $app.save(initRec)
@@ -1109,7 +1166,24 @@ routerAdd(
               if (comprimento) newProd.set('comprimento_cm', comprimento)
               if (peso) newProd.set('peso_g', peso)
 
-              newProd.set('quantity', saldoInicialQty)
+              // Quantidade inicial SEMPRE gravada quando o CSV trouxe valor (causa raiz do
+              // rebalanceamento 0051/0052: produtos publicados com qtde_inicial 0).
+              if (saldoInicialQty > 0) {
+                newProd.set('qtde_inicial', saldoInicialQty)
+              }
+
+              // Modelo confirmado pelo usuário:
+              // Para produtos NOVOS publicados no e-commerce:
+              // qtde_loja_virtual = qtde_inicial e quantity (físico/geral) = 0.
+              // Para produtos não publicados: quantity = saldoInicialQty e qtde_loja_virtual = 0.
+              if (estadoAtivoEcommerce && saldoInicialQty > 0) {
+                newProd.set('qtde_loja_virtual', saldoInicialQty)
+                newProd.set('quantity', 0)
+              } else {
+                newProd.set('quantity', saldoInicialQty)
+                newProd.set('qtde_loja_virtual', 0)
+              }
+
               newProd.set(
                 'minimum_quantity',
                 saldoInicialQty > 0 ? Math.max(1, Math.round(saldoInicialQty * 0.3)) : 1,
@@ -1135,13 +1209,31 @@ routerAdd(
               $app.save(newProd)
               createdProductId = newProd.id
 
-              // Saldo inicial Scaglioni
+              // Saldo inicial Scaglioni:
+              // Se publicado no e-commerce, registra a movimentação de estoque inicial
+              // com origem "Ajuste E-commerce" e localização "Estoque separado para e-commerce",
+              // espelhando o padrão das migrations 0051/0052.
+              // Se não publicado, registra como origem "Scaglioni" e localização "A definir".
               const initRec = new Record(initStockCol)
               initRec.set('product', newProd.id)
-              initRec.set('origem', 'Scaglioni')
-              initRec.set('id_origem', idScaglioni)
+              if (estadoAtivoEcommerce && saldoInicialQty > 0) {
+                initRec.set('origem', 'Ajuste E-commerce')
+                initRec.set('id_origem', 'ecom-import-' + newProd.id)
+                initRec.set('localizacao', 'Estoque separado para e-commerce')
+                initRec.set(
+                  'detalhes_distribuicao',
+                  JSON.stringify({
+                    loja_fisica: 0,
+                    expedicao: saldoInicialQty,
+                    revendedoras: [],
+                  }),
+                )
+              } else {
+                initRec.set('origem', 'Scaglioni')
+                initRec.set('id_origem', idScaglioni)
+                initRec.set('localizacao', 'A definir')
+              }
               initRec.set('quantidade', saldoInicialQty)
-              initRec.set('localizacao', 'A definir')
               initRec.set('data_registro', new Date().toISOString())
               initRec.set('is_ativo', true)
               $app.save(initRec)
