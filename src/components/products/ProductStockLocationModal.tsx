@@ -102,13 +102,15 @@ export function ProductStockLocationModal({
     }
   })
 
-  // Se loja física e e-commerce não tiverem registros detalhados gravados, calcula residual
+  // Se loja física e e-commerce não tiverem registros detalhados gravados, usa os valores reais do produto
   const totalResellerPieces = Object.values(resellerTotals).reduce((sum, r) => sum + r.qty, 0)
-  if (lojaFisicaTotal === 0 && ecommerceTotal === 0 && (product.quantity || 0) > 0) {
-    lojaFisicaTotal = Math.max(0, (product.quantity || 0) - totalResellerPieces)
+  if (lojaFisicaTotal === 0 && ecommerceTotal === 0) {
+    lojaFisicaTotal = product.quantity || 0
+    ecommerceTotal = product.qtde_loja_virtual || 0
   }
 
-  const grandTotal = lojaFisicaTotal + ecommerceTotal + totalResellerPieces
+  const grandTotal =
+    (product.quantity || 0) + (product.qtde_loja_virtual || 0) + totalResellerPieces
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -136,10 +138,10 @@ export function ProductStockLocationModal({
             <div className="p-3.5 rounded-xl bg-gradient-to-r from-[#F8F3EA] to-[#F3EAD8] border border-[#C6A664]/40 flex items-center justify-between">
               <div>
                 <span className="text-[11px] uppercase tracking-wider text-[#7A5C2E] font-bold block">
-                  Estoque Total Geral
+                  Estoque Total Geral (Físico + E-com + Revendedoras)
                 </span>
                 <span className="font-serif text-2xl font-bold text-[#2D2A26]">
-                  {product.quantity || grandTotal} peças
+                  {grandTotal} peças
                 </span>
               </div>
               <div className="h-10 w-10 rounded-xl bg-[#7A5C2E] text-white flex items-center justify-center shadow-xs">

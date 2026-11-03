@@ -294,9 +294,25 @@ export const productService = {
     }
 
     // Fallback: fetch filtered products (only required fields for fast performance)
-    const list = await pb.collection('products').getFullList<Product>({
-      filter,
-      fields: 'id,invested_value,selling_price,quantity',
+    const [list, resellerItems] = await Promise.all([
+      pb.collection('products').getFullList<Product>({
+        filter,
+        fields: 'id,invested_value,selling_price,quantity,qtde_loja_virtual',
+      }),
+      pb
+        .collection('reseller_stock_items')
+        .getFullList<{ product: string; quantity: number }>({
+          filter: 'quantity > 0',
+          fields: 'product,quantity',
+        })
+        .catch(() => []),
+    ])
+
+    const resellerMap = new Map<string, number>()
+    resellerItems.forEach((it) => {
+      if (it.product) {
+        resellerMap.set(it.product, (resellerMap.get(it.product) || 0) + (it.quantity || 0))
+      }
     })
 
     let totalInvestedUnit = 0
@@ -306,15 +322,19 @@ export const productService = {
     let totalQuantity = 0
 
     list.forEach((p) => {
-      const qty = p.quantity || 0
+      const qtyGeral = p.quantity || 0
+      const qtyEcom = p.qtde_loja_virtual || 0
+      const qtyReseller = resellerMap.get(p.id) || 0
+      const totalQty = qtyGeral + qtyEcom + qtyReseller
+
       const invested = p.invested_value || 0
       const selling = p.selling_price || 0
 
-      totalQuantity += qty
+      totalQuantity += totalQty
       totalInvestedUnit += invested
       totalSellingUnit += selling
-      totalInvestedStock += invested * qty
-      totalSellingStock += selling * qty
+      totalInvestedStock += invested * totalQty
+      totalSellingStock += selling * totalQty
     })
 
     const totalInvested = totalInvestedStock > 0 ? totalInvestedStock : totalInvestedUnit

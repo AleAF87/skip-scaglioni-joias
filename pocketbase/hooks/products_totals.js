@@ -30,17 +30,45 @@ routerAdd(
       const records = $app.findRecordsByFilter('products', filter, '', 10000, 0)
       totalItems = records.length
 
+      // Mapa de quantidades em poder das revendedoras (reseller_stock_items)
+      const resellerMap = {}
+      try {
+        const resellerItems = $app.findRecordsByFilter(
+          'reseller_stock_items',
+          'quantity > 0',
+          '',
+          10000,
+          0,
+        )
+        for (let r = 0; r < resellerItems.length; r++) {
+          const rRec = resellerItems[r]
+          const pId = rRec.getString('product')
+          const rQty = rRec.getInt('quantity') || 0
+          if (pId) {
+            resellerMap[pId] = (resellerMap[pId] || 0) + rQty
+          }
+        }
+      } catch (eReseller) {
+        console.log('Erro ao ler reseller_stock_items para totais:', eReseller.message)
+      }
+
       for (let i = 0; i < records.length; i++) {
         const rec = records[i]
-        const qty = rec.getInt('quantity') || 0
+        const recId = rec.id
+        const qtyGeral = rec.getInt('quantity') || 0
+        const qtyEcom = rec.getInt('qtde_loja_virtual') || 0
+        const qtyReseller = resellerMap[recId] || 0
+        // Estoque atual total somado: geral + e-commerce + revendedoras
+        const totalProductQty = qtyGeral + qtyEcom + qtyReseller
+
         const invested = rec.getFloat('invested_value') || 0
         const selling = rec.getFloat('selling_price') || 0
 
-        totalQuantity += qty
+        totalQuantity += totalProductQty
         totalInvestedUnit += invested
         totalSellingUnit += selling
-        totalInvestedStock += invested * qty
-        totalSellingStock += selling * qty
+        totalInvestedStock += invested * totalProductQty
+        totalSellingStock += selling * totalProductQty
       }
 
       const totalInvested = totalInvestedStock > 0 ? totalInvestedStock : totalInvestedUnit

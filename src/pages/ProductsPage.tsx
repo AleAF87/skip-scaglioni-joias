@@ -4,6 +4,7 @@ import { Product, Brand, ProductCategory } from '@/types'
 import { productService } from '@/services/productService'
 import { productCreationService } from '@/services/productCreationService'
 import { formatCurrency, formatDate, getProductDisplayPhoto } from '@/lib/formatters'
+import { getProductTotalStock, fetchResellerStockQuantityMap } from '@/services/totalStockService'
 import { ProductCreateModal } from '@/components/products/ProductCreateModal'
 import { ProductViewModal } from '@/components/products/ProductViewModal'
 import { ProductEditModal } from '@/components/products/ProductEditModal'
@@ -43,6 +44,7 @@ export function ProductsPage() {
   const [brands, setBrands] = useState<Brand[]>([])
   const [categories, setCategories] = useState<ProductCategory[]>([])
   const [categoryLinksMap, setCategoryLinksMap] = useState<Record<string, string[]>>({})
+  const [resellerStockMap, setResellerStockMap] = useState<Map<string, number>>(new Map())
 
   // Filtros e busca
   const [searchQuery, setSearchQuery] = useState('')
@@ -69,12 +71,14 @@ export function ProductsPage() {
 
   const loadMetadata = async () => {
     try {
-      const [bList, cList] = await Promise.all([
+      const [bList, cList, resMap] = await Promise.all([
         productCreationService.getBrands(),
         productCreationService.getCategories(),
+        fetchResellerStockQuantityMap(),
       ])
       setBrands(bList)
       setCategories(cList)
+      setResellerStockMap(resMap)
     } catch (err) {
       console.warn('Erro ao carregar marcas e categorias:', err)
     }
@@ -84,6 +88,11 @@ export function ProductsPage() {
   const loadProducts = useCallback(async () => {
     setIsLoading(true)
     try {
+      // Atualiza mapa de revendedoras em paralelo
+      fetchResellerStockQuantityMap()
+        .then((m) => setResellerStockMap(m))
+        .catch(() => {})
+
       const filters: string[] = []
 
       // Busca por nome, Produto ID, SKU novo, SKU herdado (Scaglioni) e código de barras
@@ -524,17 +533,38 @@ export function ProductsPage() {
                           ) : null}
                         </td>
 
-                        {/* Estoque atual total */}
+                        {/* Estoque atual total (geral + e-commerce + revendedoras) */}
                         <td className="py-2.5 px-3 text-center">
-                          <span
-                            className={`font-mono font-bold text-xs px-2 py-0.5 rounded-full ${
-                              (p.quantity || 0) <= (p.minimum_quantity || 0)
-                                ? 'bg-amber-100 text-amber-800'
-                                : 'bg-green-100 text-green-800'
-                            }`}
-                          >
-                            {p.quantity || 0} un.
-                          </span>
+                          {(() => {
+                            const resQty = resellerStockMap.get(p.id) || 0
+                            const total = getProductTotalStock(p, resQty)
+                            const isLow = total <= (p.minimum_quantity || 0)
+                            return (
+                              <div
+                                className="inline-flex flex-col items-center"
+                                title={`Estoque total atual: ${total} un. (Geral: ${p.quantity || 0} | E-commerce: ${p.qtde_loja_virtual || 0} | Revendedoras: ${resQty})`}
+                              >
+                                <span
+                                  className={`font-mono font-bold text-xs px-2 py-0.5 rounded-full ${
+                                    total === 0
+                                      ? 'bg-red-100 text-red-800'
+                                      : isLow
+                                        ? 'bg-amber-100 text-amber-800'
+                                        : 'bg-green-100 text-green-800'
+                                  }`}
+                                >
+                                  {total} un.
+                                </span>
+                                {p.qtde_loja_virtual || resQty ? (
+                                  <span className="text-[9px] text-[#6B655E] mt-0.5">
+                                    G:{p.quantity || 0}
+                                    {p.qtde_loja_virtual ? ` | E:${p.qtde_loja_virtual}` : ''}
+                                    {resQty ? ` | R:${resQty}` : ''}
+                                  </span>
+                                ) : null}
+                              </div>
+                            )
+                          })()}
                         </td>
 
                         {/* Publicar no e-commerce */}

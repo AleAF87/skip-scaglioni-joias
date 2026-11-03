@@ -64,6 +64,7 @@ import {
   getProductDisplayCode,
   getProductDisplayName,
 } from '@/lib/stockSort'
+import { getProductTotalStock, fetchResellerStockQuantityMap } from '@/services/totalStockService'
 
 export default function StockInventory() {
   const [products, setProducts] = useState<Product[]>([])
@@ -152,6 +153,7 @@ export default function StockInventory() {
   const [resellerAllocatedProductIds, setResellerAllocatedProductIds] = useState<Set<string>>(
     new Set(),
   )
+  const [resellerStockMap, setResellerStockMap] = useState<Map<string, number>>(new Map())
   const [editForm, setEditForm] = useState({
     code: '',
     description: '',
@@ -176,17 +178,11 @@ export default function StockInventory() {
 
   const loadResellerAllocations = async () => {
     try {
-      const client = (await import('@/lib/pocketbase/client')).default
-      // Busca itens de estoque de revendedoras com quantidade > 0
-      const items = await client
-        .collection('reseller_stock_items')
-        .getFullList<{ product: string }>({
-          filter: 'quantity > 0',
-          fields: 'product',
-        })
+      const map = await fetchResellerStockQuantityMap()
+      setResellerStockMap(map)
       const allocatedSet = new Set<string>()
-      items.forEach((it) => {
-        if (it.product) allocatedSet.add(it.product)
+      map.forEach((qty, prodId) => {
+        if (qty > 0) allocatedSet.add(prodId)
       })
       setResellerAllocatedProductIds(allocatedSet)
     } catch (err) {
@@ -248,8 +244,7 @@ export default function StockInventory() {
       if (
         sortField === 'created' ||
         sortField === 'invested_value' ||
-        sortField === 'selling_price' ||
-        sortField === 'quantity'
+        sortField === 'selling_price'
       ) {
         const pbSortPrefix = sortDirection === 'desc' ? '-' : '+'
         const pbSortParam = `${pbSortPrefix}${sortField}`
@@ -270,7 +265,7 @@ export default function StockInventory() {
         setTotalPages(res.totalPages || 1)
         setTotalItems(res.totalItems || 0)
       } else {
-        // Ordenação por 'code' (numérico ignorando zeros à esquerda) ou 'name' (alfabético com fallback)
+        // Ordenação por 'code', 'name' ou 'quantity' (estoque total somado: geral + ecom + revendedora)
         // Busca todos os itens correspondentes aos filtros para ordenar o conjunto completo antes de paginar
         const filterStr = productService.buildProductFilterString({
           search,
@@ -292,7 +287,7 @@ export default function StockInventory() {
             expand: 'type,material,size,marca_id',
           })
 
-        const sorted = sortProductsList(allFiltered, sortField, sortDirection)
+        const sorted = sortProductsList(allFiltered, sortField, sortDirection, resellerStockMap)
         const total = sorted.length
         const computedTotalPages = Math.max(1, Math.ceil(total / perPage))
 
@@ -1405,13 +1400,17 @@ export default function StockInventory() {
                 products.map((p) => {
                   const isSelected = selectedIds.includes(p.id)
                   const isEditingThisQty = editingQtyId === p.id
+                  const resellerUnits = resellerStockMap.get(p.id) || 0
+                  // Estoque total atual = geral + e-commerce + revendedoras
+                  const currentTotalStock = getProductTotalStock(p, resellerUnits)
+
                   // Regra da usuária: o alerta ativa quando a quantidade atual atinge o mínimo (30% do inicial gravado).
                   // Se por algum motivo o mínimo vier ausente ou zero, usa o fallback dinâmico de 30% da quantidade (mínimo 1), nunca um valor fixo.
                   const effectiveMinStock =
                     p.minimum_quantity && p.minimum_quantity > 0
                       ? p.minimum_quantity
                       : Math.max(1, Math.round((p.quantity || 0) * 0.3))
-                  const isLowStock = p.quantity <= effectiveMinStock
+                  const isLowStock = currentTotalStock <= effectiveMinStock
                   const photo = getProductDisplayPhoto(p)
                   const hasPhoto = Boolean(photo)
 
@@ -1570,10 +1569,10 @@ export default function StockInventory() {
                           : 'R$ ••••'}
                       </td>
 
-                      {/* Direct Quantity edit */}
-                      <td className="py-3 px-4">
+                      {/* Coluna Estoque: mostra o estoque atual total (geral + e-commerce + revendedoras) com detalhamento em tooltip */}
+                      <td className="py-3 px-4 text-center">
                         {isEditingThisQty ? (
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center justify-center gap-1.5">
                             <Input
                               type="number"
                               min="0"
@@ -1601,23 +1600,32 @@ export default function StockInventory() {
                           <div
                             onClick={() => {
                               setEditingQtyId(p.id)
-                              setTempQty(p.quantity.toString())
+                              setTempQty((p.quantity || 0).toString())
                             }}
-                            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-[#F3EAD8] cursor-pointer group"
-                            title="Clique para editar a quantidade"
+                            className="inline-flex flex-col items-center justify-center px-2 py-1 rounded-md hover:bg-[#F3EAD8] cursor-pointer group"
+                            title={`Estoque total atual: ${currentTotalStock} un. (Geral: ${p.quantity || 0} | E-commerce: ${p.qtde_loja_virtual || 0} | Revendedoras: ${resellerUnits})\nClique para editar a quantidade geral`}
                           >
-                            <span
-                              className={`font-bold ${
-                                p.quantity === 0
-                                  ? 'text-[#B3261E]'
-                                  : isLowStock
-                                    ? 'text-[#B26A00]'
-                                    : 'text-[#2E7D4F]'
-                              }`}
-                            >
-                              {p.quantity}
-                            </span>
-                            <Edit className="h-3 w-3 text-[#6B655E] opacity-0 group-hover:opacity-100 transition-opacity" />
+                            <div className="inline-flex items-center gap-1.5">
+                              <span
+                                className={`font-bold ${
+                                  currentTotalStock === 0
+                                    ? 'text-[#B3261E]'
+                                    : isLowStock
+                                      ? 'text-[#B26A00]'
+                                      : 'text-[#2E7D4F]'
+                                }`}
+                              >
+                                {currentTotalStock}
+                              </span>
+                              <Edit className="h-3 w-3 text-[#6B655E] opacity-0 group-hover:opacity-100 transition-opacity" />
+                            </div>
+                            {p.qtde_loja_virtual || resellerUnits ? (
+                              <span className="text-[10px] text-[#6B655E] leading-tight font-normal">
+                                G:{p.quantity || 0}
+                                {p.qtde_loja_virtual ? ` | E:${p.qtde_loja_virtual}` : ''}
+                                {resellerUnits ? ` | R:${resellerUnits}` : ''}
+                              </span>
+                            ) : null}
                           </div>
                         )}
                       </td>
@@ -1628,7 +1636,7 @@ export default function StockInventory() {
                       </td>
 
                       <td className="py-3 px-4">
-                        {p.quantity === 0 ? (
+                        {currentTotalStock === 0 ? (
                           <Badge
                             variant="destructive"
                             className="bg-[#B3261E] text-white text-[10px]"
@@ -1640,7 +1648,7 @@ export default function StockInventory() {
                             variant="outline"
                             className="border-[#B26A00] text-[#B26A00] bg-[#B26A00]/10 text-[10px]"
                           >
-                            Baixo ({p.quantity})
+                            Baixo ({currentTotalStock})
                           </Badge>
                         ) : (
                           <Badge

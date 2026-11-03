@@ -1,6 +1,7 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { Product } from '@/types'
 import { formatCurrency, formatDate, getProductDisplayPhoto } from '@/lib/formatters'
+import { getProductTotalStock, fetchResellerStockQuantityMap } from '@/services/totalStockService'
 import {
   Dialog,
   DialogContent,
@@ -35,8 +36,19 @@ export function ProductViewModal({
   onOpenChange,
   categoryNames = [],
 }: ProductViewModalProps) {
+  const [resellerQty, setResellerQty] = useState(0)
+
+  useEffect(() => {
+    if (open && product?.id) {
+      fetchResellerStockQuantityMap()
+        .then((m) => setResellerQty(m.get(product.id) || 0))
+        .catch(() => setResellerQty(0))
+    }
+  }, [open, product?.id])
+
   if (!product) return null
 
+  const totalStock = getProductTotalStock(product, resellerQty)
   const photoUrl = getProductDisplayPhoto(product)
   const isEcommerce = product.publicar_no_ecommerce
   const isHighlight = product.destaque_ecommerce
@@ -108,10 +120,16 @@ export function ProductViewModal({
                   </div>
                 )}
                 <div>
-                  <span className="text-[#8C8275] block">Estoque atual:</span>
+                  <span className="text-[#8C8275] block">Estoque atual (total):</span>
                   <span className="font-mono text-base font-bold text-[#2D2A26]">
-                    {product.quantity || 0} peças
+                    {totalStock} peças
                   </span>
+                  {product.qtde_loja_virtual || resellerQty ? (
+                    <span className="text-[10px] text-[#6B655E] block">
+                      Geral: {product.quantity || 0} | E-com: {product.qtde_loja_virtual || 0} |
+                      Rev: {resellerQty}
+                    </span>
+                  ) : null}
                 </div>
                 {product.custo_unitario && product.custo_unitario > 0 && (
                   <div>

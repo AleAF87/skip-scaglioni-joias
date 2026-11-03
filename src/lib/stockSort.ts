@@ -80,6 +80,7 @@ export function sortProductsList(
   items: Product[],
   field: SortField,
   direction: SortDirection,
+  resellerMap?: Map<string, number>,
 ): Product[] {
   const factor = direction === 'asc' ? 1 : -1
 
@@ -116,9 +117,17 @@ export function sortProductsList(
         break
       }
       case 'quantity': {
-        const qtyA = typeof a.quantity === 'number' ? a.quantity : 0
-        const qtyB = typeof b.quantity === 'number' ? b.quantity : 0
-        diff = qtyA - qtyB
+        const resA = resellerMap?.get(a.id) || 0
+        const resB = resellerMap?.get(b.id) || 0
+        const totalA =
+          (typeof a.quantity === 'number' ? a.quantity : 0) +
+          (typeof a.qtde_loja_virtual === 'number' ? a.qtde_loja_virtual : 0) +
+          resA
+        const totalB =
+          (typeof b.quantity === 'number' ? b.quantity : 0) +
+          (typeof b.qtde_loja_virtual === 'number' ? b.qtde_loja_virtual : 0) +
+          resB
+        diff = totalA - totalB
         break
       }
       default:

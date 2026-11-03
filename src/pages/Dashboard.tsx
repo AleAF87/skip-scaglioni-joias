@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { productService } from '@/services/productService'
 import { salesService } from '@/services/salesService'
 import { resellerService } from '@/services/resellerService'
+import { getProductTotalStock, fetchResellerStockQuantityMap } from '@/services/totalStockService'
 import pb from '@/lib/pocketbase/client'
 import { formatCurrency, formatDateTime } from '@/lib/formatters'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -54,32 +55,36 @@ export default function Dashboard() {
   const loadDashboardMetrics = async () => {
     setLoading(true)
     try {
-      const [prodRes, salesRes, consignRes, settingsRes] = await Promise.all([
+      const [prodRes, salesRes, consignRes, settingsRes, resellerMap] = await Promise.all([
         pb.collection('products').getFullList({ expand: 'type' }),
         pb.collection('sales').getFullList({ sort: '-created', expand: 'customer' }),
         pb.collection('consignment_lists').getFullList(),
         pb.collection('settings').getFullList(),
+        fetchResellerStockQuantityMap(),
       ])
 
-      // Stock totals
+      // Stock totals (estoque total somado: geral + e-commerce + revendedoras)
       let pieces = 0
       let value = 0
       const lowStock: any[] = []
       const typeCounter: { [key: string]: number } = {}
 
       prodRes.forEach((p: any) => {
-        const qty = p.quantity || 0
+        const resQty = resellerMap.get(p.id) || 0
+        const qty = getProductTotalStock(p, resQty)
         pieces += qty
         value += qty * (p.selling_price || 0)
 
         // Regra da usuária: o alerta ativa quando a quantidade atual atinge o estoque mínimo (30% do inicial gravado)
+        const initial =
+          typeof p.qtde_inicial === 'number' && p.qtde_inicial > 0 ? p.qtde_inicial : qty || 1
         const effectiveMin =
           p.minimum_quantity && p.minimum_quantity > 0
             ? p.minimum_quantity
-            : Math.max(1, Math.round(qty * 0.3))
+            : Math.max(1, Math.round(initial * 0.3))
 
         if (qty <= effectiveMin) {
-          lowStock.push(p)
+          lowStock.push({ ...p, totalStock: qty })
         }
         const typeName = p.expand?.type?.name || 'Outros'
         typeCounter[typeName] = (typeCounter[typeName] || 0) + qty
@@ -460,7 +465,8 @@ export default function Dashboard() {
                       variant="outline"
                       className="border-[#B26A00] text-[#B26A00] bg-[#B26A00]/10 text-xs"
                     >
-                      Restam {p.quantity} unid.
+                      Restam {typeof p.totalStock === 'number' ? p.totalStock : p.quantity || 0}{' '}
+                      unid.
                     </Badge>
                   </div>
                 </div>
