@@ -21,11 +21,46 @@ export interface AutomationCardDetails {
   }
 }
 
+export interface AutomationComparedProduct {
+  id: string
+  codigo: string
+  sku: string
+  nome: string
+  valor_vende: number
+  qtde_estoque: number
+  qtde_ecommerce: number
+  qtde_site: number | null
+  status_conferencia: 'igual' | 'divergente' | 'nao_encontrado'
+  status_texto: string
+  status_detalhe?: string
+  imagem?: string
+  dados_site?: {
+    id?: string
+    nome?: string
+    sku?: string
+    preco?: number
+    estoque?: number
+  } | null
+}
+
+export interface AutomationComparisonSummary {
+  total_ativos_local: number
+  total_site_encontrados: number
+  total_iguais: number
+  total_divergentes: number
+  total_nao_encontrados: number
+  tabela_site?: string
+  xpath_tabela?: string
+  xpath_coluna_sku?: string
+}
+
 export interface AutomationResult {
   success: boolean
   texto_extraido: string
   detalhes_do_card: AutomationCardDetails
   passos: AutomationStep[]
+  comparativo_produtos?: AutomationComparedProduct[]
+  resumo_comparativo?: AutomationComparisonSummary
   error?: string
   detalhe?: string
 }

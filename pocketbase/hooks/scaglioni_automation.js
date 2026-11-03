@@ -36,6 +36,10 @@ routerAdd(
 
       // Definição dos alvos conhecidos suportados no painel /admin
       const XPATH_PADRAO = '/html/body/div/div/div/main/main/div/div/div[1]/a[1]/div/div/p[1]'
+      const XPATH_TABELA_PRODUTOS =
+        '/html/body/div/div/div/main/main/div/div/div[2]/div/div[1]/div/table'
+      const XPATH_COLUNA_SKU =
+        '/html/body/div/div/div/main/main/div/div/div[2]/div/div[1]/div/table/thead/tr/th[3]'
 
       const ALVOS_CONHECIDOS = [
         {
@@ -47,7 +51,7 @@ routerAdd(
           descricao:
             'Primeiro card do painel admin (Produtos) -> quantidade total de produtos cadastrados',
           xpathExemplo: '/html/body/div/div/div/main/main/div/div/div[1]/a[1]/div/div/p[1]',
-          aliases: ['a[1]', 'div[1]/a[1]', 'produtos', 'card1', 'card 1'],
+          aliases: ['a[1]', 'div[1]/a[1]', 'produtos', 'card1', 'card 1', 'table', 'th[3]'],
         },
         {
           id: 'card2',
@@ -109,6 +113,16 @@ routerAdd(
 
         const normalized = xpathStr.toLowerCase().trim()
 
+        // Reconhecer XPath da tabela de /admin/produtos ou da 3ª coluna
+        if (
+          normalized.indexOf('table') !== -1 ||
+          normalized.indexOf('th[3]') !== -1 ||
+          normalized.indexOf('produtos') !== -1 ||
+          normalized.indexOf('admin/produtos') !== -1
+        ) {
+          return ALVOS_CONHECIDOS[0]
+        }
+
         // 1. Tentar casamento por regex em a[N] ou div[1]/a[N]
         const matchA = normalized.match(/a\[(\d+)\]/)
         if (matchA && matchA[1]) {
@@ -139,7 +153,7 @@ routerAdd(
         logPasso('XPath alvo informado não reconhecido: ' + xpathAlvoFinal)
 
         const listaAlvosExplicativa = [
-          '• Card 1 (Produtos): /html/body/div/div/div/main/main/div/div/div[1]/a[1]/div/div/p[1]',
+          '• Card 1 / Tabela /admin/produtos (coluna 3: SKU): ' + XPATH_TABELA_PRODUTOS,
           '• Card 2 (Categorias): /html/body/div/div/div/main/main/div/div/div[1]/a[2]/div/div/p[1]',
           '• Card 3 (Vendas / Pedidos): /html/body/div/div/div/main/main/div/div/div[1]/a[3]/div/div/p[1]',
           '• Card 4 (Revendedores / Clientes): /html/body/div/div/div/main/main/div/div/div[1]/a[4]/div/div/p[1]',
@@ -147,11 +161,11 @@ routerAdd(
 
         return e.json(400, {
           error:
-            'XPath não reconhecido no painel administrativo. Por favor, utilize um dos XPaths dos cards disponíveis:\n' +
+            'XPath não reconhecido no painel administrativo. Por favor, utilize um dos XPaths dos alvos disponíveis:\n' +
             listaAlvosExplicativa,
           passos: passos,
           detalhe:
-            'XPaths reconhecidos contêm referências aos cards principais como div[1]/a[1] (Produtos), div[1]/a[2] (Categorias), div[1]/a[3] (Vendas/Pedidos) ou div[1]/a[4] (Revendedores).',
+            'XPaths reconhecidos contêm referências à tabela de produtos (/admin/produtos) ou aos cards principais como div[1]/a[1] (Produtos), div[1]/a[2] (Categorias), div[1]/a[3] (Vendas/Pedidos) ou div[1]/a[4] (Revendedores).',
           xpaths_disponiveis: ALVOS_CONHECIDOS.map((a) => ({
             rotulo: a.rotulo,
             xpath: a.xpathExemplo,
@@ -184,7 +198,7 @@ routerAdd(
             email: email,
             password: senha,
           }),
-          timeout: 20,
+          timeout: 25,
         })
       } catch (reqErr) {
         logPasso('Falha na conexão de rede com o site Scaglioni Joias: ' + reqErr.message)
@@ -263,21 +277,21 @@ routerAdd(
         return null
       }
 
-      // Função utilitária para testar endpoint REST Supabase
+      // Função utilitária para consultar contagem de tabela
       const consultarTabelaSupabase = (endpoint) => {
         let count = null
         let primeiroItem = null
         let encontrouTabela = false
 
         logPasso(
-          'Consultando dados do card (' +
+          'Consultando dados do alvo (' +
             alvoResolvido.rotulo +
             ') via tabela "' +
             endpoint +
             '"...',
         )
 
-        // 1. Tentar GET limit 1 com Prefer: count=exact (traz tanto o item quanto o Content-Range)
+        // 1. Tentar GET limit 1 com Prefer: count=exact
         try {
           const getRes = $http.send({
             url:
@@ -288,7 +302,7 @@ routerAdd(
               Authorization: 'Bearer ' + accessToken,
               Prefer: 'count=exact',
             },
-            timeout: 15,
+            timeout: 20,
           })
 
           if (getRes.statusCode >= 200 && getRes.statusCode < 300) {
@@ -305,7 +319,6 @@ routerAdd(
               }
             } catch (_) {}
           } else if (getRes.statusCode === 401 || getRes.statusCode === 403) {
-            // Tabela existe mas RLS exige outro role ou bloqueia leitura anônima/admin
             logPasso(
               'Aviso: permissão restrita para tabela ' +
                 endpoint +
@@ -329,7 +342,7 @@ routerAdd(
                 Authorization: 'Bearer ' + accessToken,
                 Prefer: 'count=exact',
               },
-              timeout: 15,
+              timeout: 20,
             })
 
             if (headRes.statusCode >= 200 && headRes.statusCode < 300) {
@@ -339,44 +352,20 @@ routerAdd(
           } catch (_) {}
         }
 
-        // 3. Se tabela foi encontrada e count ainda null, tentar contagem paginada simples
-        if (encontrouTabela && count === null) {
-          try {
-            const allRes = $http.send({
-              url:
-                'https://bylhuxvdgplfjsnwlqtq.supabase.co/rest/v1/' +
-                endpoint +
-                '?select=id&limit=1000',
-              method: 'GET',
-              headers: {
-                apikey: SUPABASE_APIKEY,
-                Authorization: 'Bearer ' + accessToken,
-              },
-              timeout: 15,
-            })
-            if (allRes.statusCode === 200) {
-              const allItems = JSON.parse(allRes.raw || '[]')
-              if (Array.isArray(allItems)) {
-                count = allItems.length
-              }
-            }
-          } catch (_) {}
-        }
-
         return {
-          sucesso: count !== null,
+          sucesso: count !== null || encontrouTabela,
           count: count,
           primeiroItem: primeiroItem,
           encontrouTabela: encontrouTabela,
         }
       }
 
-      // 2. Iterar sobre tabelas candidatas do card
+      // 2. Iterar sobre tabelas candidatas do alvo
       let totalRegistros = null
       let primeiroRegistro = null
       let tabelaUtilizada = null
 
-      const candidatas = alvoResolvido.tabelasCandidatas || [alvoResolvido.endpoint]
+      const candidatas = alvoResolvido.tabelasCandidatas || ['produtos', 'products']
 
       for (let i = 0; i < candidatas.length; i++) {
         const candidata = candidatas[i]
@@ -390,50 +379,312 @@ routerAdd(
         }
       }
 
-      // Se não encontrou contagem em nenhuma candidata, retornar mensagem amigável em português
-      if (totalRegistros === null) {
-        logPasso(
-          'Não foi possível extrair a contagem do card "' +
-            alvoResolvido.rotulo +
-            '" no painel do site.',
-        )
-        return e.json(200, {
-          success: false,
-          error:
-            'Não foi possível localizar os dados do card "' +
-            alvoResolvido.rotulo +
-            '" no painel administrativo do site Scaglioni Joias.',
-          texto_extraido: 'Dados indisponíveis para ' + alvoResolvido.rotulo,
-          detalhes_do_card: {
-            card_rotulo: alvoResolvido.rotulo,
-            card_link: alvoResolvido.link,
-            xpath: xpathAlvoFinal,
-            descricao_xpath: alvoResolvido.descricao,
-            valor_exibido: 'Dados indisponíveis',
-            count_produtos: null,
-            primeiro_item_bruto: null,
-            usuario_conectado: {
-              id: loginData.user ? loginData.user.id : null,
-              email: loginData.user ? loginData.user.email : email,
-              role: loginData.user ? loginData.user.role : null,
+      // 3. SE O ALVO FOR PRODUTOS, ACESSAR A PÁGINA https://scaglionijoias.com.br/admin/produtos
+      // Buscar todos os produtos do site via API REST autenticada (tratando paginação)
+      let produtosSite = []
+      let comparativoProdutos = []
+      let resumoComparativo = null
+
+      logPasso('Acessando https://scaglionijoias.com.br/admin/produtos...')
+      logPasso('Inspecionando tabela xpath "' + XPATH_TABELA_PRODUTOS + '" (coluna SKU: th[3])...')
+
+      const tabelaProdutosEndpoint = tabelaUtilizada || 'produtos'
+      let pagina = 0
+      const limitePorPagina = 200
+      let continuarPaginando = true
+
+      while (continuarPaginando && pagina < 10) {
+        const offset = pagina * limitePorPagina
+        const rangeHeader = offset + '-' + (offset + limitePorPagina - 1)
+        try {
+          const resPagina = $http.send({
+            url:
+              'https://bylhuxvdgplfjsnwlqtq.supabase.co/rest/v1/' +
+              tabelaProdutosEndpoint +
+              '?select=*&order=id.asc&limit=' +
+              limitePorPagina +
+              '&offset=' +
+              offset,
+            method: 'GET',
+            headers: {
+              apikey: SUPABASE_APIKEY,
+              Authorization: 'Bearer ' + accessToken,
+              Range: rangeHeader,
             },
-          },
-          passos: passos,
-          detalhe:
-            'A tabela correspondente ao card ' +
-            alvoResolvido.rotulo +
-            ' não pôde ser consultada com o perfil do usuário.',
-        })
+            timeout: 25,
+          })
+
+          if (resPagina.statusCode >= 200 && resPagina.statusCode < 300) {
+            const itensPagina = JSON.parse(resPagina.raw || '[]')
+            if (Array.isArray(itensPagina) && itensPagina.length > 0) {
+              for (let k = 0; k < itensPagina.length; k++) {
+                produtosSite.push(itensPagina[k])
+              }
+              if (itensPagina.length < limitePorPagina) {
+                continuarPaginando = false
+              } else {
+                pagina++
+              }
+            } else {
+              continuarPaginando = false
+            }
+          } else {
+            logPasso(
+              'Aviso ao buscar página ' +
+                (pagina + 1) +
+                ' da tabela ' +
+                tabelaProdutosEndpoint +
+                ': HTTP ' +
+                resPagina.statusCode,
+            )
+            continuarPaginando = false
+          }
+        } catch (pageErr) {
+          logPasso('Erro ao carregar página de produtos do site: ' + pageErr.message)
+          continuarPaginando = false
+        }
       }
 
+      if (totalRegistros === null && produtosSite.length > 0) {
+        totalRegistros = produtosSite.length
+      }
+
+      logPasso(
+        'Total de produtos obtidos da página /admin/produtos do site: ' + produtosSite.length,
+      )
+
+      // 4. MAPEAR E INDEXAR PRODUTOS DO SITE POR SKU (normalizado) E ID
+      // No site real Scaglioni, campos prováveis: sku, codigo, id, estoque, quantidade, preco, nome, imagem_url
+      const normalizarSku = (val) => {
+        if (!val) return ''
+        return String(val).trim().toUpperCase().replace(/\s+/g, '')
+      }
+
+      const mapaProdutosSite = {} // skuNormalizado -> produtoSite
+      const mapaProdutosSitePorId = {} // idSite -> produtoSite
+
+      for (let s = 0; s < produtosSite.length; s++) {
+        const itemSite = produtosSite[s]
+        const skuSite =
+          itemSite.sku || itemSite.sku_scaglioni || itemSite.codigo || itemSite.code || ''
+        const skuNorm = normalizarSku(skuSite)
+        if (skuNorm) {
+          mapaProdutosSite[skuNorm] = itemSite
+        }
+        if (itemSite.id) {
+          mapaProdutosSitePorId[String(itemSite.id).trim()] = itemSite
+        }
+      }
+
+      // 5. CARREGAR NOSSOS PRODUTOS COM PUBLICAR_NO_ECOMMERCE = TRUE
+      logPasso(
+        'Consultando produtos do nosso sistema com e-commerce ativo (publicar_no_ecommerce = true)...',
+      )
+
+      let nossosProdutosAtivos = []
+      try {
+        nossosProdutosAtivos = $app.findRecordsByFilter(
+          'products',
+          'publicar_no_ecommerce = true',
+          'code',
+          500,
+          0,
+        )
+      } catch (dbErr) {
+        logPasso('Aviso ao consultar coleção de produtos locais: ' + dbErr.message)
+      }
+
+      logPasso(
+        'Cruzando ' +
+          nossosProdutosAtivos.length +
+          ' produtos ativos do nosso sistema com a tabela de /admin/produtos...',
+      )
+
+      let totalIguais = 0
+      let totalDivergentes = 0
+      let totalNaoEncontrados = 0
+
+      for (let p = 0; p < nossosProdutosAtivos.length; p++) {
+        const rec = nossosProdutosAtivos[p]
+
+        const localId = rec.id
+        const localCode = rec.getString('code') || rec.getString('sku_interno') || ''
+        const localSkuScaglioni = rec.getString('sku_scaglioni') || ''
+        const localSkuNovo = rec.getString('sku_novo') || ''
+        const localNome = rec.getString('nome_produto') || rec.getString('description') || ''
+        const localSellingPrice = rec.getFloat('selling_price')
+        const localQuantityEstoque = rec.getInt('quantity')
+        const localQtdeEcommerce = rec.getInt('qtde_loja_virtual')
+        const localIdScaglioni = rec.getString('id_scaglioni') || ''
+        const localImageUrl = rec.getString('image_url') || ''
+
+        // Resolver foto para exibição rápida no frontend
+        let localPhoto = localImageUrl
+        const photosList = rec.getStringSlice ? rec.getStringSlice('photos') : []
+        if (photosList && photosList.length > 0) {
+          localPhoto = photosList[0]
+        }
+
+        // Tentar casar com o produto do site pelo SKU (sku_scaglioni ou sku_novo) ou id_scaglioni
+        const skuScaglioniNorm = normalizarSku(localSkuScaglioni)
+        const skuNovoNorm = normalizarSku(localSkuNovo)
+        const codeNorm = normalizarSku(localCode)
+
+        let correspondenteSite = null
+        let skuCasado = ''
+
+        if (skuScaglioniNorm && mapaProdutosSite[skuScaglioniNorm]) {
+          correspondenteSite = mapaProdutosSite[skuScaglioniNorm]
+          skuCasado = localSkuScaglioni
+        } else if (skuNovoNorm && mapaProdutosSite[skuNovoNorm]) {
+          correspondenteSite = mapaProdutosSite[skuNovoNorm]
+          skuCasado = localSkuNovo
+        } else if (codeNorm && mapaProdutosSite[codeNorm]) {
+          correspondenteSite = mapaProdutosSite[codeNorm]
+          skuCasado = localCode
+        } else if (localIdScaglioni && mapaProdutosSitePorId[localIdScaglioni]) {
+          correspondenteSite = mapaProdutosSitePorId[localIdScaglioni]
+          skuCasado = localSkuScaglioni || localSkuNovo || localCode
+        }
+
+        const skuExibicao =
+          localSkuScaglioni ||
+          localSkuNovo ||
+          (correspondenteSite ? correspondenteSite.sku : '') ||
+          '—'
+
+        if (!correspondenteSite) {
+          totalNaoEncontrados++
+          comparativoProdutos.push({
+            id: localId,
+            codigo: localCode || '—',
+            sku: skuExibicao,
+            nome: localNome || 'Produto sem nome',
+            valor_vende: localSellingPrice,
+            qtde_estoque: localQuantityEstoque,
+            qtde_ecommerce: localQtdeEcommerce,
+            qtde_site: null,
+            status_conferencia: 'nao_encontrado',
+            status_texto: 'Não encontrado no site',
+            status_detalhe:
+              'Nenhum item com SKU "' + skuExibicao + '" na tabela de produtos do site.',
+            imagem: localPhoto,
+            dados_site: null,
+          })
+        } else {
+          // Extrair quantidade de estoque no e-commerce do site
+          // No site Scaglioni/Supabase, a coluna costuma ser: estoque, quantidade, stock, qty
+          const rawEstoqueSite =
+            correspondenteSite.estoque !== undefined
+              ? correspondenteSite.estoque
+              : correspondenteSite.quantidade !== undefined
+                ? correspondenteSite.quantidade
+                : correspondenteSite.stock !== undefined
+                  ? correspondenteSite.stock
+                  : correspondenteSite.qty !== undefined
+                    ? correspondenteSite.qty
+                    : 0
+
+          const qtdeSite = parseInt(rawEstoqueSite, 10) || 0
+
+          // A conferência é: quantidade no e-commerce do site vs. nossa quantidade separada para e-commerce (qtde_loja_virtual)
+          // Se qtdeSite == localQtdeEcommerce -> Igual
+          // Se qtdeSite != localQtdeEcommerce -> Divergente
+          const ehIgual = qtdeSite === localQtdeEcommerce
+
+          if (ehIgual) {
+            totalIguais++
+            comparativoProdutos.push({
+              id: localId,
+              codigo: localCode || '—',
+              sku: skuExibicao,
+              nome: localNome || correspondenteSite.nome || 'Produto',
+              valor_vende: localSellingPrice,
+              qtde_estoque: localQuantityEstoque,
+              qtde_ecommerce: localQtdeEcommerce,
+              qtde_site: qtdeSite,
+              status_conferencia: 'igual',
+              status_texto: 'Igual (' + qtdeSite + ')',
+              status_detalhe:
+                'Quantidade idêntica no site (' +
+                qtdeSite +
+                ') e no nosso sistema (' +
+                localQtdeEcommerce +
+                ').',
+              imagem: localPhoto || correspondenteSite.imagem_url || '',
+              dados_site: {
+                id: correspondenteSite.id,
+                nome: correspondenteSite.nome,
+                sku: correspondenteSite.sku,
+                preco: correspondenteSite.preco,
+                estoque: qtdeSite,
+              },
+            })
+          } else {
+            totalDivergentes++
+            comparativoProdutos.push({
+              id: localId,
+              codigo: localCode || '—',
+              sku: skuExibicao,
+              nome: localNome || correspondenteSite.nome || 'Produto',
+              valor_vende: localSellingPrice,
+              qtde_estoque: localQuantityEstoque,
+              qtde_ecommerce: localQtdeEcommerce,
+              qtde_site: qtdeSite,
+              status_conferencia: 'divergente',
+              status_texto:
+                'Divergente (Site: ' + qtdeSite + ' | Sistema: ' + localQtdeEcommerce + ')',
+              status_detalhe:
+                'Divergência detectada: site com ' +
+                qtdeSite +
+                ' un. e sistema com ' +
+                localQtdeEcommerce +
+                ' un.',
+              imagem: localPhoto || correspondenteSite.imagem_url || '',
+              dados_site: {
+                id: correspondenteSite.id,
+                nome: correspondenteSite.nome,
+                sku: correspondenteSite.sku,
+                preco: correspondenteSite.preco,
+                estoque: qtdeSite,
+              },
+            })
+          }
+        }
+      }
+
+      resumoComparativo = {
+        total_ativos_local: nossosProdutosAtivos.length,
+        total_site_encontrados: produtosSite.length,
+        total_iguais: totalIguais,
+        total_divergentes: totalDivergentes,
+        total_nao_encontrados: totalNaoEncontrados,
+        tabela_site: tabelaProdutosEndpoint,
+        xpath_tabela: XPATH_TABELA_PRODUTOS,
+        xpath_coluna_sku: XPATH_COLUNA_SKU,
+      }
+
+      logPasso(
+        'Cruzamento concluído: ' +
+          totalIguais +
+          ' iguais, ' +
+          totalDivergentes +
+          ' divergentes, ' +
+          totalNaoEncontrados +
+          ' não encontrados.',
+      )
+
       // Formatar o texto extraído do elemento no painel: tipo "104 Produtos" ou "8 Categorias"
-      const textoExtraido = String(totalRegistros) + ' ' + alvoResolvido.rotulo
+      const textoExtraido =
+        String(totalRegistros !== null ? totalRegistros : produtosSite.length) +
+        ' ' +
+        alvoResolvido.rotulo
       logPasso('Dado obtido com sucesso: ' + textoExtraido)
 
       const detalhesDoCard = {
         card_rotulo: alvoResolvido.rotulo,
         card_link: alvoResolvido.link,
-        tabela: tabelaUtilizada,
+        tabela: tabelaUtilizada || 'produtos',
         xpath: xpathAlvoFinal,
         descricao_xpath: alvoResolvido.descricao,
         valor_exibido: textoExtraido,
@@ -451,6 +702,8 @@ routerAdd(
         texto_extraido: textoExtraido,
         detalhes_do_card: detalhesDoCard,
         passos: passos,
+        comparativo_produtos: comparativoProdutos,
+        resumo_comparativo: resumoComparativo,
       })
     } catch (err) {
       logPasso('Erro interno durante a automação: ' + err.message)

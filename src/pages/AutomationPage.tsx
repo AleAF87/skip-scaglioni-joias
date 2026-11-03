@@ -13,6 +13,13 @@ import {
   FileCode2,
   Copy,
   Check,
+  ShoppingBag,
+  ArrowUpDown,
+  Search,
+  CheckCircle,
+  XCircle,
+  AlertCircle,
+  PackageOpen,
 } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -20,9 +27,16 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import { automationService, AutomationStep, AutomationResult } from '@/services/automationService'
+import {
+  automationService,
+  AutomationStep,
+  AutomationResult,
+  AutomationComparedProduct,
+} from '@/services/automationService'
+import { formatCurrency, getFileUrl } from '@/lib/formatters'
 
 const XPATH_DEFAULT = '/html/body/div/div/div/main/main/div/div/div[1]/a[1]/div/div/p[1]'
+const XPATH_TABELA_PRODUTOS = '/html/body/div/div/div/main/main/div/div/div[2]/div/div[1]/div/table'
 
 export default function AutomationPage() {
   const [email, setEmail] = useState('')
@@ -34,6 +48,14 @@ export default function AutomationPage() {
   const [resultado, setResultado] = useState<AutomationResult | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+
+  // Filtros da tabela de conferência
+  const [filtroTexto, setFiltroTexto] = useState('')
+  const [filtroStatus, setFiltroStatus] = useState<
+    'todos' | 'igual' | 'divergente' | 'nao_encontrado'
+  >('todos')
+  const [ordenacao, setOrdenacao] = useState<'codigo' | 'nome' | 'sku' | 'status'>('codigo')
+  const [ordemDesc, setOrdemDesc] = useState(false)
 
   const handleIniciar = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -112,8 +134,59 @@ export default function AutomationPage() {
     setTimeout(() => setCopied(false), 2000)
   }
 
+  // Resolver URL de imagem do produto de forma tolerante (PocketBase, Supabase ou URL direta)
+  const resolverFotoProduto = (prod: AutomationComparedProduct) => {
+    if (!prod.imagem) return ''
+    if (prod.imagem.startsWith('http://') || prod.imagem.startsWith('https://')) {
+      return prod.imagem
+    }
+    return getFileUrl('products', prod.id, prod.imagem)
+  }
+
+  // Filtragem e ordenação da lista comparativa
+  const produtosFiltrados = (resultado?.comparativo_produtos || []).filter((prod) => {
+    if (filtroStatus !== 'todos' && prod.status_conferencia !== filtroStatus) {
+      return false
+    }
+    if (!filtroTexto.trim()) return true
+    const term = filtroTexto.toLowerCase().trim()
+    const sku = (prod.sku || '').toLowerCase()
+    const nome = (prod.nome || '').toLowerCase()
+    const codigo = (prod.codigo || '').toLowerCase()
+    return sku.includes(term) || nome.includes(term) || codigo.includes(term)
+  })
+
+  produtosFiltrados.sort((a, b) => {
+    let diff = 0
+    if (ordenacao === 'codigo') {
+      const numA = parseInt(a.codigo, 10)
+      const numB = parseInt(b.codigo, 10)
+      if (!isNaN(numA) && !isNaN(numB)) {
+        diff = numA - numB
+      } else {
+        diff = a.codigo.localeCompare(b.codigo)
+      }
+    } else if (ordenacao === 'sku') {
+      diff = a.sku.localeCompare(b.sku)
+    } else if (ordenacao === 'nome') {
+      diff = a.nome.localeCompare(b.nome)
+    } else if (ordenacao === 'status') {
+      diff = a.status_conferencia.localeCompare(b.status_conferencia)
+    }
+    return ordemDesc ? -diff : diff
+  })
+
+  const toggleOrdenacao = (campo: 'codigo' | 'nome' | 'sku' | 'status') => {
+    if (ordenacao === campo) {
+      setOrdemDesc(!ordemDesc)
+    } else {
+      setOrdenacao(campo)
+      setOrdemDesc(false)
+    }
+  }
+
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
+    <div className="space-y-6 max-w-6xl mx-auto pb-12">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-[#E5DFD5]">
         <div>
@@ -160,7 +233,7 @@ export default function AutomationPage() {
               </CardTitle>
               <CardDescription className="text-xs text-[#6B655E]">
                 Insira o e-mail e senha de sua conta de administrador no site externo para que o
-                serviço efetue o login e consulte o painel.
+                serviço efetue o login, acesse /admin/produtos e confira os itens ativos.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -203,7 +276,7 @@ export default function AutomationPage() {
                       onClick={() => setShowPassword(!showPassword)}
                       disabled={loading}
                       aria-label={showPassword ? 'Ocultar senha' : 'Exibir senha'}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8C8275] hover:text-[#2D2A26] transition-colors p-1"
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8C8275] hover:text-[#2D2A26] transition-colors p-1 cursor-pointer"
                     >
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
@@ -216,21 +289,34 @@ export default function AutomationPage() {
                     <Label htmlFor="xpath" className="text-xs font-semibold text-[#2D2A26]">
                       Xpath alvo
                     </Label>
-                    {xpath !== XPATH_DEFAULT && (
-                      <button
-                        type="button"
-                        onClick={() => setXpath(XPATH_DEFAULT)}
-                        disabled={loading}
-                        className="text-[11px] text-[#7A5C2E] hover:underline"
-                      >
-                        Restaurar padrão
-                      </button>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {xpath !== XPATH_TABELA_PRODUTOS && (
+                        <button
+                          type="button"
+                          onClick={() => setXpath(XPATH_TABELA_PRODUTOS)}
+                          disabled={loading}
+                          className="text-[11px] text-[#7A5C2E] hover:underline cursor-pointer"
+                          title="Usar XPath da tabela de /admin/produtos"
+                        >
+                          Usar /admin/produtos
+                        </button>
+                      )}
+                      {xpath !== XPATH_DEFAULT && (
+                        <button
+                          type="button"
+                          onClick={() => setXpath(XPATH_DEFAULT)}
+                          disabled={loading}
+                          className="text-[11px] text-[#8C8275] hover:underline cursor-pointer"
+                        >
+                          Padrão
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <Input
                     id="xpath"
                     type="text"
-                    placeholder="/html/body/div/div/div/main/main/div/div/div[1]/a[1]/div/div/p[1]"
+                    placeholder={XPATH_DEFAULT}
                     value={xpath}
                     onChange={(e) => setXpath(e.target.value)}
                     disabled={loading}
@@ -238,11 +324,10 @@ export default function AutomationPage() {
                     className="font-mono text-xs border-[#E5DFD5] focus-visible:ring-[#C6A664]"
                   />
                   <p className="text-[11px] text-[#8C8275] leading-tight">
-                    Alvo padrão: Card 1 (Produtos). Você pode alterar para outros cards (ex:{' '}
-                    <code className="bg-[#FAF7F0] px-1 py-0.2 rounded text-[10px]">a[2]</code> para
-                    Categorias,{' '}
-                    <code className="bg-[#FAF7F0] px-1 py-0.2 rounded text-[10px]">a[3]</code> para
-                    Vendas).
+                    Alvo padrão: Card 1 (Produtos). Você também pode inserir o XPath da tabela:{' '}
+                    <code className="bg-[#FAF7F0] px-1 py-0.2 rounded text-[10px] break-all">
+                      .../div[2]/div/div[1]/div/table
+                    </code>
                   </p>
                 </div>
 
@@ -255,7 +340,7 @@ export default function AutomationPage() {
                     {loading ? (
                       <>
                         <Loader2 className="h-4 w-4 animate-spin" />
-                        <span>Executando automação...</span>
+                        <span>Acessando site e cruzando produtos...</span>
                       </>
                     ) : (
                       <>
@@ -293,21 +378,26 @@ export default function AutomationPage() {
               <p>
                 <strong>2. Acesso:</strong> Consulta o painel{' '}
                 <code className="text-[11px] bg-white px-1 py-0.5 rounded border border-[#E5DFD5]">
-                  /admin
+                  /admin/produtos
                 </code>
               </p>
               <p>
-                <strong>3. XPath Alvo Atual:</strong>
+                <strong>3. Tabela e Coluna SKU:</strong>
               </p>
-              <div className="font-mono text-[10px] bg-white p-2 rounded border border-[#E5DFD5] text-[#2D2A26] break-all">
-                {xpath || XPATH_DEFAULT}
+              <div className="font-mono text-[10px] bg-white p-2 rounded border border-[#E5DFD5] text-[#2D2A26] break-all space-y-1">
+                <div>
+                  <span className="text-[#8C8275]">Tabela: </span>
+                  /html/body/div/div/div/main/main/div/div/div[2]/div/div[1]/div/table
+                </div>
+                <div>
+                  <span className="text-[#8C8275]">Coluna SKU (3ª): </span>
+                  .../thead/tr/th[3]
+                </div>
               </div>
               <p className="text-[11px] text-[#8C8275]">
-                O campo acima do botão Iniciar permite digitar o XPath alvo desejado. Alvos
-                reconhecidos: Card 1 (Produtos, <code className="text-[10px]">a[1]</code>), Card 2
-                (Categorias, <code className="text-[10px]">a[2]</code>), Card 3 (Vendas,{' '}
-                <code className="text-[10px]">a[3]</code>), Card 4 (Revendedores,{' '}
-                <code className="text-[10px]">a[4]</code>).
+                O cruzamento é realizado automaticamente com os produtos locais ativos no e-commerce
+                (<code>publicar_no_ecommerce = true</code>), comparando o saldo de estoque do site
+                com a quantidade e-commerce do sistema.
               </p>
             </CardContent>
           </Card>
@@ -349,7 +439,7 @@ export default function AutomationPage() {
                       variant="ghost"
                       size="sm"
                       onClick={handleCopyResult}
-                      className="h-7 text-xs text-[#7A5C2E] hover:text-[#5E441D] hover:bg-[#F3EAD8] gap-1 px-2"
+                      className="h-7 text-xs text-[#7A5C2E] hover:text-[#5E441D] hover:bg-[#F3EAD8] gap-1 px-2 cursor-pointer"
                     >
                       {copied ? (
                         <>
@@ -467,7 +557,8 @@ export default function AutomationPage() {
                 Passos da Execução
               </CardTitle>
               <CardDescription className="text-xs text-[#6B655E]">
-                Acompanhe o fluxo em tempo real de conexão, login e obtenção dos dados
+                Acompanhe o fluxo em tempo real de conexão, login, acesso a /admin/produtos e
+                conferência
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -482,7 +573,8 @@ export default function AutomationPage() {
                     const isLast = idx === passos.length - 1
                     const isSuccess =
                       passo.mensagem.toLowerCase().includes('sucesso') ||
-                      passo.mensagem.toLowerCase().includes('obtido')
+                      passo.mensagem.toLowerCase().includes('obtido') ||
+                      passo.mensagem.toLowerCase().includes('concluído')
                     const isError =
                       passo.mensagem.toLowerCase().includes('erro') ||
                       passo.mensagem.toLowerCase().includes('falha') ||
@@ -526,6 +618,303 @@ export default function AutomationPage() {
           </Card>
         </div>
       </div>
+
+      {/* ========================================================================= */}
+      {/* TABELA DE PRODUTOS ATIVOS NO E-COMMERCE COM CONFERÊNCIA (AO FINAL DA PÁGINA) */}
+      {/* ========================================================================= */}
+      {resultado?.comparativo_produtos && resultado.comparativo_produtos.length > 0 && (
+        <Card className="border-[#E5DFD5] shadow-sm bg-white mt-8 scroll-mt-6">
+          <CardHeader className="border-b border-[#E5DFD5] bg-[#FAF8F5]/80 pb-4">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div>
+                <CardTitle className="text-xl font-serif text-[#2D2A26] flex items-center gap-2">
+                  <ShoppingBag className="h-5 w-5 text-[#7A5C2E]" />
+                  Produtos Ativos no E-commerce ({resultado.comparativo_produtos.length})
+                </CardTitle>
+                <CardDescription className="text-xs text-[#6B655E] mt-0.5">
+                  Conferência cruzada dos produtos locais (<code>publicar_no_ecommerce = true</code>
+                  ) com a tabela do e-commerce do site (coluna SKU) obtida em{' '}
+                  <code className="text-[11px] text-[#7A5C2E]">/admin/produtos</code>
+                </CardDescription>
+              </div>
+
+              {/* Badges de Resumo */}
+              {resultado.resumo_comparativo && (
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <Badge className="bg-[#2E7D4F]/10 text-[#2E7D4F] border border-[#2E7D4F]/30 hover:bg-[#2E7D4F]/20 flex items-center gap-1 font-semibold">
+                    <CheckCircle className="h-3.5 w-3.5" />
+                    Iguais: {resultado.resumo_comparativo.total_iguais}
+                  </Badge>
+                  <Badge className="bg-[#C6A664]/15 text-[#7A5C2E] border border-[#C6A664]/40 hover:bg-[#C6A664]/25 flex items-center gap-1 font-semibold">
+                    <AlertCircle className="h-3.5 w-3.5" />
+                    Divergentes: {resultado.resumo_comparativo.total_divergentes}
+                  </Badge>
+                  <Badge className="bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 flex items-center gap-1 font-semibold">
+                    <XCircle className="h-3.5 w-3.5" />
+                    Não encontrados: {resultado.resumo_comparativo.total_nao_encontrados}
+                  </Badge>
+                </div>
+              )}
+            </div>
+
+            {/* Barra de Filtros e Busca */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-3 mt-2 border-t border-[#E5DFD5]">
+              <div className="relative flex-1 max-w-sm">
+                <Search className="h-3.5 w-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#8C8275]" />
+                <Input
+                  type="text"
+                  placeholder="Buscar por SKU, código ou nome..."
+                  value={filtroTexto}
+                  onChange={(e) => setFiltroTexto(e.target.value)}
+                  className="pl-8 h-8 text-xs border-[#E5DFD5] bg-white focus-visible:ring-[#C6A664]"
+                />
+              </div>
+
+              <div className="flex items-center gap-1.5 overflow-x-auto">
+                <span className="text-xs text-[#8C8275] whitespace-nowrap mr-1">Filtrar:</span>
+                <Button
+                  type="button"
+                  variant={filtroStatus === 'todos' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setFiltroStatus('todos')}
+                  className={`h-7 text-xs px-2.5 cursor-pointer ${
+                    filtroStatus === 'todos'
+                      ? 'bg-[#7A5C2E] hover:bg-[#5E441D] text-white'
+                      : 'border-[#E5DFD5] text-[#2D2A26]'
+                  }`}
+                >
+                  Todos ({resultado.comparativo_produtos.length})
+                </Button>
+                <Button
+                  type="button"
+                  variant={filtroStatus === 'igual' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setFiltroStatus('igual')}
+                  className={`h-7 text-xs px-2.5 cursor-pointer ${
+                    filtroStatus === 'igual'
+                      ? 'bg-[#2E7D4F] hover:bg-[#256841] text-white'
+                      : 'border-[#E5DFD5] text-[#2D2A26]'
+                  }`}
+                >
+                  Iguais ({resultado.resumo_comparativo?.total_iguais ?? 0})
+                </Button>
+                <Button
+                  type="button"
+                  variant={filtroStatus === 'divergente' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setFiltroStatus('divergente')}
+                  className={`h-7 text-xs px-2.5 cursor-pointer ${
+                    filtroStatus === 'divergente'
+                      ? 'bg-[#C6A664] hover:bg-[#A88846] text-white'
+                      : 'border-[#E5DFD5] text-[#2D2A26]'
+                  }`}
+                >
+                  Divergentes ({resultado.resumo_comparativo?.total_divergentes ?? 0})
+                </Button>
+                <Button
+                  type="button"
+                  variant={filtroStatus === 'nao_encontrado' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setFiltroStatus('nao_encontrado')}
+                  className={`h-7 text-xs px-2.5 cursor-pointer ${
+                    filtroStatus === 'nao_encontrado'
+                      ? 'bg-red-700 hover:bg-red-800 text-white'
+                      : 'border-[#E5DFD5] text-[#2D2A26]'
+                  }`}
+                >
+                  Não encontrados ({resultado.resumo_comparativo?.total_nao_encontrados ?? 0})
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left border-collapse">
+                <thead className="bg-[#FAF7F0] text-[#7A5C2E] uppercase font-bold text-[11px] border-b border-[#E5DFD5]">
+                  <tr>
+                    <th className="py-2.5 px-3 w-14 text-center">Imagem</th>
+                    <th
+                      className="py-2.5 px-3 cursor-pointer hover:bg-[#F3EAD8] transition-colors"
+                      onClick={() => toggleOrdenacao('codigo')}
+                    >
+                      <div className="flex items-center gap-1">
+                        <span>Código</span>
+                        <ArrowUpDown className="h-3 w-3" />
+                      </div>
+                    </th>
+                    <th
+                      className="py-2.5 px-3 cursor-pointer hover:bg-[#F3EAD8] transition-colors"
+                      onClick={() => toggleOrdenacao('sku')}
+                    >
+                      <div className="flex items-center gap-1">
+                        <span>SKU</span>
+                        <ArrowUpDown className="h-3 w-3" />
+                      </div>
+                    </th>
+                    <th
+                      className="py-2.5 px-3 cursor-pointer hover:bg-[#F3EAD8] transition-colors"
+                      onClick={() => toggleOrdenacao('nome')}
+                    >
+                      <div className="flex items-center gap-1">
+                        <span>Nome</span>
+                        <ArrowUpDown className="h-3 w-3" />
+                      </div>
+                    </th>
+                    <th className="py-2.5 px-3 text-right">Valor Vende</th>
+                    <th
+                      className="py-2.5 px-3 text-center"
+                      title="Quantidade total no nosso estoque geral"
+                    >
+                      Qtde Estoque
+                    </th>
+                    <th
+                      className="py-2.5 px-3 text-center"
+                      title="Nossa quantidade separada especificamente para e-commerce"
+                    >
+                      Qtde E-commerce
+                    </th>
+                    <th
+                      className="py-2.5 px-3 text-left cursor-pointer hover:bg-[#F3EAD8] transition-colors"
+                      onClick={() => toggleOrdenacao('status')}
+                    >
+                      <div className="flex items-center gap-1">
+                        <span>Status</span>
+                        <ArrowUpDown className="h-3 w-3" />
+                      </div>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#E5DFD5]">
+                  {produtosFiltrados.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-10 text-center text-[#8C8275]">
+                        <PackageOpen className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                        Nenhum produto encontrado com os filtros selecionados.
+                      </td>
+                    </tr>
+                  ) : (
+                    produtosFiltrados.map((item) => {
+                      const fotoUrl = resolverFotoProduto(item)
+                      const isIgual = item.status_conferencia === 'igual'
+                      const isDivergente = item.status_conferencia === 'divergente'
+                      const isNaoEncontrado = item.status_conferencia === 'nao_encontrado'
+
+                      return (
+                        <tr
+                          key={item.id}
+                          className={`hover:bg-[#FDFBF7] transition-colors ${
+                            isDivergente ? 'bg-amber-50/30' : isNaoEncontrado ? 'bg-red-50/20' : ''
+                          }`}
+                        >
+                          {/* Imagem */}
+                          <td className="py-2 px-3 text-center">
+                            {fotoUrl ? (
+                              <img
+                                src={fotoUrl}
+                                alt={item.nome}
+                                className="h-10 w-10 object-cover rounded-md border border-[#E5DFD5] mx-auto bg-white"
+                                loading="lazy"
+                              />
+                            ) : (
+                              <div className="h-10 w-10 rounded-md bg-[#FAF7F0] border border-[#E5DFD5] flex items-center justify-center text-[10px] text-[#8C8275] mx-auto font-serif">
+                                Sem foto
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Código */}
+                          <td className="py-2 px-3 font-mono font-semibold text-[#2D2A26]">
+                            {item.codigo}
+                          </td>
+
+                          {/* SKU */}
+                          <td className="py-2 px-3 font-mono text-[#7A5C2E] font-medium">
+                            {item.sku}
+                          </td>
+
+                          {/* Nome */}
+                          <td
+                            className="py-2 px-3 font-medium text-[#2D2A26] max-w-xs truncate"
+                            title={item.nome}
+                          >
+                            {item.nome}
+                          </td>
+
+                          {/* Valor Vende */}
+                          <td className="py-2 px-3 text-right font-mono font-semibold text-[#2D2A26]">
+                            {formatCurrency(item.valor_vende)}
+                          </td>
+
+                          {/* Qtde Estoque (nosso geral) */}
+                          <td className="py-2 px-3 text-center font-mono text-[#2D2A26]">
+                            {item.qtde_estoque}
+                          </td>
+
+                          {/* Qtde E-commerce (nosso separado) */}
+                          <td className="py-2 px-3 text-center font-mono font-semibold text-[#7A5C2E]">
+                            {item.qtde_ecommerce}
+                          </td>
+
+                          {/* Status */}
+                          <td className="py-2 px-3">
+                            {isIgual && (
+                              <Badge className="bg-[#2E7D4F]/15 text-[#2E7D4F] border border-[#2E7D4F]/30 hover:bg-[#2E7D4F]/20 font-medium text-[11px] gap-1">
+                                <CheckCircle className="h-3 w-3 shrink-0" />
+                                <span>Igual</span>
+                              </Badge>
+                            )}
+
+                            {isDivergente && (
+                              <div className="space-y-0.5">
+                                <Badge className="bg-[#C6A664]/20 text-[#7A5C2E] border border-[#C6A664]/50 hover:bg-[#C6A664]/30 font-medium text-[11px] gap-1">
+                                  <AlertCircle className="h-3 w-3 shrink-0" />
+                                  <span>Divergente</span>
+                                </Badge>
+                                <div className="text-[10px] font-mono text-[#6B655E]">
+                                  Site: <strong>{item.qtde_site ?? '0'}</strong> | Sistema:{' '}
+                                  <strong>{item.qtde_ecommerce}</strong>
+                                </div>
+                              </div>
+                            )}
+
+                            {isNaoEncontrado && (
+                              <Badge className="bg-red-100 text-red-800 border border-red-200 hover:bg-red-200 font-medium text-[11px] gap-1">
+                                <XCircle className="h-3 w-3 shrink-0" />
+                                <span>Não encontrado no site</span>
+                              </Badge>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Rodapé com totais */}
+            <div className="p-3 bg-[#FAF8F5] border-t border-[#E5DFD5] flex flex-col sm:flex-row items-center justify-between text-xs text-[#6B655E] gap-2">
+              <span>
+                Exibindo <strong>{produtosFiltrados.length}</strong> de{' '}
+                <strong>{resultado.comparativo_produtos.length}</strong> produtos ativos no
+                e-commerce.
+              </span>
+              <div className="flex items-center gap-3 font-mono text-[11px]">
+                <span className="text-[#2E7D4F]">
+                  ● Iguais: {resultado.resumo_comparativo?.total_iguais ?? 0}
+                </span>
+                <span className="text-[#7A5C2E]">
+                  ● Divergentes: {resultado.resumo_comparativo?.total_divergentes ?? 0}
+                </span>
+                <span className="text-red-700">
+                  ● Não encontrados: {resultado.resumo_comparativo?.total_nao_encontrados ?? 0}
+                </span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }
