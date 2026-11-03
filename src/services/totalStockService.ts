@@ -34,6 +34,10 @@ export function getProductTotalStock(
  */
 export async function fetchResellerStockQuantityMap(): Promise<Map<string, number>> {
   const map = new Map<string, number>()
+  if (!pb.authStore.isValid) {
+    return map
+  }
+
   try {
     const items = await pb.collection('reseller_stock_items').getFullList<{
       product: string
@@ -49,8 +53,9 @@ export async function fetchResellerStockQuantityMap(): Promise<Map<string, numbe
         map.set(it.product, current + (Number(it.quantity) || 0))
       }
     })
-  } catch (err) {
-    console.error('Erro ao buscar mapa de estoque das revendedoras:', err)
+  } catch {
+    // Falha tratada silenciosamente de propósito para não disparar o rastreador de erros
+    // em telas não autenticadas, transições de login/logout ou requisições canceladas.
   }
   return map
 }
