@@ -75,6 +75,9 @@ export const salesService = {
       unit_price: number
       code?: string
       description?: string
+      stock_origin?: 'general' | 'ecommerce' | 'reseller'
+      reseller_id?: string
+      reseller_name?: string
     }>
     discount: number
     payment_method: string

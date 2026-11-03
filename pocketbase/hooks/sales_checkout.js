@@ -30,7 +30,7 @@ routerAdd(
       $app.runInTransaction((txApp) => {
         let subtotal = 0
 
-        // 1. Verify stock and lock/update items
+        // 1. Verify stock and lock/update items per origin
         for (let i = 0; i < items.length; i++) {
           const item = items[i]
           const productId = item.product_id
@@ -41,26 +41,120 @@ routerAdd(
           }
 
           const product = txApp.findRecordById('products', productId)
-          const currentQty = product.getInt('quantity')
+          const origin = item.stock_origin || 'general'
+          const resellerId = item.reseller_id
 
-          if (currentQty < qtyToBuy) {
-            throw new Error(
-              'Estoque insuficiente para o produto: ' +
-                product.getString('description') +
-                ' (Disponível: ' +
-                currentQty +
-                ', Solicitado: ' +
-                qtyToBuy +
-                ')',
-            )
+          // Permissão: se não for estoque geral, apenas admin e superadmin podem vender
+          if (origin !== 'general') {
+            if (role !== 'superadmin' && role !== 'admin') {
+              throw new Error(
+                'Apenas administradores podem vender produtos com estoque em e-commerce ou revendedora.',
+              )
+            }
           }
 
-          const newQty = currentQty - qtyToBuy
-          product.set('quantity', newQty)
-          if (newQty === 0) {
-            product.set('status', 'unavailable')
+          if (origin === 'ecommerce') {
+            const currentEcom = product.getInt('qtde_loja_virtual') || 0
+            if (currentEcom < qtyToBuy) {
+              throw new Error(
+                'Estoque de e-commerce insuficiente para o produto: ' +
+                  product.getString('description') +
+                  ' (Disponível no e-commerce: ' +
+                  currentEcom +
+                  ', Solicitado: ' +
+                  qtyToBuy +
+                  ')',
+              )
+            }
+            const newEcom = currentEcom - qtyToBuy
+            product.set('qtde_loja_virtual', newEcom)
+            const generalQty = product.getInt('quantity') || 0
+            if (newEcom === 0 && generalQty === 0) {
+              product.set('status', 'unavailable')
+            }
+            txApp.save(product)
+          } else if (origin === 'reseller') {
+            // Localiza saldo da revendedora
+            let stockRec = null
+            if (resellerId) {
+              const list = txApp.findRecordsByFilter(
+                'reseller_stock_items',
+                "reseller = '" + resellerId + "' && product = '" + productId + "'",
+                '',
+                1,
+                0,
+              )
+              if (list.length > 0) stockRec = list[0]
+            } else {
+              // Se não informou reseller_id específico, busca a primeira revendedora com saldo suficiente
+              const list = txApp.findRecordsByFilter(
+                'reseller_stock_items',
+                "product = '" + productId + "' && quantity >= " + qtyToBuy,
+                '-quantity',
+                1,
+                0,
+              )
+              if (list.length > 0) stockRec = list[0]
+            }
+
+            if (!stockRec) {
+              throw new Error(
+                'Nenhum saldo em revendedora encontrado para o produto: ' +
+                  product.getString('description'),
+              )
+            }
+
+            const curResellerQty = stockRec.getInt('quantity') || 0
+            if (curResellerQty < qtyToBuy) {
+              throw new Error(
+                'Estoque da revendedora insuficiente para: ' +
+                  product.getString('description') +
+                  ' (Disponível com revendedora: ' +
+                  curResellerQty +
+                  ', Solicitado: ' +
+                  qtyToBuy +
+                  ')',
+              )
+            }
+
+            const newResellerQty = curResellerQty - qtyToBuy
+            stockRec.set('quantity', newResellerQty)
+            txApp.save(stockRec)
+
+            // Preenche metadados da revendedora no item caso não estivessem
+            if (!item.reseller_id) {
+              item.reseller_id = stockRec.getString('reseller')
+            }
+            try {
+              if (!item.reseller_name) {
+                const rRec = txApp.findRecordById('resellers', item.reseller_id)
+                item.reseller_name = rRec.getString('name')
+              }
+            } catch (_) {}
+          } else {
+            // Default: 'general' (estoque físico da loja)
+            const currentQty = product.getInt('quantity') || 0
+
+            if (currentQty < qtyToBuy) {
+              throw new Error(
+                'Estoque insuficiente para o produto: ' +
+                  product.getString('description') +
+                  ' (Disponível: ' +
+                  currentQty +
+                  ', Solicitado: ' +
+                  qtyToBuy +
+                  ')',
+              )
+            }
+
+            const newQty = currentQty - qtyToBuy
+            product.set('quantity', newQty)
+            const ecomQty = product.getInt('qtde_loja_virtual') || 0
+            if (newQty === 0 && ecomQty === 0) {
+              product.set('status', 'unavailable')
+            }
+            txApp.save(product)
           }
-          txApp.save(product)
 
           const unitPrice = parseFloat(item.unit_price) || product.getFloat('selling_price')
           subtotal += unitPrice * qtyToBuy

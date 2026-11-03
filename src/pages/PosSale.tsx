@@ -1,7 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { salesService } from '@/services/salesService'
 import { productService } from '@/services/productService'
+import { useAuth } from '@/contexts/AuthContext'
 import { Product, Customer, Sale, SaleItem } from '@/types'
+import {
+  fetchResellerStockDetailsMap,
+  getProductStockBreakdown,
+  ResellerItemDetail,
+} from '@/services/totalStockService'
 import { isExactCodeMatch, matchesProductQuery } from '@/lib/barcodeSearch'
 import {
   formatCurrency,
@@ -48,13 +54,30 @@ import {
   Mail,
   Send,
   Undo2,
+  Globe,
+  Users,
+  AlertTriangle,
+  Building2,
+  PackageSearch,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
+export interface PosCartItem extends SaleItem {
+  stock_origin?: 'general' | 'ecommerce' | 'reseller'
+  reseller_id?: string
+  reseller_name?: string
+}
+
 export default function PosSale() {
+  const { isAdmin, isSuperAdmin } = useAuth()
+  const canSellFromExternal = isAdmin || isSuperAdmin
+
   // Cart state
-  const [cart, setCart] = useState<SaleItem[]>([])
+  const [cart, setCart] = useState<PosCartItem[]>([])
   const [products, setProducts] = useState<Product[]>([])
+  const [resellerStockMap, setResellerStockMap] = useState<Map<string, ResellerItemDetail[]>>(
+    new Map(),
+  )
   const [customers, setCustomers] = useState<Customer[]>([])
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('')
 
@@ -82,6 +105,10 @@ export default function PosSale() {
   const [receiptModalOpen, setReceiptModalOpen] = useState(false)
   const [recipientEmail, setRecipientEmail] = useState('')
   const [isSendingEmail, setIsSendingEmail] = useState(false)
+
+  // External stock fulfillment reminder modal (produtos a retirar/entregar de ecom/revendedora)
+  const [reminderModalOpen, setReminderModalOpen] = useState(false)
+  const [fulfillmentItems, setFulfillmentItems] = useState<PosCartItem[]>([])
 
   // New Customer modal
   const [newCustomerModalOpen, setNewCustomerModalOpen] = useState(false)
@@ -114,12 +141,14 @@ export default function PosSale() {
 
   const loadInitialData = async () => {
     try {
-      const [prodRes, custRes] = await Promise.all([
-        productService.getProducts({ perPage: 100 }),
+      const [prodRes, custRes, resellerMap] = await Promise.all([
+        productService.getProducts({ perPage: 500 }),
         salesService.getCustomers(),
+        fetchResellerStockDetailsMap(),
       ])
       setProducts(prodRes.items)
       setCustomers(custRes)
+      setResellerStockMap(resellerMap)
     } catch (err) {
       console.error(err)
     }
@@ -134,6 +163,15 @@ export default function PosSale() {
     }
   }
 
+  // Determina disponibilidade total do produto considerando o perfil do usuário
+  const getProductAvailableStock = (p: Product) => {
+    const breakdown = getProductStockBreakdown(p, resellerStockMap.get(p.id) || [])
+    if (canSellFromExternal) {
+      return breakdown.total
+    }
+    return breakdown.general
+  }
+
   // Handle Search or Barcode Scan
   useEffect(() => {
     const q = barcodeOrSearch.trim()
@@ -143,22 +181,91 @@ export default function PosSale() {
     }
 
     // Procura matches usando o motor universal de busca de códigos/joias
-    const matches = products.filter((p) => matchesProductQuery(p, q) && p.quantity > 0)
-    setFilteredProducts(matches.slice(0, 6))
-  }, [barcodeOrSearch, products])
+    // Se for admin/superadmin, inclui produtos com estoque total > 0 (geral, e-commerce ou revendedora)
+    // Se for operador/outro, apenas produtos com estoque geral (p.quantity > 0)
+    const matches = products.filter((p) => {
+      if (!matchesProductQuery(p, q)) return false
+      const available = getProductAvailableStock(p)
+      return available > 0
+    })
+    setFilteredProducts(matches.slice(0, 8))
+  }, [barcodeOrSearch, products, resellerStockMap, canSellFromExternal])
+
+  // Determina a melhor origem padrão de estoque para um item adicionado ao carrinho
+  const resolveDefaultOrigin = (
+    product: Product,
+  ): {
+    origin: 'general' | 'ecommerce' | 'reseller'
+    reseller_id?: string
+    reseller_name?: string
+  } => {
+    const general = Number(product.quantity) || 0
+    const ecom = Number(product.qtde_loja_virtual) || 0
+    const resellers = resellerStockMap.get(product.id) || []
+
+    if (general > 0) {
+      return { origin: 'general' }
+    }
+    if (canSellFromExternal) {
+      if (ecom > 0) {
+        return { origin: 'ecommerce' }
+      }
+      if (resellers.length > 0) {
+        return {
+          origin: 'reseller',
+          reseller_id: resellers[0].reseller_id,
+          reseller_name: resellers[0].reseller_name,
+        }
+      }
+    }
+    return { origin: 'general' }
+  }
+
+  // Quantidade máxima disponível para uma origem específica
+  const getMaxQtyForOrigin = (
+    product: Product,
+    origin: 'general' | 'ecommerce' | 'reseller',
+    resellerId?: string,
+  ): number => {
+    if (origin === 'general') {
+      return Math.max(0, Number(product.quantity) || 0)
+    }
+    if (origin === 'ecommerce') {
+      return Math.max(0, Number(product.qtde_loja_virtual) || 0)
+    }
+    if (origin === 'reseller') {
+      const resellers = resellerStockMap.get(product.id) || []
+      if (resellerId) {
+        const found = resellers.find((r) => r.reseller_id === resellerId)
+        return found ? found.quantity : 0
+      }
+      return resellers.reduce((acc, r) => acc + r.quantity, 0)
+    }
+    return 0
+  }
 
   // Add product to cart
   const addToCart = (product: Product) => {
-    if (product.quantity <= 0) {
+    const available = getProductAvailableStock(product)
+    if (available <= 0) {
       toast.error('Produto esgotado no estoque.')
       return
     }
 
+    const defaultSource = resolveDefaultOrigin(product)
+
     setCart((prev) => {
       const existing = prev.find((item) => item.product_id === product.id)
       if (existing) {
-        if (existing.quantity >= product.quantity) {
-          toast.warning(`Limite de estoque atingido para esta joia (${product.quantity} unid).`)
+        const maxQty = getMaxQtyForOrigin(
+          product,
+          existing.stock_origin || 'general',
+          existing.reseller_id,
+        )
+        if (existing.quantity >= maxQty) {
+          toast.warning(
+            `Limite atingido para esta origem (${maxQty} unid). Alterne a origem ou o produto.`,
+          )
           return prev
         }
         return prev.map((item) =>
@@ -180,6 +287,9 @@ export default function PosSale() {
             quantity: 1,
             unit_price: product.selling_price,
             total: product.selling_price,
+            stock_origin: defaultSource.origin,
+            reseller_id: defaultSource.reseller_id,
+            reseller_name: defaultSource.reseller_name,
           },
         ]
       }
@@ -189,6 +299,37 @@ export default function PosSale() {
     barcodeInputRef.current?.focus()
   }
 
+  const updateCartItemOrigin = (
+    productId: string,
+    origin: 'general' | 'ecommerce' | 'reseller',
+    resellerId?: string,
+    resellerName?: string,
+  ) => {
+    const prod = products.find((p) => p.id === productId)
+    if (!prod) return
+
+    const maxAvailable = getMaxQtyForOrigin(prod, origin, resellerId)
+    if (maxAvailable <= 0) {
+      toast.warning('Esta origem não possui unidades disponíveis para esta joia.')
+      return
+    }
+
+    setCart((prev) =>
+      prev.map((item) => {
+        if (item.product_id !== productId) return item
+        const newQty = Math.min(item.quantity, maxAvailable)
+        return {
+          ...item,
+          stock_origin: origin,
+          reseller_id: resellerId,
+          reseller_name: resellerName,
+          quantity: newQty,
+          total: newQty * item.unit_price,
+        }
+      }),
+    )
+  }
+
   const updateCartQty = (productId: string, newQty: number) => {
     if (newQty <= 0) {
       removeFromCart(productId)
@@ -196,9 +337,17 @@ export default function PosSale() {
     }
 
     const prod = products.find((p) => p.id === productId)
-    if (prod && newQty > prod.quantity) {
-      toast.warning(`Apenas ${prod.quantity} unidades disponíveis em estoque.`)
-      return
+    const cartItem = cart.find((i) => i.product_id === productId)
+    if (prod && cartItem) {
+      const maxAvailable = getMaxQtyForOrigin(
+        prod,
+        cartItem.stock_origin || 'general',
+        cartItem.reseller_id,
+      )
+      if (newQty > maxAvailable) {
+        toast.warning(`Apenas ${maxAvailable} unidades disponíveis nesta origem de estoque.`)
+        return
+      }
     }
 
     setCart((prev) =>
@@ -233,7 +382,9 @@ export default function PosSale() {
 
       // 1. Salto no scan exato: verifica se corresponde exatamente a um único código
       // (numérico ignorando zeros à esquerda, ou SKU do site normalizado Ç->C)
-      const exactMatches = products.filter((p) => isExactCodeMatch(p, q) && p.quantity > 0)
+      const exactMatches = products.filter(
+        (p) => isExactCodeMatch(p, q) && getProductAvailableStock(p) > 0,
+      )
       if (exactMatches.length === 1) {
         addToCart(exactMatches[0])
         toast.success(
@@ -312,15 +463,20 @@ export default function PosSale() {
 
     setIsProcessing(true)
     try {
+      const itemsToCheckout = cart.map((item) => ({
+        product_id: item.product_id,
+        code: item.code,
+        description: item.description,
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+        stock_origin: item.stock_origin || 'general',
+        reseller_id: item.reseller_id || undefined,
+        reseller_name: item.reseller_name || undefined,
+      }))
+
       const result = await salesService.checkout({
         customer_id: selectedCustomerId || undefined,
-        items: cart.map((item) => ({
-          product_id: item.product_id,
-          code: item.code,
-          description: item.description,
-          quantity: item.quantity,
-          unit_price: item.unit_price,
-        })),
+        items: itemsToCheckout,
         discount: discountVal,
         payment_method: paymentMethod,
         installments: paymentMethod === 'credit_card' ? installments : 1,
@@ -328,14 +484,27 @@ export default function PosSale() {
       })
 
       const cust = customers.find((c) => c.id === selectedCustomerId)
+      const currentCart = [...cart]
+
       setCompletedSale({
         ...result,
-        items: cart,
+        items: currentCart,
         customer: cust,
         date: new Date().toISOString(),
       })
       setRecipientEmail(cust?.email || '')
-      setReceiptModalOpen(true)
+
+      // Verifica se houve itens vendidos de origem externa (e-commerce ou revendedora)
+      const externalItems = currentCart.filter(
+        (it) => it.stock_origin === 'ecommerce' || it.stock_origin === 'reseller',
+      )
+      if (externalItems.length > 0) {
+        setFulfillmentItems(externalItems)
+        setReminderModalOpen(true)
+      } else {
+        setReceiptModalOpen(true)
+      }
+
       setActiveScreen('products')
       toast.success('Venda concluída com sucesso! Estoque atualizado.')
 
@@ -575,9 +744,6 @@ export default function PosSale() {
                                   <span className="font-mono text-xs font-bold text-[#7A5C2E]">
                                     {p.code}
                                   </span>
-                                  <span className="text-[11px] text-[#6B655E]">
-                                    ({p.quantity} disp.)
-                                  </span>
                                   <span className="px-1.5 py-0.2 rounded bg-[#E5DFD5]/60 text-[10px] text-[#2D2A26]">
                                     {p.expand?.type?.name || 'Joia'}
                                   </span>
@@ -585,6 +751,48 @@ export default function PosSale() {
                                     {p.expand?.material?.name || '—'}
                                   </span>
                                 </div>
+                                {(() => {
+                                  const bk = getProductStockBreakdown(
+                                    p,
+                                    resellerStockMap.get(p.id) || [],
+                                  )
+                                  return (
+                                    <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                                      <span className="text-[11px] text-[#6B655E] font-medium">
+                                        Disp:{' '}
+                                        <strong>
+                                          {canSellFromExternal ? bk.total : bk.general}
+                                        </strong>
+                                      </span>
+                                      {bk.general > 0 && (
+                                        <Badge
+                                          variant="outline"
+                                          className="text-[9px] px-1 py-0 h-4 border-[#2E7D4F]/40 text-[#2E7D4F] bg-[#2E7D4F]/5"
+                                        >
+                                          Geral: {bk.general}
+                                        </Badge>
+                                      )}
+                                      {bk.ecommerce > 0 && (
+                                        <Badge
+                                          variant="outline"
+                                          className="text-[9px] px-1 py-0 h-4 border-[#1E40AF]/40 text-[#1E40AF] bg-[#DBEAFE]"
+                                        >
+                                          <Globe className="h-2.5 w-2.5 mr-0.5" /> E-commerce:{' '}
+                                          {bk.ecommerce}
+                                        </Badge>
+                                      )}
+                                      {bk.reseller > 0 && (
+                                        <Badge
+                                          variant="outline"
+                                          className="text-[9px] px-1 py-0 h-4 border-[#B26A00]/40 text-[#B26A00] bg-[#FEF3C7]"
+                                        >
+                                          <Users className="h-2.5 w-2.5 mr-0.5" /> Revendedora:{' '}
+                                          {bk.reseller}
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  )
+                                })()}
                                 <span className="text-xs font-medium text-[#2D2A26] block whitespace-normal break-words mt-0.5">
                                   {p.description}
                                 </span>
@@ -664,11 +872,106 @@ export default function PosSale() {
                               {item.code}
                             </td>
 
-                            {/* Descrição completa sem truncamento */}
+                            {/* Descrição completa sem truncamento + Badge de Origem & Seletor de Origem */}
                             <td className="py-2 px-3">
-                              <span className="font-medium text-[#2D2A26] whitespace-normal break-words block leading-relaxed">
-                                {item.description}
-                              </span>
+                              <div className="space-y-1">
+                                <span className="font-medium text-[#2D2A26] whitespace-normal break-words block leading-relaxed">
+                                  {item.description}
+                                </span>
+
+                                {/* Badges e Seleção de Origem */}
+                                {(() => {
+                                  const prod = products.find((p) => p.id === item.product_id)
+                                  if (!prod) return null
+                                  const bk = getProductStockBreakdown(
+                                    prod,
+                                    resellerStockMap.get(prod.id) || [],
+                                  )
+                                  const currentOrigin = item.stock_origin || 'general'
+
+                                  return (
+                                    <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                                      {/* Badge atual */}
+                                      {currentOrigin === 'general' && (
+                                        <Badge className="text-[10px] px-1.5 py-0 bg-[#2E7D4F]/10 text-[#2E7D4F] border border-[#2E7D4F]/30 hover:bg-[#2E7D4F]/20 flex items-center gap-1">
+                                          <Building2 className="h-3 w-3" />
+                                          <span>Estoque Geral</span>
+                                        </Badge>
+                                      )}
+                                      {currentOrigin === 'ecommerce' && (
+                                        <Badge className="text-[10px] px-1.5 py-0 bg-[#DBEAFE] text-[#1E40AF] border border-[#1E40AF]/40 hover:bg-[#BFDBFE] font-bold flex items-center gap-1">
+                                          <Globe className="h-3 w-3" />
+                                          <span>E-commerce</span>
+                                        </Badge>
+                                      )}
+                                      {currentOrigin === 'reseller' && (
+                                        <Badge className="text-[10px] px-1.5 py-0 bg-[#FEF3C7] text-[#B26A00] border border-[#B26A00]/40 hover:bg-[#FDE68A] font-bold flex items-center gap-1">
+                                          <Users className="h-3 w-3" />
+                                          <span>
+                                            Com Revendedora: {item.reseller_name || 'Designada'}
+                                          </span>
+                                        </Badge>
+                                      )}
+
+                                      {/* Seletor de origem para admin quando há mais de uma fonte com saldo */}
+                                      {canSellFromExternal && (
+                                        <div className="inline-flex items-center gap-1 text-[10px] text-[#6B655E] ml-1">
+                                          <span>Origem:</span>
+                                          <select
+                                            value={
+                                              currentOrigin === 'reseller' && item.reseller_id
+                                                ? `reseller:${item.reseller_id}`
+                                                : currentOrigin
+                                            }
+                                            onChange={(e) => {
+                                              const val = e.target.value
+                                              if (val === 'general') {
+                                                updateCartItemOrigin(item.product_id, 'general')
+                                              } else if (val === 'ecommerce') {
+                                                updateCartItemOrigin(item.product_id, 'ecommerce')
+                                              } else if (val.startsWith('reseller:')) {
+                                                const rId = val.split(':')[1]
+                                                const rMatch = bk.resellerDetails.find(
+                                                  (r) => r.reseller_id === rId,
+                                                )
+                                                updateCartItemOrigin(
+                                                  item.product_id,
+                                                  'reseller',
+                                                  rId,
+                                                  rMatch?.reseller_name,
+                                                )
+                                              }
+                                            }}
+                                            className="h-6 rounded border border-[#E5DFD5] bg-white px-1.5 py-0 text-[10px] text-[#2D2A26] focus:outline-none focus:ring-1 focus:ring-[#C6A664]"
+                                          >
+                                            {bk.general > 0 && (
+                                              <option value="general">Geral ({bk.general})</option>
+                                            )}
+                                            {bk.ecommerce > 0 && (
+                                              <option value="ecommerce">
+                                                E-commerce ({bk.ecommerce})
+                                              </option>
+                                            )}
+                                            {bk.resellerDetails.map((r) => (
+                                              <option
+                                                key={r.reseller_id}
+                                                value={`reseller:${r.reseller_id}`}
+                                              >
+                                                {r.reseller_name} ({r.quantity})
+                                              </option>
+                                            ))}
+                                            {bk.general === 0 &&
+                                              bk.ecommerce === 0 &&
+                                              bk.resellerDetails.length === 0 && (
+                                                <option value="general">Geral (0)</option>
+                                              )}
+                                          </select>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )
+                                })()}
+                              </div>
                             </td>
 
                             <td className="py-2 px-3 text-center">
@@ -1271,6 +1574,88 @@ export default function PosSale() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reminder Modal: Produtos a Retirar / Entregar (E-commerce / Revendedoras) */}
+      <Dialog open={reminderModalOpen} onOpenChange={setReminderModalOpen}>
+        <DialogContent className="max-w-lg bg-white border border-[#E5DFD5] shadow-xl p-6">
+          <DialogHeader>
+            <div className="flex items-center gap-2.5 text-[#B26A00] mb-1">
+              <span className="p-2 rounded-xl bg-[#FEF3C7] text-[#B26A00]">
+                <AlertTriangle className="h-6 w-6" />
+              </span>
+              <div>
+                <DialogTitle className="font-serif text-xl text-[#2D2A26]">
+                  Atenção: Produto(s) a Retirar / Entregar
+                </DialogTitle>
+                <CardDescription className="text-xs text-[#6B655E]">
+                  Esta venda utilizou estoque fora da loja física. Providencie a separação ou
+                  coleta:
+                </CardDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2">
+            <div className="rounded-xl border border-[#FEF3C7] bg-[#FFFBEB] p-3 text-xs text-[#92400E] leading-relaxed">
+              <strong>Lembrete de Separação:</strong> Os itens listados abaixo foram baixados do
+              e-commerce ou do mostruário de uma revendedora. Não se esqueça de recolher a peça para
+              entregar ao cliente ou regularizar a entrega.
+            </div>
+
+            <div className="divide-y divide-[#E5DFD5] border border-[#E5DFD5] rounded-xl overflow-hidden bg-white max-h-64 overflow-y-auto">
+              {fulfillmentItems.map((item, idx) => (
+                <div
+                  key={idx}
+                  className="p-3 flex items-start justify-between gap-3 hover:bg-[#FDFBF7]"
+                >
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-xs font-bold text-[#7A5C2E]">
+                        {item.code}
+                      </span>
+                      <span className="font-bold text-xs text-[#2D2A26]">
+                        {item.quantity} {item.quantity > 1 ? 'unidades' : 'unidade'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-[#2D2A26] line-clamp-2">{item.description}</p>
+                    <div className="pt-0.5">
+                      {item.stock_origin === 'ecommerce' && (
+                        <Badge className="bg-[#DBEAFE] text-[#1E40AF] border border-[#1E40AF]/30 text-[10px] font-semibold flex items-center gap-1 w-fit">
+                          <Globe className="h-3 w-3" />
+                          <span>Retirar do Estoque E-commerce (separar/embalar)</span>
+                        </Badge>
+                      )}
+                      {item.stock_origin === 'reseller' && (
+                        <Badge className="bg-[#FEF3C7] text-[#B26A00] border border-[#B26A00]/30 text-[10px] font-semibold flex items-center gap-1 w-fit">
+                          <Users className="h-3 w-3" />
+                          <span>
+                            Pegar de volta da revendedora:{' '}
+                            <strong>{item.reseller_name || 'Designada'}</strong>
+                          </span>
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <DialogFooter className="pt-2 flex flex-col sm:flex-row gap-2">
+            <Button
+              type="button"
+              onClick={() => {
+                setReminderModalOpen(false)
+                setReceiptModalOpen(true)
+              }}
+              className="w-full bg-[#7A5C2E] hover:bg-[#634A24] text-white text-xs h-10 font-semibold"
+            >
+              <PackageSearch className="h-4 w-4 mr-1.5" />
+              Entendido! Ver Comprovante de Venda
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

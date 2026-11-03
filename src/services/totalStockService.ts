@@ -59,3 +59,88 @@ export async function fetchResellerStockQuantityMap(): Promise<Map<string, numbe
   }
   return map
 }
+
+export interface ResellerItemDetail {
+  reseller_id: string
+  reseller_name: string
+  quantity: number
+  selling_price?: number
+}
+
+export interface ProductStockBreakdown {
+  general: number
+  ecommerce: number
+  reseller: number
+  total: number
+  resellerDetails: ResellerItemDetail[]
+}
+
+/**
+ * Busca detalhamento completo de saldos com revendedoras (incluindo nome da revendedora e id)
+ * Retorna Map<productId, ResellerItemDetail[]>
+ */
+export async function fetchResellerStockDetailsMap(): Promise<Map<string, ResellerItemDetail[]>> {
+  const map = new Map<string, ResellerItemDetail[]>()
+  if (!pb.authStore.isValid) {
+    return map
+  }
+
+  try {
+    const items = await pb.collection('reseller_stock_items').getFullList<{
+      id: string
+      product: string
+      reseller: string
+      quantity: number
+      selling_price: number
+      expand?: {
+        reseller?: { id: string; name?: string }
+      }
+    }>({
+      filter: 'quantity > 0',
+      expand: 'reseller',
+      fields: 'id,product,reseller,quantity,selling_price,expand.reseller.id,expand.reseller.name',
+    })
+
+    items.forEach((it) => {
+      if (it.product && it.quantity > 0) {
+        const list = map.get(it.product) || []
+        const rName = it.expand?.reseller?.name || 'Revendedora'
+        list.push({
+          reseller_id: it.reseller,
+          reseller_name: rName,
+          quantity: Number(it.quantity) || 0,
+          selling_price: Number(it.selling_price) || 0,
+        })
+        map.set(it.product, list)
+      }
+    })
+  } catch {
+    // Tratado em silêncio
+  }
+  return map
+}
+
+/**
+ * Retorna o breakdown de estoque completo de um produto
+ */
+export function getProductStockBreakdown(
+  product: Pick<Product, 'quantity' | 'qtde_loja_virtual'> | null | undefined,
+  resellerDetails: ResellerItemDetail[] = [],
+): ProductStockBreakdown {
+  const general =
+    product && typeof product.quantity === 'number' && !isNaN(product.quantity)
+      ? Math.max(0, product.quantity)
+      : 0
+  const ecommerce =
+    product && typeof product.qtde_loja_virtual === 'number' && !isNaN(product.qtde_loja_virtual)
+      ? Math.max(0, product.qtde_loja_virtual)
+      : 0
+  const reseller = resellerDetails.reduce((sum, r) => sum + (r.quantity || 0), 0)
+  return {
+    general,
+    ecommerce,
+    reseller,
+    total: general + ecommerce + reseller,
+    resellerDetails,
+  }
+}
