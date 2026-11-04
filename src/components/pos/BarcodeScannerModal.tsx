@@ -669,16 +669,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                 <div className="absolute bottom-2 left-2 w-4 h-4 border-b-2 border-l-2 border-white" />
                 <div className="absolute bottom-2 right-2 w-4 h-4 border-b-2 border-r-2 border-white" />
 
-                <span
-                  className={`text-[11px] font-medium px-2.5 py-0.5 rounded-full backdrop-blur-xs tracking-wide transition-colors ${
-                    inCooldown
-                      ? 'text-amber-200 bg-black/75 border border-amber-400/40'
-                      : 'text-white/90 bg-black/60'
-                  }`}
-                >
-                  {inCooldown
-                    ? 'Aguarde 3s para próxima leitura...'
-                    : 'Aponte para o código da etiqueta'}
+                <span className="text-[11px] font-medium px-2.5 py-0.5 rounded-full backdrop-blur-xs tracking-wide text-white/90 bg-black/60">
+                  Aponte para o código da etiqueta
                 </span>
               </div>
 
@@ -763,11 +755,6 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             <span className="text-zinc-300">
               Câmera aberta contínua • <strong className="text-emerald-400">{scanCount}</strong>{' '}
               {scanCount === 1 ? 'leitura' : 'leituras'}
-              {inCooldown && (
-                <span className="ml-2 text-amber-300 text-[11px] font-medium">
-                  (pausa de 3s ativa)
-                </span>
-              )}
             </span>
           </div>
 

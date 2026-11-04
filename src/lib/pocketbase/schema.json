@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-04T20:13:44.102Z",
+  "generatedAt": "2026-11-04T20:48:40.434Z",
   "collections": [
     {
       "name": "users",
@@ -412,6 +412,12 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "cpf",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": ["CREATE INDEX idx_customers_name ON customers (name)"]
