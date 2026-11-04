@@ -61,10 +61,15 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   const [scanCount, setScanCount] = useState<number>(0)
   const [usingEngine, setUsingEngine] = useState<'native' | 'zxing' | 'detecting'>('detecting')
 
-  // Cooldown entre leituras para o MESMO código (evita auto-repeat na câmera)
-  const lastDetectedRef = useRef<{ code: string; time: number }>({ code: '', time: 0 })
+  // Timestamp do último processamento de código aceito ou tentativa (cooldown global de 3 segundos)
+  const lastProcessedTimeRef = useRef<number>(0)
+  // Flag de bloqueio imediato síncrono para evitar processar mais de 1 detecção no mesmo ciclo/frame
+  const isProcessingRef = useRef<boolean>(false)
   // Flag e timer para ignorar leituras enquanto modal de pergunta ou feedback está pausando o fluxo
   const isPausedRef = useRef<boolean>(false)
+  // Estado para indicar visualmente na mira o cooldown ativo de 3s
+  const [inCooldown, setInCooldown] = useState<boolean>(false)
+  const cooldownTimerRef = useRef<any>(null)
 
   // Estado da pergunta "Deseja incluir mais um produto já cadastrado?" quando lido via smartphone/câmera
   const [duplicatePrompt, setDuplicatePrompt] = useState<{
@@ -237,6 +242,10 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       }
       zxingReaderRef.current = null
     }
+    if (cooldownTimerRef.current) {
+      clearTimeout(cooldownTimerRef.current)
+      cooldownTimerRef.current = null
+    }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => {
         try {
@@ -325,58 +334,76 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     const code = (rawCode || '').trim()
     if (!code) return
 
-    // Se estiver em pausa (ex: pergunta de produto duplicado aberta na tela), ignora detecções
-    if (isPausedRef.current) return
+    // 1. Bloqueio imediato se já houver processamento síncrono em andamento ou se modal de diálogo estiver aberto
+    if (isProcessingRef.current || isPausedRef.current) return
 
     const now = Date.now()
-    // Cooldown de 1.8s para o MESMO código para não ler várias vezes seguidas enquanto a peça fica na frente da câmera.
-    // Mudança de código diferente processa imediatamente sem cooldown.
-    if (lastDetectedRef.current.code === code && now - lastDetectedRef.current.time < 1800) {
+    // 2. Cooldown global de 3.0s (3000ms) após QUALQUER leitura (mesmo código ou código diferente)
+    // Impede repetições múltiplas enquanto a etiqueta estiver apontada para a câmera
+    if (now - lastProcessedTimeRef.current < 3000) {
       return
     }
-    // Registra carimbo do código (tanto aceito quanto rejeitado respeita o cooldown para o mesmo código)
-    lastDetectedRef.current = { code, time: now }
 
-    // Chama o callback do PDV
-    const scanResult: any = onScan(code)
+    // Trava imediatamente para evitar concorrência de frames no mesmo ciclo
+    isProcessingRef.current = true
+    lastProcessedTimeRef.current = now
 
-    // Caso o produto já esteja listado na venda atual, o callback solicita confirmação do usuário
-    if (scanResult && typeof scanResult === 'object' && scanResult.requiresDuplicateConfirmation) {
-      // Pausa detecções enquanto o usuário decide
-      isPausedRef.current = true
-      playBeep(true)
-      triggerHaptic(true)
-      setDuplicatePrompt({
+    // Ativa estado visual de cooldown de 3s
+    setInCooldown(true)
+    if (cooldownTimerRef.current) clearTimeout(cooldownTimerRef.current)
+    cooldownTimerRef.current = setTimeout(() => {
+      setInCooldown(false)
+    }, 3000)
+
+    try {
+      // Chama o callback do PDV
+      const scanResult: any = onScan(code)
+
+      // Caso o produto já esteja listado na venda atual, o callback solicita confirmação do usuário
+      if (
+        scanResult &&
+        typeof scanResult === 'object' &&
+        scanResult.requiresDuplicateConfirmation
+      ) {
+        // Pausa detecções enquanto o usuário decide
+        isPausedRef.current = true
+        playBeep(true)
+        triggerHaptic(true)
+        setDuplicatePrompt({
+          code,
+          product: scanResult.product,
+        })
+        return
+      }
+
+      const isSuccess = scanResult !== false
+
+      if (isSuccess) {
+        setScanCount((c) => c + 1)
+        playBeep(true)
+        triggerHaptic(true)
+      } else {
+        // Feedback diferenciado para rejeição/erro de saldo ou código inexistente
+        playBeep(false)
+        triggerHaptic(false)
+      }
+
+      setScannedFeedback({
         code,
-        product: scanResult.product,
+        success: isSuccess,
+        message: !isSuccess
+          ? `Código ${code}: não adicionado (verifique aviso na tela)`
+          : `Lido com sucesso: ${code}`,
       })
-      return
+
+      // Limpa feedback visual após 2.5s
+      setTimeout(() => {
+        setScannedFeedback((prev) => (prev?.code === code ? null : prev))
+      }, 2500)
+    } finally {
+      // Libera flag de concorrência imediatamente após a execução do callback
+      isProcessingRef.current = false
     }
-
-    const isSuccess = scanResult !== false
-
-    if (isSuccess) {
-      setScanCount((c) => c + 1)
-      playBeep(true)
-      triggerHaptic(true)
-    } else {
-      // Feedback diferenciado para rejeição/erro de saldo ou código inexistente
-      playBeep(false)
-      triggerHaptic(false)
-    }
-
-    setScannedFeedback({
-      code,
-      success: isSuccess,
-      message: !isSuccess
-        ? `Código ${code}: não adicionado (verifique aviso na tela)`
-        : `Lido com sucesso: ${code}`,
-    })
-
-    // Limpa feedback visual após 2.2s
-    setTimeout(() => {
-      setScannedFeedback((prev) => (prev?.code === code ? null : prev))
-    }, 2200)
   }
 
   // Resposta à pergunta: "Deseja incluir mais um produto já cadastrado?"
@@ -384,9 +411,16 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     if (!duplicatePrompt) return
     const { code } = duplicatePrompt
 
-    // Atualiza o timestamp do código para aplicar o cooldown de 1.8s a partir da resposta
-    lastDetectedRef.current = { code, time: Date.now() }
+    // Atualiza o timestamp global para aplicar os 3 segundos de cooldown a partir da resposta do usuário
+    lastProcessedTimeRef.current = Date.now()
     setDuplicatePrompt(null)
+
+    // Reinicia o timer de cooldown visual de 3s
+    setInCooldown(true)
+    if (cooldownTimerRef.current) clearTimeout(cooldownTimerRef.current)
+    cooldownTimerRef.current = setTimeout(() => {
+      setInCooldown(false)
+    }, 3000)
 
     if (confirm) {
       // "Sim" -> força a inclusão do produto
@@ -420,15 +454,15 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       })
     }
 
-    // Breve intervalo (400ms) para despausar após fechar o diálogo
+    // Libera a pausa das detecções após fechar o diálogo (o cooldown de 3s já protegerá de leituras imediatas)
     setTimeout(() => {
       isPausedRef.current = false
-    }, 400)
+    }, 200)
 
-    // Limpa feedback visual após 2.2s
+    // Limpa feedback visual após 2.5s
     setTimeout(() => {
       setScannedFeedback((prev) => (prev?.code === code ? null : prev))
-    }, 2200)
+    }, 2500)
   }
 
   // Loop Nativo de leitura via BarcodeDetector
@@ -437,6 +471,17 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
     const scanFrame = async () => {
       if (!active || !videoRef.current || videoRef.current.readyState < 2) {
+        animFrameRef.current = requestAnimationFrame(scanFrame)
+        return
+      }
+
+      // Se estiver em cooldown ou pausado, não consome CPU chamando detector.detect desnecessariamente
+      const now = Date.now()
+      if (
+        isProcessingRef.current ||
+        isPausedRef.current ||
+        now - lastProcessedTimeRef.current < 3000
+      ) {
         animFrameRef.current = requestAnimationFrame(scanFrame)
         return
       }
@@ -604,9 +649,19 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             {/* Escurecimento fora da mira */}
             <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center">
               {/* Moldura de Leitura Centralizada */}
-              <div className="relative w-[82vw] max-w-[340px] h-[190px] rounded-2xl border-2 border-[#C6A664] shadow-[0_0_0_9999px_rgba(0,0,0,0.55)] flex items-center justify-center overflow-hidden">
+              <div
+                className={`relative w-[82vw] max-w-[340px] h-[190px] rounded-2xl border-2 shadow-[0_0_0_9999px_rgba(0,0,0,0.55)] flex items-center justify-center overflow-hidden transition-colors duration-300 ${
+                  inCooldown ? 'border-amber-400/80 bg-amber-500/5' : 'border-[#C6A664]'
+                }`}
+              >
                 {/* Linha Laser Animada */}
-                <div className="absolute left-2 right-2 h-0.5 bg-gradient-to-r from-transparent via-red-500 to-transparent shadow-[0_0_8px_#ef4444] animate-pulse top-1/2 -translate-y-1/2" />
+                <div
+                  className={`absolute left-2 right-2 h-0.5 transition-all duration-300 top-1/2 -translate-y-1/2 ${
+                    inCooldown
+                      ? 'bg-gradient-to-r from-transparent via-amber-400 to-transparent shadow-[0_0_8px_#fbbf24] opacity-60'
+                      : 'bg-gradient-to-r from-transparent via-red-500 to-transparent shadow-[0_0_8px_#ef4444] animate-pulse'
+                  }`}
+                />
 
                 {/* Cantoneiras Estilizadas */}
                 <div className="absolute top-2 left-2 w-4 h-4 border-t-2 border-l-2 border-white" />
@@ -614,8 +669,16 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                 <div className="absolute bottom-2 left-2 w-4 h-4 border-b-2 border-l-2 border-white" />
                 <div className="absolute bottom-2 right-2 w-4 h-4 border-b-2 border-r-2 border-white" />
 
-                <span className="text-[11px] font-medium text-white/90 bg-black/60 px-2.5 py-0.5 rounded-full backdrop-blur-xs tracking-wide">
-                  Aponte para o código da etiqueta
+                <span
+                  className={`text-[11px] font-medium px-2.5 py-0.5 rounded-full backdrop-blur-xs tracking-wide transition-colors ${
+                    inCooldown
+                      ? 'text-amber-200 bg-black/75 border border-amber-400/40'
+                      : 'text-white/90 bg-black/60'
+                  }`}
+                >
+                  {inCooldown
+                    ? 'Aguarde 3s para próxima leitura...'
+                    : 'Aponte para o código da etiqueta'}
                 </span>
               </div>
 
@@ -694,10 +757,17 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       <div className="bg-black/70 backdrop-blur-md px-4 py-3 z-20 border-t border-white/10 text-white space-y-2">
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
+            <span
+              className={`h-2 w-2 rounded-full ${inCooldown ? 'bg-amber-400' : 'bg-emerald-400 animate-ping'}`}
+            />
             <span className="text-zinc-300">
               Câmera aberta contínua • <strong className="text-emerald-400">{scanCount}</strong>{' '}
               {scanCount === 1 ? 'leitura' : 'leituras'}
+              {inCooldown && (
+                <span className="ml-2 text-amber-300 text-[11px] font-medium">
+                  (pausa de 3s ativa)
+                </span>
+              )}
             </span>
           </div>
 
