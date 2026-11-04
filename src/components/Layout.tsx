@@ -106,6 +106,7 @@ export default function Layout() {
         { to: '/', label: 'Painel Geral', icon: LayoutDashboard },
         { to: '/produtos', label: 'Cadastrar Produtos', icon: Boxes },
         { to: '/estoque', label: 'Estoque', icon: Boxes },
+        { to: '/etiquetas', label: 'Gerar Etiquetas', icon: Tag },
         {
           to: '/revendedoras',
           label: 'Revendedoras',
@@ -179,6 +180,9 @@ export default function Layout() {
           ? [{ to: '/produtos', label: 'Cadastrar Produtos', icon: Boxes }]
           : []),
         ...(canManageInternal ? [{ to: '/estoque', label: 'Estoque', icon: Boxes }] : []),
+        ...(canManageInternal && !isReseller
+          ? [{ to: '/etiquetas', label: 'Gerar Etiquetas', icon: Tag }]
+          : []),
 
         // PÁGINA UNIFICADA: Revendedoras (substitui Consignações e Entregas)
         {
