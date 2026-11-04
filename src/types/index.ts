@@ -226,6 +226,7 @@ export interface Customer {
   name: string
   phone?: string
   email?: string
+  cpf?: string
   city?: string
   state?: string
   notes?: string
