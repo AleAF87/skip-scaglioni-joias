@@ -376,8 +376,13 @@ export default function PosSale() {
     setCart((prev) => prev.filter((item) => (item.cart_item_id || item.product_id) !== cartItemKey))
   }
 
-  // Leitura de código de barras pela câmera ou leitor contínuo
-  const handleBarcodeScan = (codigo: string): boolean => {
+  // Leitura de código de barras pela câmera (smartphone/webcam)
+  // Caso o produto já esteja na lista desta venda e options?.forceDuplicate não seja true,
+  // retorna { requiresDuplicateConfirmation: true, product } para que o modal da câmera pergunte ao usuário.
+  const handleBarcodeScan = (
+    codigo: string,
+    options?: { forceDuplicate?: boolean },
+  ): boolean | { requiresDuplicateConfirmation: boolean; product: Product } => {
     const raw = (codigo || '').trim()
     if (!raw) return false
 
@@ -423,8 +428,17 @@ export default function PosSale() {
       return false
     }
 
-    // c) Aprovado -> adicionar UM item à lista com linha individualizada
+    // c) Se o produto já está listado na venda atual e não foi explicitamente confirmado pelo modal:
+    // Retorna solicitação de confirmação para o scanner de câmera (smartphone)
     const alreadyInCart = cart.some((item) => item.product_id === product.id)
+    if (alreadyInCart && !options?.forceDuplicate) {
+      return {
+        requiresDuplicateConfirmation: true,
+        product,
+      }
+    }
+
+    // d) Aprovado -> adicionar UM item à lista com linha individualizada
     const uniqueLineId = `${product.id}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
 
     const newItem: PosCartItem = {

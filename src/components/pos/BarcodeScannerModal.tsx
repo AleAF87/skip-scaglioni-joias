@@ -17,7 +17,10 @@ import { Badge } from '@/components/ui/badge'
 interface BarcodeScannerModalProps {
   isOpen?: boolean
   onClose: () => void
-  onScan: (barcode: string) => boolean | void
+  onScan: (
+    barcode: string,
+    options?: { forceDuplicate?: boolean },
+  ) => boolean | { requiresDuplicateConfirmation: boolean; product?: any } | void
   selectedOriginLabel?: string
   originTitle?: string
   lastScannedCode?: string
@@ -58,8 +61,16 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   const [scanCount, setScanCount] = useState<number>(0)
   const [usingEngine, setUsingEngine] = useState<'native' | 'zxing' | 'detecting'>('detecting')
 
-  // Evita leituras duplicadas ultra-rápidas no mesmo décimo de segundo
+  // Cooldown entre leituras para o MESMO código (evita auto-repeat na câmera)
   const lastDetectedRef = useRef<{ code: string; time: number }>({ code: '', time: 0 })
+  // Flag e timer para ignorar leituras enquanto modal de pergunta ou feedback está pausando o fluxo
+  const isPausedRef = useRef<boolean>(false)
+
+  // Estado da pergunta "Deseja incluir mais um produto já cadastrado?" quando lido via smartphone/câmera
+  const [duplicatePrompt, setDuplicatePrompt] = useState<{
+    code: string
+    product: any
+  } | null>(null)
 
   // Toca bip de áudio sintetizado pelo Web Audio API
   const playBeep = (success: boolean = true) => {
@@ -314,22 +325,41 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     const code = (rawCode || '').trim()
     if (!code) return
 
+    // Se estiver em pausa (ex: pergunta de produto duplicado aberta na tela), ignora detecções
+    if (isPausedRef.current) return
+
     const now = Date.now()
-    // Cooldown de 1.4s para o MESMO código exatamente para não disparar 30 vezes no mesmo segundo
-    if (lastDetectedRef.current.code === code && now - lastDetectedRef.current.time < 1400) {
+    // Cooldown de 1.8s para o MESMO código para não ler várias vezes seguidas enquanto a peça fica na frente da câmera.
+    // Mudança de código diferente processa imediatamente sem cooldown.
+    if (lastDetectedRef.current.code === code && now - lastDetectedRef.current.time < 1800) {
       return
     }
+    // Registra carimbo do código (tanto aceito quanto rejeitado respeita o cooldown para o mesmo código)
     lastDetectedRef.current = { code, time: now }
 
-    setScanCount((c) => c + 1)
-    playBeep(true)
-    triggerHaptic(true)
-
     // Chama o callback do PDV
-    const result = onScan(code)
-    const isSuccess = result !== false
+    const scanResult: any = onScan(code)
 
-    if (!isSuccess) {
+    // Caso o produto já esteja listado na venda atual, o callback solicita confirmação do usuário
+    if (scanResult && typeof scanResult === 'object' && scanResult.requiresDuplicateConfirmation) {
+      // Pausa detecções enquanto o usuário decide
+      isPausedRef.current = true
+      playBeep(true)
+      triggerHaptic(true)
+      setDuplicatePrompt({
+        code,
+        product: scanResult.product,
+      })
+      return
+    }
+
+    const isSuccess = scanResult !== false
+
+    if (isSuccess) {
+      setScanCount((c) => c + 1)
+      playBeep(true)
+      triggerHaptic(true)
+    } else {
       // Feedback diferenciado para rejeição/erro de saldo ou código inexistente
       playBeep(false)
       triggerHaptic(false)
@@ -342,6 +372,58 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         ? `Código ${code}: não adicionado (verifique aviso na tela)`
         : `Lido com sucesso: ${code}`,
     })
+
+    // Limpa feedback visual após 2.2s
+    setTimeout(() => {
+      setScannedFeedback((prev) => (prev?.code === code ? null : prev))
+    }, 2200)
+  }
+
+  // Resposta à pergunta: "Deseja incluir mais um produto já cadastrado?"
+  const handleConfirmDuplicate = (confirm: boolean) => {
+    if (!duplicatePrompt) return
+    const { code } = duplicatePrompt
+
+    // Atualiza o timestamp do código para aplicar o cooldown de 1.8s a partir da resposta
+    lastDetectedRef.current = { code, time: Date.now() }
+    setDuplicatePrompt(null)
+
+    if (confirm) {
+      // "Sim" -> força a inclusão do produto
+      const result = onScan(code, { forceDuplicate: true })
+      const isSuccess = result !== false
+
+      if (isSuccess) {
+        setScanCount((c) => c + 1)
+        playBeep(true)
+        triggerHaptic(true)
+        setScannedFeedback({
+          code,
+          success: true,
+          message: `Lido com sucesso: ${code}`,
+        })
+      } else {
+        playBeep(false)
+        triggerHaptic(false)
+        setScannedFeedback({
+          code,
+          success: false,
+          message: `Código ${code}: não adicionado (verifique saldo)`,
+        })
+      }
+    } else {
+      // "Não" -> não adiciona nada e a câmera continua aguardando a próxima leitura
+      setScannedFeedback({
+        code,
+        success: false,
+        message: `Inclusão cancelada para ${code}`,
+      })
+    }
+
+    // Breve intervalo (400ms) para despausar após fechar o diálogo
+    setTimeout(() => {
+      isPausedRef.current = false
+    }, 400)
 
     // Limpa feedback visual após 2.2s
     setTimeout(() => {
@@ -538,7 +620,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
               </div>
 
               {/* Feedback Instantâneo da Leitura */}
-              {scannedFeedback && (
+              {scannedFeedback && !duplicatePrompt && (
                 <div
                   className={`mt-4 px-4 py-2 rounded-xl backdrop-blur-md shadow-lg flex items-center gap-2 max-w-[85vw] animate-in fade-in zoom-in-95 duration-150 ${
                     scannedFeedback.success
@@ -555,6 +637,55 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                 </div>
               )}
             </div>
+
+            {/* Modal / Dialog de confirmação dentro do fluxo da câmera quando produto já listado */}
+            {duplicatePrompt && (
+              <div className="absolute inset-0 bg-black/75 backdrop-blur-md z-30 flex items-center justify-center p-4 animate-in fade-in duration-200">
+                <div className="bg-[#2D2A26] border-2 border-[#C6A664] rounded-2xl p-5 max-w-sm w-full text-white shadow-2xl space-y-4">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 rounded-xl bg-amber-500/20 text-[#C6A664] shrink-0 border border-[#C6A664]/30">
+                      <HelpCircle className="h-6 w-6" />
+                    </div>
+                    <div className="flex-1 space-y-1">
+                      <h3 className="font-semibold text-sm text-white leading-tight">
+                        Deseja incluir mais um produto já cadastrado?
+                      </h3>
+                      <p className="text-xs text-zinc-300">
+                        Código: <strong className="text-white">{duplicatePrompt.code}</strong>
+                        {duplicatePrompt.product?.description && (
+                          <span className="block text-[11px] text-zinc-400 truncate mt-0.5">
+                            {duplicatePrompt.product.description}
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-black/40 border border-white/10 text-[11px] text-zinc-300">
+                    Este item já se encontra na lista desta venda. Deseja adicionar mais uma
+                    unidade?
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2.5 pt-1">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => handleConfirmDuplicate(false)}
+                      className="bg-white/10 border-white/20 text-white hover:bg-white/20 hover:text-white h-11 font-medium text-sm rounded-xl"
+                    >
+                      Não
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={() => handleConfirmDuplicate(true)}
+                      className="bg-[#C6A664] hover:bg-[#B39353] text-[#2D2A26] h-11 font-bold text-sm rounded-xl shadow-lg"
+                    >
+                      Sim
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>
