@@ -15,10 +15,11 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 
 interface BarcodeScannerModalProps {
-  isOpen: boolean
+  isOpen?: boolean
   onClose: () => void
   onScan: (barcode: string) => boolean | void
   selectedOriginLabel?: string
+  originTitle?: string
   lastScannedCode?: string
 }
 
@@ -30,12 +31,14 @@ declare global {
 }
 
 export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
-  isOpen,
+  isOpen = true,
   onClose,
   onScan,
-  selectedOriginLabel = 'Estoque Geral',
+  selectedOriginLabel,
+  originTitle,
   lastScannedCode,
 }) => {
+  const currentOriginLabel = originTitle || selectedOriginLabel || 'Estoque Geral'
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -324,14 +327,20 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
     // Chama o callback do PDV
     const result = onScan(code)
+    const isSuccess = result !== false
+
+    if (!isSuccess) {
+      // Feedback diferenciado para rejeição/erro de saldo ou código inexistente
+      playBeep(false)
+      triggerHaptic(false)
+    }
 
     setScannedFeedback({
       code,
-      success: result !== false,
-      message:
-        result === false
-          ? `Código ${code}: não adicionado (verifique aviso na tela)`
-          : `Lido com sucesso: ${code}`,
+      success: isSuccess,
+      message: !isSuccess
+        ? `Código ${code}: não adicionado (verifique aviso na tela)`
+        : `Lido com sucesso: ${code}`,
     })
 
     // Limpa feedback visual após 2.2s
@@ -417,7 +426,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
               </Badge>
             </h2>
             <p className="text-[11px] text-zinc-300">
-              Origem: <strong className="text-white">{selectedOriginLabel}</strong>
+              Origem: <strong className="text-white">{currentOriginLabel}</strong>
             </p>
           </div>
         </div>

@@ -9,6 +9,7 @@ import {
   ResellerItemDetail,
 } from '@/services/totalStockService'
 import { isExactCodeMatch, matchesProductQuery } from '@/lib/barcodeSearch'
+import { BarcodeScannerModal } from '@/components/pos/BarcodeScannerModal'
 import {
   formatCurrency,
   formatDateTime,
@@ -59,10 +60,12 @@ import {
   AlertTriangle,
   Building2,
   PackageSearch,
+  ScanLine,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
 export interface PosCartItem extends SaleItem {
+  cart_item_id?: string
   stock_origin?: 'general' | 'ecommerce' | 'reseller'
   reseller_id?: string
   reseller_name?: string
@@ -74,6 +77,10 @@ export default function PosSale() {
 
   // Cart state
   const [cart, setCart] = useState<PosCartItem[]>([])
+  const [selectedOrigin, setSelectedOrigin] = useState<'general' | 'ecommerce' | 'reseller'>(
+    'general',
+  )
+  const [scannerOpen, setScannerOpen] = useState(false)
   const [products, setProducts] = useState<Product[]>([])
   const [resellerStockMap, setResellerStockMap] = useState<Map<string, ResellerItemDetail[]>>(
     new Map(),
@@ -300,12 +307,14 @@ export default function PosSale() {
   }
 
   const updateCartItemOrigin = (
-    productId: string,
+    cartItemKey: string,
     origin: 'general' | 'ecommerce' | 'reseller',
     resellerId?: string,
     resellerName?: string,
   ) => {
-    const prod = products.find((p) => p.id === productId)
+    const targetItem = cart.find((i) => (i.cart_item_id || i.product_id) === cartItemKey)
+    if (!targetItem) return
+    const prod = products.find((p) => p.id === targetItem.product_id)
     if (!prod) return
 
     const maxAvailable = getMaxQtyForOrigin(prod, origin, resellerId)
@@ -316,7 +325,7 @@ export default function PosSale() {
 
     setCart((prev) =>
       prev.map((item) => {
-        if (item.product_id !== productId) return item
+        if ((item.cart_item_id || item.product_id) !== cartItemKey) return item
         const newQty = Math.min(item.quantity, maxAvailable)
         return {
           ...item,
@@ -330,14 +339,14 @@ export default function PosSale() {
     )
   }
 
-  const updateCartQty = (productId: string, newQty: number) => {
+  const updateCartQty = (cartItemKey: string, newQty: number) => {
     if (newQty <= 0) {
-      removeFromCart(productId)
+      removeFromCart(cartItemKey)
       return
     }
 
-    const prod = products.find((p) => p.id === productId)
-    const cartItem = cart.find((i) => i.product_id === productId)
+    const cartItem = cart.find((i) => (i.cart_item_id || i.product_id) === cartItemKey)
+    const prod = cartItem ? products.find((p) => p.id === cartItem.product_id) : null
     if (prod && cartItem) {
       const maxAvailable = getMaxQtyForOrigin(
         prod,
@@ -352,7 +361,7 @@ export default function PosSale() {
 
     setCart((prev) =>
       prev.map((item) =>
-        item.product_id === productId
+        (item.cart_item_id || item.product_id) === cartItemKey
           ? {
               ...item,
               quantity: newQty,
@@ -363,8 +372,83 @@ export default function PosSale() {
     )
   }
 
-  const removeFromCart = (productId: string) => {
-    setCart((prev) => prev.filter((item) => item.product_id !== productId))
+  const removeFromCart = (cartItemKey: string) => {
+    setCart((prev) => prev.filter((item) => (item.cart_item_id || item.product_id) !== cartItemKey))
+  }
+
+  // Leitura de código de barras pela câmera ou leitor contínuo
+  const handleBarcodeScan = (codigo: string): boolean => {
+    const raw = (codigo || '').trim()
+    if (!raw) return false
+
+    // a) Buscar o produto pelo código de barras com casamento exato (mesma lógica das etiquetas)
+    const exactMatches = products.filter((p) => isExactCodeMatch(p, raw))
+    if (exactMatches.length === 0) {
+      toast.error(`Código de barras não cadastrado: "${raw}"`)
+      return false
+    }
+
+    const product = exactMatches[0]
+
+    // b) Validar estoque na origem da venda selecionada
+    // Origem atual vem do state selectedOrigin ('general' | 'ecommerce' | 'reseller')
+    let chosenOrigin = selectedOrigin
+    let chosenResellerId: string | undefined = undefined
+    let chosenResellerName: string | undefined = undefined
+
+    // Se a origem selecionada for 'ecommerce' ou 'reseller' mas o usuário não tiver permissão, força geral
+    if (!canSellFromExternal && chosenOrigin !== 'general') {
+      chosenOrigin = 'general'
+    }
+
+    if (chosenOrigin === 'reseller') {
+      const resellers = resellerStockMap.get(product.id) || []
+      if (resellers.length > 0) {
+        chosenResellerId = resellers[0].reseller_id
+        chosenResellerName = resellers[0].reseller_name
+      }
+    }
+
+    const availableInOrigin = getMaxQtyForOrigin(product, chosenOrigin, chosenResellerId)
+    if (availableInOrigin <= 0) {
+      const originName =
+        chosenOrigin === 'general'
+          ? 'Estoque Geral'
+          : chosenOrigin === 'ecommerce'
+            ? 'E-commerce'
+            : 'Revendedora'
+      toast.error(
+        `Produto sem estoque disponível nesta origem (${originName}): ${product.code} - ${product.description}`,
+      )
+      return false
+    }
+
+    // c) Aprovado -> adicionar UM item à lista com linha individualizada
+    const alreadyInCart = cart.some((item) => item.product_id === product.id)
+    const uniqueLineId = `${product.id}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+
+    const newItem: PosCartItem = {
+      cart_item_id: uniqueLineId,
+      product_id: product.id,
+      code: product.code,
+      description: product.description,
+      quantity: 1,
+      unit_price: product.selling_price,
+      total: product.selling_price,
+      stock_origin: chosenOrigin,
+      reseller_id: chosenResellerId,
+      reseller_name: chosenResellerName,
+    }
+
+    setCart((prev) => [...prev, newItem])
+
+    if (alreadyInCart) {
+      toast.info(`Código já lido — item adicionado novamente (${product.code})`)
+    } else {
+      toast.success(`Item adicionado: ${product.code} - ${product.description}`)
+    }
+
+    return true
   }
 
   // Totals
@@ -682,19 +766,86 @@ export default function PosSale() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
             {/* Coluna Esquerda: Busca/Scanner + Tabela de Itens (8 colunas) */}
             <div className="lg:col-span-8 space-y-3">
-              {/* Barcode / Search Box */}
+              {/* Barcode / Search Box & Scanner Câmera */}
               <Card className="border-[#E5DFD5] bg-white shadow-xs">
                 <CardContent className="p-3 space-y-2">
-                  <div className="relative">
-                    <Barcode className="absolute left-3.5 top-2.5 h-5 w-5 text-[#7A5C2E]" />
-                    <Input
-                      ref={barcodeInputRef}
-                      value={barcodeOrSearch}
-                      onChange={(e) => setBarcodeOrSearch(e.target.value)}
-                      onKeyDown={handleBarcodeKeyDown}
-                      placeholder="Escaneie o código de barras ou busque por código / descrição... (Enter para adicionar)"
-                      className="pl-11 h-10 border-[#C6A664] focus-visible:ring-[#C6A664] text-sm font-medium bg-white"
-                    />
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                    <div className="relative flex-1">
+                      <Barcode className="absolute left-3.5 top-2.5 h-5 w-5 text-[#7A5C2E]" />
+                      <Input
+                        ref={barcodeInputRef}
+                        value={barcodeOrSearch}
+                        onChange={(e) => setBarcodeOrSearch(e.target.value)}
+                        onKeyDown={handleBarcodeKeyDown}
+                        placeholder="Escaneie o código de barras ou busque por código / descrição... (Enter para adicionar)"
+                        className="pl-11 h-10 border-[#C6A664] focus-visible:ring-[#C6A664] text-sm font-medium bg-white"
+                      />
+                    </div>
+
+                    <Button
+                      type="button"
+                      onClick={() => setScannerOpen(true)}
+                      className="h-10 px-3 bg-[#7A5C2E] hover:bg-[#634822] text-[#FDFBF7] font-medium text-xs flex items-center justify-center gap-2 shrink-0 shadow-xs"
+                      title="Abrir leitor de código de barras pela câmera do smartphone ou computador"
+                    >
+                      <ScanLine className="h-4 w-4" />
+                      <span>Ler código de barras</span>
+                    </Button>
+                  </div>
+
+                  {/* Seletor de Origem Padrão para novas leituras / adições */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-[#E5DFD5]/60 text-xs text-[#6B655E]">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-[#2D2A26] flex items-center gap-1">
+                        Origem da Venda:
+                      </span>
+                      <div className="inline-flex rounded-md shadow-xs" role="group">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedOrigin('general')}
+                          className={`px-2.5 py-1 text-xs font-medium rounded-l-md border transition-colors ${
+                            selectedOrigin === 'general'
+                              ? 'bg-[#7A5C2E] text-white border-[#7A5C2E]'
+                              : 'bg-white text-[#2D2A26] border-[#E5DFD5] hover:bg-[#F3EAD8]'
+                          }`}
+                        >
+                          Geral
+                        </button>
+                        {canSellFromExternal && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedOrigin('ecommerce')}
+                              className={`px-2.5 py-1 text-xs font-medium border-t border-b border-r transition-colors ${
+                                selectedOrigin === 'ecommerce'
+                                  ? 'bg-[#1E40AF] text-white border-[#1E40AF]'
+                                  : 'bg-white text-[#2D2A26] border-[#E5DFD5] hover:bg-[#DBEAFE]'
+                              }`}
+                            >
+                              E-commerce
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedOrigin('reseller')}
+                              className={`px-2.5 py-1 text-xs font-medium rounded-r-md border-t border-b border-r transition-colors ${
+                                selectedOrigin === 'reseller'
+                                  ? 'bg-[#B26A00] text-white border-[#B26A00]'
+                                  : 'bg-white text-[#2D2A26] border-[#E5DFD5] hover:bg-[#FEF3C7]'
+                              }`}
+                            >
+                              Revendedora
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <span className="text-[11px] text-[#8C8275] italic">
+                      {selectedOrigin === 'general'
+                        ? 'Estoque físico da loja'
+                        : selectedOrigin === 'ecommerce'
+                          ? 'Estoque reservado da loja virtual'
+                          : 'Estoque em posse das revendedoras'}
+                    </span>
                   </div>
 
                   {/* Autocomplete Dropdown preview com foto e badges */}
@@ -866,156 +1017,162 @@ export default function PosSale() {
                           </td>
                         </tr>
                       ) : (
-                        cart.map((item) => (
-                          <tr key={item.product_id} className="hover:bg-[#FDFBF7]">
-                            <td className="py-2 px-3 font-mono font-bold text-[#7A5C2E]">
-                              {item.code}
-                            </td>
+                        cart.map((item, itemIdx) => {
+                          const itemKey = item.cart_item_id || `${item.product_id}_${itemIdx}`
 
-                            {/* Descrição completa sem truncamento + Badge de Origem & Seletor de Origem */}
-                            <td className="py-2 px-3">
-                              <div className="space-y-1">
-                                <span className="font-medium text-[#2D2A26] whitespace-normal break-words block leading-relaxed">
-                                  {item.description}
-                                </span>
+                          return (
+                            <tr key={itemKey} className="hover:bg-[#FDFBF7]">
+                              <td className="py-2 px-3 font-mono font-bold text-[#7A5C2E]">
+                                {item.code}
+                              </td>
 
-                                {/* Badges e Seleção de Origem */}
-                                {(() => {
-                                  const prod = products.find((p) => p.id === item.product_id)
-                                  if (!prod) return null
-                                  const bk = getProductStockBreakdown(
-                                    prod,
-                                    resellerStockMap.get(prod.id) || [],
-                                  )
-                                  const currentOrigin = item.stock_origin || 'general'
+                              {/* Descrição completa sem truncamento + Badge de Origem & Seletor de Origem */}
+                              <td className="py-2 px-3">
+                                <div className="space-y-1">
+                                  <span className="font-medium text-[#2D2A26] whitespace-normal break-words block leading-relaxed">
+                                    {item.description}
+                                  </span>
 
-                                  return (
-                                    <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                                      {/* Badge atual */}
-                                      {currentOrigin === 'general' && (
-                                        <Badge className="text-[10px] px-1.5 py-0 bg-[#2E7D4F]/10 text-[#2E7D4F] border border-[#2E7D4F]/30 hover:bg-[#2E7D4F]/20 flex items-center gap-1">
-                                          <Building2 className="h-3 w-3" />
-                                          <span>Estoque Geral</span>
-                                        </Badge>
-                                      )}
-                                      {currentOrigin === 'ecommerce' && (
-                                        <Badge className="text-[10px] px-1.5 py-0 bg-[#DBEAFE] text-[#1E40AF] border border-[#1E40AF]/40 hover:bg-[#BFDBFE] font-bold flex items-center gap-1">
-                                          <Globe className="h-3 w-3" />
-                                          <span>E-commerce</span>
-                                        </Badge>
-                                      )}
-                                      {currentOrigin === 'reseller' && (
-                                        <Badge className="text-[10px] px-1.5 py-0 bg-[#FEF3C7] text-[#B26A00] border border-[#B26A00]/40 hover:bg-[#FDE68A] font-bold flex items-center gap-1">
-                                          <Users className="h-3 w-3" />
-                                          <span>
-                                            Com Revendedora: {item.reseller_name || 'Designada'}
-                                          </span>
-                                        </Badge>
-                                      )}
+                                  {/* Badges e Seleção de Origem */}
+                                  {(() => {
+                                    const prod = products.find((p) => p.id === item.product_id)
+                                    if (!prod) return null
+                                    const bk = getProductStockBreakdown(
+                                      prod,
+                                      resellerStockMap.get(prod.id) || [],
+                                    )
+                                    const currentOrigin = item.stock_origin || 'general'
 
-                                      {/* Seletor de origem para admin quando há mais de uma fonte com saldo */}
-                                      {canSellFromExternal && (
-                                        <div className="inline-flex items-center gap-1 text-[10px] text-[#6B655E] ml-1">
-                                          <span>Origem:</span>
-                                          <select
-                                            value={
-                                              currentOrigin === 'reseller' && item.reseller_id
-                                                ? `reseller:${item.reseller_id}`
-                                                : currentOrigin
-                                            }
-                                            onChange={(e) => {
-                                              const val = e.target.value
-                                              if (val === 'general') {
-                                                updateCartItemOrigin(item.product_id, 'general')
-                                              } else if (val === 'ecommerce') {
-                                                updateCartItemOrigin(item.product_id, 'ecommerce')
-                                              } else if (val.startsWith('reseller:')) {
-                                                const rId = val.split(':')[1]
-                                                const rMatch = bk.resellerDetails.find(
-                                                  (r) => r.reseller_id === rId,
-                                                )
-                                                updateCartItemOrigin(
-                                                  item.product_id,
-                                                  'reseller',
-                                                  rId,
-                                                  rMatch?.reseller_name,
-                                                )
+                                    return (
+                                      <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                                        {/* Badge atual */}
+                                        {currentOrigin === 'general' && (
+                                          <Badge className="text-[10px] px-1.5 py-0 bg-[#2E7D4F]/10 text-[#2E7D4F] border border-[#2E7D4F]/30 hover:bg-[#2E7D4F]/20 flex items-center gap-1">
+                                            <Building2 className="h-3 w-3" />
+                                            <span>Estoque Geral</span>
+                                          </Badge>
+                                        )}
+                                        {currentOrigin === 'ecommerce' && (
+                                          <Badge className="text-[10px] px-1.5 py-0 bg-[#DBEAFE] text-[#1E40AF] border border-[#1E40AF]/40 hover:bg-[#BFDBFE] font-bold flex items-center gap-1">
+                                            <Globe className="h-3 w-3" />
+                                            <span>E-commerce</span>
+                                          </Badge>
+                                        )}
+                                        {currentOrigin === 'reseller' && (
+                                          <Badge className="text-[10px] px-1.5 py-0 bg-[#FEF3C7] text-[#B26A00] border border-[#B26A00]/40 hover:bg-[#FDE68A] font-bold flex items-center gap-1">
+                                            <Users className="h-3 w-3" />
+                                            <span>
+                                              Com Revendedora: {item.reseller_name || 'Designada'}
+                                            </span>
+                                          </Badge>
+                                        )}
+
+                                        {/* Seletor de origem para admin quando há mais de uma fonte com saldo */}
+                                        {canSellFromExternal && (
+                                          <div className="inline-flex items-center gap-1 text-[10px] text-[#6B655E] ml-1">
+                                            <span>Origem:</span>
+                                            <select
+                                              value={
+                                                currentOrigin === 'reseller' && item.reseller_id
+                                                  ? `reseller:${item.reseller_id}`
+                                                  : currentOrigin
                                               }
-                                            }}
-                                            className="h-6 rounded border border-[#E5DFD5] bg-white px-1.5 py-0 text-[10px] text-[#2D2A26] focus:outline-none focus:ring-1 focus:ring-[#C6A664]"
-                                          >
-                                            {bk.general > 0 && (
-                                              <option value="general">Geral ({bk.general})</option>
-                                            )}
-                                            {bk.ecommerce > 0 && (
-                                              <option value="ecommerce">
-                                                E-commerce ({bk.ecommerce})
-                                              </option>
-                                            )}
-                                            {bk.resellerDetails.map((r) => (
-                                              <option
-                                                key={r.reseller_id}
-                                                value={`reseller:${r.reseller_id}`}
-                                              >
-                                                {r.reseller_name} ({r.quantity})
-                                              </option>
-                                            ))}
-                                            {bk.general === 0 &&
-                                              bk.ecommerce === 0 &&
-                                              bk.resellerDetails.length === 0 && (
-                                                <option value="general">Geral (0)</option>
+                                              onChange={(e) => {
+                                                const val = e.target.value
+                                                if (val === 'general') {
+                                                  updateCartItemOrigin(itemKey, 'general')
+                                                } else if (val === 'ecommerce') {
+                                                  updateCartItemOrigin(itemKey, 'ecommerce')
+                                                } else if (val.startsWith('reseller:')) {
+                                                  const rId = val.split(':')[1]
+                                                  const rMatch = bk.resellerDetails.find(
+                                                    (r) => r.reseller_id === rId,
+                                                  )
+                                                  updateCartItemOrigin(
+                                                    itemKey,
+                                                    'reseller',
+                                                    rId,
+                                                    rMatch?.reseller_name,
+                                                  )
+                                                }
+                                              }}
+                                              className="h-6 rounded border border-[#E5DFD5] bg-white px-1.5 py-0 text-[10px] text-[#2D2A26] focus:outline-none focus:ring-1 focus:ring-[#C6A664]"
+                                            >
+                                              {bk.general > 0 && (
+                                                <option value="general">
+                                                  Geral ({bk.general})
+                                                </option>
                                               )}
-                                          </select>
-                                        </div>
-                                      )}
-                                    </div>
-                                  )
-                                })()}
-                              </div>
-                            </td>
+                                              {bk.ecommerce > 0 && (
+                                                <option value="ecommerce">
+                                                  E-commerce ({bk.ecommerce})
+                                                </option>
+                                              )}
+                                              {bk.resellerDetails.map((r) => (
+                                                <option
+                                                  key={r.reseller_id}
+                                                  value={`reseller:${r.reseller_id}`}
+                                                >
+                                                  {r.reseller_name} ({r.quantity})
+                                                </option>
+                                              ))}
+                                              {bk.general === 0 &&
+                                                bk.ecommerce === 0 &&
+                                                bk.resellerDetails.length === 0 && (
+                                                  <option value="general">Geral (0)</option>
+                                                )}
+                                            </select>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )
+                                  })()}
+                                </div>
+                              </td>
 
-                            <td className="py-2 px-3 text-center">
-                              <div className="inline-flex items-center gap-1">
+                              <td className="py-2 px-3 text-center">
+                                <div className="inline-flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => updateCartQty(itemKey, item.quantity - 1)}
+                                    className="h-6 w-6 rounded bg-[#F3EAD8] hover:bg-[#E5DFD5] flex items-center justify-center text-[#2D2A26]"
+                                  >
+                                    <Minus className="h-3 w-3" />
+                                  </button>
+                                  <span className="w-6 text-center font-bold text-[#2D2A26]">
+                                    {item.quantity}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => updateCartQty(itemKey, item.quantity + 1)}
+                                    className="h-6 w-6 rounded bg-[#F3EAD8] hover:bg-[#E5DFD5] flex items-center justify-center text-[#2D2A26]"
+                                  >
+                                    <Plus className="h-3 w-3" />
+                                  </button>
+                                </div>
+                              </td>
+
+                              <td className="py-2 px-3 text-right text-[#6B655E]">
+                                {formatCurrency(item.unit_price)}
+                              </td>
+
+                              <td className="py-2 px-3 text-right font-bold text-[#2D2A26]">
+                                {formatCurrency(item.total)}
+                              </td>
+
+                              <td className="py-2 px-2 text-right">
                                 <button
                                   type="button"
-                                  onClick={() => updateCartQty(item.product_id, item.quantity - 1)}
-                                  className="h-6 w-6 rounded bg-[#F3EAD8] hover:bg-[#E5DFD5] flex items-center justify-center text-[#2D2A26]"
+                                  onClick={() => removeFromCart(itemKey)}
+                                  className="p-1 rounded text-[#B3261E] hover:bg-[#B3261E]/10"
+                                  title="Remover item"
                                 >
-                                  <Minus className="h-3 w-3" />
+                                  <Trash2 className="h-3.5 w-3.5" />
                                 </button>
-                                <span className="w-6 text-center font-bold text-[#2D2A26]">
-                                  {item.quantity}
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => updateCartQty(item.product_id, item.quantity + 1)}
-                                  className="h-6 w-6 rounded bg-[#F3EAD8] hover:bg-[#E5DFD5] flex items-center justify-center text-[#2D2A26]"
-                                >
-                                  <Plus className="h-3 w-3" />
-                                </button>
-                              </div>
-                            </td>
-
-                            <td className="py-2 px-3 text-right text-[#6B655E]">
-                              {formatCurrency(item.unit_price)}
-                            </td>
-
-                            <td className="py-2 px-3 text-right font-bold text-[#2D2A26]">
-                              {formatCurrency(item.total)}
-                            </td>
-
-                            <td className="py-2 px-2 text-right">
-                              <button
-                                type="button"
-                                onClick={() => removeFromCart(item.product_id)}
-                                className="p-1 rounded text-[#B3261E] hover:bg-[#B3261E]/10"
-                                title="Remover item"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            </td>
-                          </tr>
-                        ))
+                              </td>
+                            </tr>
+                          )
+                        })
                       )}
                     </tbody>
                   </table>
@@ -1667,6 +1824,21 @@ export default function PosSale() {
         initialIndex={lightboxIndex}
         title={lightboxTitle}
       />
+
+      {/* Leitor de código de barras pela câmera com leitura contínua */}
+      {scannerOpen && (
+        <BarcodeScannerModal
+          onClose={() => setScannerOpen(false)}
+          onScan={handleBarcodeScan}
+          originTitle={
+            selectedOrigin === 'general'
+              ? 'Estoque Geral'
+              : selectedOrigin === 'ecommerce'
+                ? 'E-commerce'
+                : 'Revendedora'
+          }
+        />
+      )}
     </div>
   )
 }
