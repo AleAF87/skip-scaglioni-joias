@@ -21,6 +21,13 @@ export const salesService = {
     })
   },
 
+  async getRecentSalesAndReservations(limit: number = 5) {
+    return pb.collection('sales').getList<Sale>(1, limit, {
+      sort: '-created',
+      expand: 'customer,operator',
+    })
+  },
+
   async getPendingSales() {
     return pb.collection('sales').getFullList<Sale>({
       filter: "status = 'pending'",

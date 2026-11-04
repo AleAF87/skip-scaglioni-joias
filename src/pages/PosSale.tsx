@@ -2,7 +2,9 @@ import React, { useState, useEffect, useRef } from 'react'
 import { salesService } from '@/services/salesService'
 import { productService } from '@/services/productService'
 import { useAuth } from '@/contexts/AuthContext'
+import { useNavigate } from 'react-router-dom'
 import { Product, Customer, Sale, SaleItem } from '@/types'
+import { getProductFullName } from '@/types/labelContent'
 import {
   fetchResellerStockDetailsMap,
   getProductStockBreakdown,
@@ -61,8 +63,12 @@ import {
   Building2,
   PackageSearch,
   ScanLine,
+  X,
+  FileText,
 } from 'lucide-react'
 import { toast } from 'sonner'
+
+const LEAVE_CONFIRMATION_TEXT = 'deseja realmente sair da página e perder toda a lista'
 
 export interface PosCartItem extends SaleItem {
   cart_item_id?: string
@@ -72,6 +78,7 @@ export interface PosCartItem extends SaleItem {
 }
 
 export default function PosSale() {
+  const navigate = useNavigate()
   const { isAdmin, isSuperAdmin } = useAuth()
   const canSellFromExternal = isAdmin || isSuperAdmin
 
@@ -98,11 +105,26 @@ export default function PosSale() {
   )
   const [installments, setInstallments] = useState<number>(1)
   const [discount, setDiscount] = useState<string>('0')
+  const [discountPercent, setDiscountPercent] = useState<string>('0')
 
   // Pending sales
   const [pendingSales, setPendingSales] = useState<Sale[]>([])
   const [pendingModalOpen, setPendingModalOpen] = useState(false)
   const [activePendingSaleId, setActivePendingSaleId] = useState<string | null>(null)
+
+  // Recent sales / reservations (Últimas compras/reservas)
+  const [recentSales, setRecentSales] = useState<Sale[]>([])
+  const [loadingRecentSales, setLoadingRecentSales] = useState(false)
+
+  // Dupla confirmação ao sair com carrinho não vazio
+  const [leaveModalStep, setLeaveModalStep] = useState<0 | 1 | 2>(0)
+  const pendingNavigationActionRef = useRef<(() => void) | null>(null)
+  const isNavigatingAwayRef = useRef<boolean>(false)
+
+  // Cliente: busca interativa ao vivo
+  const [customerSearchQuery, setCustomerSearchQuery] = useState('')
+  const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false)
+  const customerSearchContainerRef = useRef<HTMLDivElement>(null)
 
   // Single-screen Flip State: 'products' | 'payment'
   const [activeScreen, setActiveScreen] = useState<'products' | 'payment'>('products')
@@ -122,6 +144,7 @@ export default function PosSale() {
   const [newCustName, setNewCustName] = useState('')
   const [newCustPhone, setNewCustPhone] = useState('')
   const [newCustEmail, setNewCustEmail] = useState('')
+  const [newCustCpf, setNewCustCpf] = useState('')
 
   // Lightbox
   const [lightboxOpen, setLightboxOpen] = useState(false)
@@ -144,6 +167,7 @@ export default function PosSale() {
   useEffect(() => {
     loadInitialData()
     loadPendingSales()
+    loadRecentSales()
   }, [])
 
   const loadInitialData = async () => {
@@ -167,6 +191,111 @@ export default function PosSale() {
       setPendingSales(pSales)
     } catch (err) {
       console.error(err)
+    }
+  }
+
+  const loadRecentSales = async () => {
+    setLoadingRecentSales(true)
+    try {
+      const res = await salesService.getRecentSalesAndReservations(5)
+      setRecentSales(res.items || [])
+    } catch (err) {
+      console.error('Erro ao carregar últimas compras/reservas:', err)
+    } finally {
+      setLoadingRecentSales(false)
+    }
+  }
+
+  // Interceptar cliques externos em links / navegação interna se o carrinho tiver itens
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (cart.length > 0) {
+        e.preventDefault()
+        e.returnValue = LEAVE_CONFIRMATION_TEXT
+        return LEAVE_CONFIRMATION_TEXT
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+
+    const handleDocumentClick = (e: MouseEvent) => {
+      if (cart.length === 0) return
+      if (isNavigatingAwayRef.current) return
+
+      const target = e.target as HTMLElement | null
+      if (!target) return
+
+      const link = target.closest('a') as HTMLAnchorElement | null
+      if (!link) return
+
+      // Não interceptar links internos do recibo/download
+      if (link.getAttribute('href')?.startsWith('blob:')) return
+      if (link.target === '_blank') return
+
+      const href = link.getAttribute('href')
+      if (!href || href.startsWith('#')) return
+
+      // Se for navegação para outra tela
+      const targetUrl = new URL(link.href, window.location.origin)
+      if (
+        targetUrl.pathname === window.location.pathname &&
+        targetUrl.search === window.location.search
+      ) {
+        return
+      }
+
+      e.preventDefault()
+      e.stopPropagation()
+
+      pendingNavigationActionRef.current = () => {
+        isNavigatingAwayRef.current = true
+        if (targetUrl.origin === window.location.origin) {
+          navigate(targetUrl.pathname + targetUrl.search + targetUrl.hash)
+        } else {
+          window.location.href = link.href
+        }
+      }
+      setLeaveModalStep(1)
+    }
+
+    document.addEventListener('click', handleDocumentClick, true)
+
+    // Fechar dropdown de clientes ao clicar fora
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (
+        customerSearchContainerRef.current &&
+        !customerSearchContainerRef.current.contains(e.target as Node)
+      ) {
+        setIsCustomerDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleOutsideClick)
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      document.removeEventListener('click', handleDocumentClick, true)
+      document.removeEventListener('mousedown', handleOutsideClick)
+    }
+  }, [cart.length, navigate])
+
+  const handleCancelLeave = () => {
+    setLeaveModalStep(0)
+    pendingNavigationActionRef.current = null
+  }
+
+  const handleConfirmLeaveStep = () => {
+    if (leaveModalStep === 1) {
+      // Primeira confirmação aceita -> passa para a SEGUNDA confirmação
+      setLeaveModalStep(2)
+    } else if (leaveModalStep === 2) {
+      // Segunda confirmação aceita -> executa a navegação de fato
+      setLeaveModalStep(0)
+      const action = pendingNavigationActionRef.current
+      pendingNavigationActionRef.current = null
+      if (action) {
+        action()
+      } else {
+        navigate(-1)
+      }
     }
   }
 
@@ -285,12 +414,13 @@ export default function PosSale() {
             : item,
         )
       } else {
+        const fullName = getProductFullName(product) || product.description
         return [
           ...prev,
           {
             product_id: product.id,
             code: product.code,
-            description: product.description,
+            description: fullName,
             quantity: 1,
             unit_price: product.selling_price,
             total: product.selling_price,
@@ -440,12 +570,13 @@ export default function PosSale() {
 
     // d) Aprovado -> adicionar UM item à lista com linha individualizada
     const uniqueLineId = `${product.id}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+    const fullName = getProductFullName(product) || product.description
 
     const newItem: PosCartItem = {
       cart_item_id: uniqueLineId,
       product_id: product.id,
       code: product.code,
-      description: product.description,
+      description: fullName,
       quantity: 1,
       unit_price: product.selling_price,
       total: product.selling_price,
@@ -470,6 +601,62 @@ export default function PosSale() {
   const discountVal = Math.max(0, normalizeCurrencyValue(discount) || 0)
   const total = Math.round(Math.max(0, subtotal - discountVal) * 100) / 100
   const installmentValue = Math.round((total / installments) * 100) / 100
+
+  // Sincronização bidirecional de desconto R$ e Percentual
+  const isUpdatingDiscountRef = useRef(false)
+
+  const handleDiscountValueChange = (valStr: string) => {
+    setDiscount(valStr)
+    if (isUpdatingDiscountRef.current) return
+    isUpdatingDiscountRef.current = true
+    try {
+      const numVal = parseFloat(valStr) || 0
+      if (subtotal > 0 && numVal >= 0) {
+        const pct = (numVal / subtotal) * 100
+        setDiscountPercent(pct.toFixed(2).replace(/\.00$/, ''))
+      } else {
+        setDiscountPercent('0')
+      }
+    } finally {
+      isUpdatingDiscountRef.current = false
+    }
+  }
+
+  const handleDiscountPercentChange = (pctStr: string) => {
+    setDiscountPercent(pctStr)
+    if (isUpdatingDiscountRef.current) return
+    isUpdatingDiscountRef.current = true
+    try {
+      const numPct = parseFloat(pctStr) || 0
+      if (subtotal > 0 && numPct >= 0) {
+        const val = (numPct / 100) * subtotal
+        setDiscount(val.toFixed(2))
+      } else {
+        setDiscount('0')
+      }
+    } finally {
+      isUpdatingDiscountRef.current = false
+    }
+  }
+
+  // Se o subtotal mudar, recalcula o valor do desconto mantendo o percentual se este foi o foco, ou vice-versa
+  useEffect(() => {
+    if (isUpdatingDiscountRef.current) return
+    const numPct = parseFloat(discountPercent) || 0
+    const numVal = parseFloat(discount) || 0
+    if (subtotal <= 0) {
+      if (discount !== '0') setDiscount('0')
+      if (discountPercent !== '0') setDiscountPercent('0')
+      return
+    }
+    if (numPct > 0) {
+      const newVal = (numPct / 100) * subtotal
+      setDiscount(newVal.toFixed(2))
+    } else if (numVal > 0) {
+      const newPct = (numVal / subtotal) * 100
+      setDiscountPercent(newPct.toFixed(2).replace(/\.00$/, ''))
+    }
+  }, [subtotal])
 
   // Key press on Barcode input (Enter triggers exact match addition / scan jump)
   const handleBarcodeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -506,16 +693,23 @@ export default function PosSale() {
     }
   }
 
-  // Save as Pending Sale
+  // Save as Pending Sale / Reserva
   const handleSavePending = async () => {
     if (cart.length === 0) {
       toast.error('O carrinho está vazio.')
       return
     }
 
+    if (!selectedCustomerId) {
+      toast.error(
+        'Reserva exige cliente selecionado com cadastro. Não é permitido reservar para "Consumidor Final (Sem cadastro)".',
+      )
+      return
+    }
+
     try {
       await salesService.savePendingSale({
-        customer_id: selectedCustomerId || undefined,
+        customer_id: selectedCustomerId,
         items: cart,
         subtotal,
         discount: discountVal,
@@ -525,11 +719,12 @@ export default function PosSale() {
         sale_id: activePendingSaleId || undefined,
       })
 
-      toast.success('Venda salva como pendente! O estoque NÃO foi alterado.')
+      toast.success('Reserva / Venda a prazo salva com sucesso! O estoque NÃO foi alterado.')
       resetSaleForm()
       loadPendingSales()
+      loadRecentSales()
     } catch (err: any) {
-      toast.error('Erro ao salvar venda pendente: ' + (err.message || ''))
+      toast.error('Erro ao salvar reserva pendente: ' + (err.message || ''))
     }
   }
 
@@ -609,6 +804,7 @@ export default function PosSale() {
       resetSaleForm()
       loadInitialData()
       loadPendingSales()
+      loadRecentSales()
     } catch (err: any) {
       console.error('Erro ao concluir venda:', err)
       const msg = err?.data?.error || err?.message || 'Falha ao processar venda.'
@@ -621,7 +817,9 @@ export default function PosSale() {
   const resetSaleForm = () => {
     setCart([])
     setSelectedCustomerId('')
+    setCustomerSearchQuery('')
     setDiscount('0')
+    setDiscountPercent('0')
     setInstallments(1)
     setPaymentMethod('pix')
     setActivePendingSaleId(null)
@@ -713,16 +911,20 @@ export default function PosSale() {
     try {
       const cust = await salesService.createCustomer({
         name: newCustName.trim(),
-        phone: newCustPhone.trim(),
-        email: newCustEmail.trim(),
+        phone: newCustPhone.trim() || undefined,
+        email: newCustEmail.trim() || undefined,
+        cpf: newCustCpf.trim() || undefined,
       })
       toast.success('Cliente cadastrado!')
       setCustomers((prev) => [...prev, cust])
       setSelectedCustomerId(cust.id)
+      setCustomerSearchQuery(`${cust.name}${cust.phone ? ` (${cust.phone})` : ''}`)
+      setIsCustomerDropdownOpen(false)
       setNewCustomerModalOpen(false)
       setNewCustName('')
       setNewCustPhone('')
       setNewCustEmail('')
+      setNewCustCpf('')
     } catch (err) {
       toast.error('Falha ao cadastrar cliente.')
     }
@@ -1012,7 +1214,7 @@ export default function PosSale() {
                     <thead className="sticky top-0 bg-[#F3EAD8] text-[#2D2A26] border-b border-[#E5DFD5] font-semibold z-10">
                       <tr>
                         <th className="py-2.5 px-3">Código</th>
-                        <th className="py-2.5 px-3 min-w-[200px]">Descrição Completa</th>
+                        <th className="py-2.5 px-3 min-w-[200px]">Categoria — Nome do produto</th>
                         <th className="py-2.5 px-3 text-center">Qtd</th>
                         <th className="py-2.5 px-3 text-right">Unitário</th>
                         <th className="py-2.5 px-3 text-right">Subtotal</th>
@@ -1196,7 +1398,7 @@ export default function PosSale() {
 
             {/* Coluna Direita: Resumo Rápido da Venda + Botões só com ícone (4 colunas) */}
             <div className="lg:col-span-4 space-y-3">
-              {/* Cliente Rápido */}
+              {/* Cliente Rápido com Busca Interativa ao Vivo */}
               <Card className="border-[#E5DFD5] bg-white shadow-xs">
                 <CardHeader className="p-3 pb-1">
                   <div className="flex items-center justify-between">
@@ -1213,18 +1415,141 @@ export default function PosSale() {
                   </div>
                 </CardHeader>
                 <CardContent className="p-3 pt-1">
-                  <select
-                    value={selectedCustomerId}
-                    onChange={(e) => setSelectedCustomerId(e.target.value)}
-                    className="w-full h-9 rounded-md border border-[#E5DFD5] bg-white px-2.5 text-xs text-[#2D2A26] focus:outline-none focus:ring-2 focus:ring-[#C6A664]"
-                  >
-                    <option value="">Consumidor Final (Sem cadastro)</option>
-                    {customers.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name} {c.phone ? `(${c.phone})` : ''}
-                      </option>
-                    ))}
-                  </select>
+                  <div ref={customerSearchContainerRef} className="relative">
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-[#8C8275]" />
+                      <Input
+                        type="text"
+                        placeholder="Buscar por nome, tel, CPF ou e-mail..."
+                        value={
+                          customerSearchQuery ||
+                          (selectedCustomerId
+                            ? (() => {
+                                const c = customers.find((cust) => cust.id === selectedCustomerId)
+                                return c ? `${c.name}${c.phone ? ` (${c.phone})` : ''}` : ''
+                              })()
+                            : '')
+                        }
+                        onChange={(e) => {
+                          setCustomerSearchQuery(e.target.value)
+                          setIsCustomerDropdownOpen(true)
+                          if (!e.target.value.trim()) {
+                            setSelectedCustomerId('')
+                          }
+                        }}
+                        onFocus={() => setIsCustomerDropdownOpen(true)}
+                        className="pl-8 pr-7 h-9 text-xs border-[#E5DFD5] bg-white focus:ring-[#C6A664]"
+                      />
+                      {(customerSearchQuery || selectedCustomerId) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCustomerSearchQuery('')
+                            setSelectedCustomerId('')
+                            setIsCustomerDropdownOpen(false)
+                          }}
+                          className="absolute right-2 top-2.5 text-[#8C8275] hover:text-[#2D2A26]"
+                          title="Limpar cliente"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Lista suspensa rolável com ~5 itens visíveis */}
+                    {isCustomerDropdownOpen && (
+                      <div className="absolute left-0 right-0 top-full mt-1 z-50 rounded-lg border border-[#E5DFD5] bg-white shadow-lg max-h-48 overflow-y-auto divide-y divide-[#E5DFD5]">
+                        <div
+                          onClick={() => {
+                            setSelectedCustomerId('')
+                            setCustomerSearchQuery('')
+                            setIsCustomerDropdownOpen(false)
+                          }}
+                          className={`p-2 text-xs cursor-pointer hover:bg-[#F3EAD8] transition-colors ${
+                            !selectedCustomerId
+                              ? 'bg-[#F3EAD8]/60 font-semibold text-[#7A5C2E]'
+                              : 'text-[#2D2A26]'
+                          }`}
+                        >
+                          Consumidor Final (Sem cadastro)
+                        </div>
+
+                        {(() => {
+                          const q = customerSearchQuery.trim().toLowerCase()
+                          const matches = customers.filter((c) => {
+                            if (!q) return true
+                            const matchName = c.name?.toLowerCase().includes(q)
+                            const matchPhone = c.phone?.toLowerCase().includes(q)
+                            const matchEmail = c.email?.toLowerCase().includes(q)
+                            const matchCpf = c.cpf
+                              ?.toLowerCase()
+                              .replace(/\D/g, '')
+                              .includes(q.replace(/\D/g, ''))
+                            return matchName || matchPhone || matchEmail || matchCpf
+                          })
+
+                          if (matches.length === 0) {
+                            return (
+                              <div className="p-3 text-xs text-center text-[#8C8275]">
+                                Nenhum cliente encontrado.{' '}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setIsCustomerDropdownOpen(false)
+                                    setNewCustomerModalOpen(true)
+                                  }}
+                                  className="text-[#7A5C2E] underline font-semibold ml-1"
+                                >
+                                  Cadastrar?
+                                </button>
+                              </div>
+                            )
+                          }
+
+                          return matches.map((c) => (
+                            <div
+                              key={c.id}
+                              onClick={() => {
+                                setSelectedCustomerId(c.id)
+                                setCustomerSearchQuery(`${c.name}${c.phone ? ` (${c.phone})` : ''}`)
+                                setIsCustomerDropdownOpen(false)
+                              }}
+                              className={`p-2 text-xs cursor-pointer hover:bg-[#F3EAD8] transition-colors flex items-center justify-between ${
+                                selectedCustomerId === c.id
+                                  ? 'bg-[#F3EAD8]/60 font-semibold text-[#7A5C2E]'
+                                  : 'text-[#2D2A26]'
+                              }`}
+                            >
+                              <div className="min-w-0 pr-2">
+                                <div className="font-medium truncate">{c.name}</div>
+                                <div className="text-[10px] text-[#6B655E] flex items-center gap-1.5 truncate">
+                                  {c.phone && <span>Tel: {c.phone}</span>}
+                                  {c.cpf && <span>CPF: {c.cpf}</span>}
+                                  {c.email && <span>{c.email}</span>}
+                                </div>
+                              </div>
+                              {selectedCustomerId === c.id && (
+                                <CheckCircle2 className="h-3.5 w-3.5 text-[#2E7D4F] shrink-0" />
+                              )}
+                            </div>
+                          ))
+                        })()}
+                      </div>
+                    )}
+                  </div>
+
+                  {selectedCustomerId ? (
+                    <div className="mt-1.5 flex items-center justify-between text-[11px] text-[#2E7D4F]">
+                      <span className="truncate">
+                        ✓ Cliente selecionado:{' '}
+                        <strong>{customers.find((c) => c.id === selectedCustomerId)?.name}</strong>
+                      </span>
+                    </div>
+                  ) : (
+                    <p className="mt-1 text-[10px] text-[#8C8275]">
+                      Consumidor Final (Sem cadastro)
+                    </p>
+                  )}
                 </CardContent>
               </Card>
 
@@ -1239,19 +1564,38 @@ export default function PosSale() {
                       <span>{formatCurrency(subtotal)}</span>
                     </div>
 
-                    <div className="flex items-center justify-between gap-2 pt-1">
-                      <Label htmlFor="disc" className="text-xs text-[#6B655E]">
-                        Desconto (R$):
-                      </Label>
-                      <Input
-                        id="disc"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={discount}
-                        onChange={(e) => setDiscount(e.target.value)}
-                        className="w-24 h-8 text-right font-semibold text-xs border-[#E5DFD5]"
-                      />
+                    {/* Desconto R$ e Percentual sincronizados bidirecionalmente */}
+                    <div className="space-y-1 pt-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <Label htmlFor="disc" className="text-xs text-[#6B655E]">
+                          Desconto (R$):
+                        </Label>
+                        <Input
+                          id="disc"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={discount}
+                          onChange={(e) => handleDiscountValueChange(e.target.value)}
+                          className="w-24 h-8 text-right font-semibold text-xs border-[#E5DFD5]"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2">
+                        <Label htmlFor="discPct" className="text-xs text-[#6B655E]">
+                          Desconto (%):
+                        </Label>
+                        <Input
+                          id="discPct"
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          value={discountPercent}
+                          onChange={(e) => handleDiscountPercentChange(e.target.value)}
+                          className="w-24 h-8 text-right font-semibold text-xs border-[#E5DFD5]"
+                        />
+                      </div>
                     </div>
 
                     <div className="flex justify-between items-baseline pt-2">
@@ -1287,14 +1631,22 @@ export default function PosSale() {
                         <CreditCard className="h-7 w-7" />
                       </Button>
 
-                      {/* Botão com ÍCONE DE FIADO / PENDENTE (sem texto) */}
+                      {/* Botão com ÍCONE DE FIADO / PENDENTE / RESERVA (sem texto) */}
                       <Button
                         type="button"
                         onClick={handleSavePending}
                         disabled={cart.length === 0}
-                        title="Venda a Prazo / Fiado (Salvar como Pendente sem baixar estoque)"
+                        title={
+                          !selectedCustomerId
+                            ? 'Reserva bloqueada: selecione um cliente cadastrado para reservar'
+                            : 'Venda a Prazo / Reserva (Salvar como Pendente sem baixar estoque)'
+                        }
                         variant="outline"
-                        className="h-14 border-2 border-[#B26A00] text-[#B26A00] hover:bg-[#B26A00]/10 flex items-center justify-center rounded-xl transition-all hover:scale-[1.02] active:scale-[0.98]"
+                        className={`h-14 border-2 flex items-center justify-center rounded-xl transition-all hover:scale-[1.02] active:scale-[0.98] ${
+                          !selectedCustomerId
+                            ? 'border-[#E5DFD5] text-[#8C8275] bg-[#FDFBF7] cursor-not-allowed opacity-75'
+                            : 'border-[#B26A00] text-[#B26A00] hover:bg-[#B26A00]/10'
+                        }`}
                       >
                         <Clock className="h-7 w-7" />
                       </Button>
@@ -1302,9 +1654,94 @@ export default function PosSale() {
 
                     <p className="text-[10px] text-[#6B655E] text-center pt-0.5">
                       <span className="font-medium text-[#2E7D4F]">Pagamento</span> ou{' '}
-                      <span className="font-medium text-[#B26A00]">Venda a Prazo / Fiado</span>
+                      <span className="font-medium text-[#B26A00]">Reserva / Venda a Prazo</span>
                     </p>
+
+                    {!selectedCustomerId && (
+                      <p className="text-[10px] text-[#B3261E] bg-[#B3261E]/5 p-1.5 rounded border border-[#B3261E]/20 text-center">
+                        ⚠️ <strong>Reserva exige cliente:</strong> selecione um cliente cadastrado
+                        para habilitar a reserva.
+                      </p>
+                    )}
                   </div>
+                </CardContent>
+              </Card>
+
+              {/* Bloco: Últimas compras/reservas (mais recente primeiro) */}
+              <Card className="border-[#E5DFD5] bg-white shadow-xs">
+                <CardHeader className="p-3 pb-2 border-b border-[#E5DFD5]">
+                  <CardTitle className="font-serif text-xs font-bold text-[#2D2A26] flex items-center justify-between">
+                    <span>Últimas compras/reservas</span>
+                    <Badge variant="outline" className="text-[10px] font-normal text-[#6B655E]">
+                      {recentSales.length} mais recentes
+                    </Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-3 pt-2">
+                  {loadingRecentSales ? (
+                    <p className="text-xs text-[#8C8275] text-center py-2">Carregando...</p>
+                  ) : recentSales.length === 0 ? (
+                    <p className="text-xs text-[#8C8275] text-center py-2">
+                      Nenhuma venda ou reserva registrada ainda.
+                    </p>
+                  ) : (
+                    <div className="space-y-2 divide-y divide-[#E5DFD5]/60">
+                      {recentSales.map((sale) => {
+                        const isPending = sale.status === 'pending'
+                        const isCancelled = sale.status === 'cancelled'
+                        const custName =
+                          sale.expand?.customer?.name ||
+                          (sale.customer ? 'Cliente cadastrado' : 'Consumidor Final')
+
+                        return (
+                          <div
+                            key={sale.id}
+                            className="pt-2 first:pt-0 flex items-start justify-between gap-2 text-xs"
+                          >
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-mono font-bold text-[#7A5C2E] text-[11px]">
+                                  {sale.code}
+                                </span>
+                                <Badge
+                                  className={`text-[9px] px-1 py-0 h-4 ${
+                                    isPending
+                                      ? 'bg-[#FEF3C7] text-[#B26A00] border border-[#B26A00]/30'
+                                      : isCancelled
+                                        ? 'bg-[#FEE2E2] text-[#B3261E] border border-[#B3261E]/30'
+                                        : 'bg-[#DCFCE7] text-[#15803D] border border-[#15803D]/30'
+                                  }`}
+                                >
+                                  {isPending ? 'Reserva' : isCancelled ? 'Cancelada' : 'Venda'}
+                                </Badge>
+                              </div>
+                              <p className="text-[11px] text-[#2D2A26] font-medium truncate mt-0.5">
+                                {custName}
+                              </p>
+                              <p className="text-[10px] text-[#8C8275]">
+                                {formatDateTime(sale.created)}
+                              </p>
+                            </div>
+
+                            <div className="text-right shrink-0">
+                              <span className="font-bold text-[#2D2A26] block">
+                                {formatCurrency(sale.total)}
+                              </span>
+                              {isPending && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleResumePending(sale)}
+                                  className="text-[10px] text-[#7A5C2E] hover:underline font-semibold"
+                                >
+                                  Retomar
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </div>
@@ -1715,24 +2152,40 @@ export default function PosSale() {
               />
             </div>
 
-            <div>
-              <Label className="text-xs font-semibold">Telefone / WhatsApp</Label>
-              <Input
-                value={newCustPhone}
-                onChange={(e) => setNewCustPhone(e.target.value)}
-                placeholder="(11) 99999-9999"
-                className="mt-1"
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs font-semibold">Telefone / WhatsApp</Label>
+                <Input
+                  value={newCustPhone}
+                  onChange={(e) => setNewCustPhone(e.target.value)}
+                  placeholder="(11) 99999-9999"
+                  className="mt-1 text-xs"
+                />
+              </div>
+
+              <div>
+                <Label className="text-xs font-semibold">
+                  CPF <span className="text-[#8C8275] font-normal">(Opcional)</span>
+                </Label>
+                <Input
+                  value={newCustCpf}
+                  onChange={(e) => setNewCustCpf(e.target.value)}
+                  placeholder="000.000.000-00"
+                  className="mt-1 text-xs"
+                />
+              </div>
             </div>
 
             <div>
-              <Label className="text-xs font-semibold">E-mail</Label>
+              <Label className="text-xs font-semibold">
+                E-mail <span className="text-[#8C8275] font-normal">(Opcional)</span>
+              </Label>
               <Input
                 type="email"
                 value={newCustEmail}
                 onChange={(e) => setNewCustEmail(e.target.value)}
                 placeholder="luiza@exemplo.com"
-                className="mt-1"
+                className="mt-1 text-xs"
               />
             </div>
 
@@ -1838,6 +2291,65 @@ export default function PosSale() {
         initialIndex={lightboxIndex}
         title={lightboxTitle}
       />
+
+      {/* Modal de Dupla Confirmação ao sair da tela com itens no carrinho */}
+      <Dialog
+        open={leaveModalStep !== 0}
+        onOpenChange={(open) => {
+          if (!open) handleCancelLeave()
+        }}
+      >
+        <DialogContent className="max-w-md bg-white border-2 border-[#B3261E]/40 shadow-xl p-6">
+          <DialogHeader>
+            <div className="flex items-center gap-3 text-[#B3261E] mb-2">
+              <span className="p-2.5 rounded-2xl bg-[#B3261E]/10 text-[#B3261E]">
+                <AlertTriangle className="h-6 w-6" />
+              </span>
+              <div>
+                <DialogTitle className="font-serif text-lg text-[#2D2A26]">
+                  {leaveModalStep === 1
+                    ? 'Atenção: Carrinho com itens!'
+                    : 'Confirmação final obrigatória'}
+                </DialogTitle>
+                <p className="text-xs text-[#8C8275]">Etapa {leaveModalStep} de 2 de confirmação</p>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="py-2 space-y-3">
+            <p className="text-sm font-semibold text-[#2D2A26] bg-[#FDFBF7] p-3 rounded-xl border border-[#E5DFD5]">
+              {leaveModalStep === 1
+                ? 'deseja realmente sair da página e perder toda a lista'
+                : 'deseja realmente sair da página e perder toda a lista'}
+            </p>
+
+            <p className="text-xs text-[#6B655E]">
+              Existem <strong>{cart.length} produto(s)</strong> no seu carrinho de venda atual. Se
+              você sair agora, todos os itens adicionados serão perdidos.
+            </p>
+          </div>
+
+          <DialogFooter className="pt-2 flex flex-col-reverse sm:flex-row gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleCancelLeave}
+              className="w-full sm:w-auto border-[#7A5C2E] text-[#7A5C2E] hover:bg-[#F3EAD8] text-xs h-10 font-semibold"
+            >
+              Não, quero continuar na venda
+            </Button>
+            <Button
+              type="button"
+              onClick={handleConfirmLeaveStep}
+              className="w-full sm:w-auto bg-[#B3261E] hover:bg-[#8F1E18] text-white text-xs h-10 font-semibold"
+            >
+              {leaveModalStep === 1
+                ? 'Sim, entendi (1ª confirmação)'
+                : 'Sim, confirmo e quero sair'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Leitor de código de barras pela câmera com leitura contínua */}
       {scannerOpen && (
