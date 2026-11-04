@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
+import { usePdvGuard } from '@/contexts/PdvGuardContext'
 import {
   LayoutDashboard,
   Mic,
@@ -137,6 +138,27 @@ export default function Layout() {
   }
   const navigate = useNavigate()
   const location = useLocation()
+  const { isCartDirty, requestLeave } = usePdvGuard()
+
+  // Interceptar cliques em links ou navegações quando estiver no PDV e houver itens
+  const handleNavClick = useCallback(
+    (e: React.MouseEvent<HTMLAnchorElement>, targetTo: string) => {
+      // Se não estiver no PDV ou não tiver itens sujos no carrinho, navega normalmente
+      if (!isCartDirty) return
+
+      // Se clicar no próprio link da página atual, não faz nada
+      if (location.pathname === targetTo) return
+
+      e.preventDefault()
+      e.stopPropagation()
+
+      requestLeave(() => {
+        closeMobileMenu()
+        navigate(targetTo)
+      })
+    },
+    [isCartDirty, location.pathname, requestLeave, closeMobileMenu, navigate],
+  )
 
   if (!user) {
     return (
@@ -310,6 +332,13 @@ export default function Layout() {
     { to: '/perfil', label: 'Perfil', icon: User },
   ]
   const handleLogout = () => {
+    if (isCartDirty) {
+      requestLeave(() => {
+        logout()
+        navigate('/login')
+      })
+      return
+    }
     logout()
     navigate('/login')
   }
@@ -359,7 +388,11 @@ export default function Layout() {
             {sidebarCollapsed ? (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <NavLink to="/" className="block focus:outline-hidden">
+                  <NavLink
+                    to="/"
+                    onClick={(e) => handleNavClick(e, '/')}
+                    className="block focus:outline-hidden"
+                  >
                     <img
                       src={LOGO_ICON_URL}
                       alt="Scaglioni Joias"
@@ -372,7 +405,11 @@ export default function Layout() {
                 </TooltipContent>
               </Tooltip>
             ) : (
-              <NavLink to="/" className="block focus:outline-hidden">
+              <NavLink
+                to="/"
+                onClick={(e) => handleNavClick(e, '/')}
+                className="block focus:outline-hidden"
+              >
                 <img
                   src={LOGO_FULL_URL}
                   alt="Scaglioni Joias"
@@ -432,6 +469,7 @@ export default function Layout() {
                 <TooltipTrigger asChild>
                   <NavLink
                     to={posItem.to}
+                    onClick={(e) => handleNavClick(e, posItem.to)}
                     className={cn(
                       'flex items-center justify-center h-12 w-full rounded-xl transition-all duration-200 border relative shadow-xs',
                       isPosActive
@@ -458,6 +496,7 @@ export default function Layout() {
             ) : (
               <NavLink
                 to={posItem.to}
+                onClick={(e) => handleNavClick(e, posItem.to)}
                 className={cn(
                   'flex items-center justify-between gap-3 p-3 rounded-2xl text-sm font-semibold transition-all duration-200 border shadow-xs group',
                   isPosActive
@@ -525,6 +564,7 @@ export default function Layout() {
                     <TooltipTrigger asChild>
                       <NavLink
                         to={item.to}
+                        onClick={(e) => handleNavClick(e, item.to)}
                         className={cn(
                           'flex items-center justify-center h-10 w-full rounded-xl transition-all duration-150',
                           item.isRestricted
@@ -574,6 +614,7 @@ export default function Layout() {
                 <NavLink
                   key={item.to}
                   to={item.to}
+                  onClick={(e) => handleNavClick(e, item.to)}
                   className={cn(
                     'flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150',
                     item.isRestricted
@@ -660,7 +701,7 @@ export default function Layout() {
         <div className="flex-1 flex flex-col min-w-0 pb-20 lg:pb-0">
           {/* Mobile Header com a logo oficial */}
           <header className="lg:hidden sticky top-0 z-40 bg-[#000000] border-b border-[#333333] px-4 py-2.5 flex items-center justify-between shadow-md">
-            <NavLink to="/" className="flex items-center">
+            <NavLink to="/" onClick={(e) => handleNavClick(e, '/')} className="flex items-center">
               <img
                 src={LOGO_FULL_URL}
                 alt="Scaglioni Joias"
@@ -671,6 +712,7 @@ export default function Layout() {
             <div className="flex items-center gap-1.5">
               <NavLink
                 to={posItem.to}
+                onClick={(e) => handleNavClick(e, posItem.to)}
                 className={cn(
                   'px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs',
                   isPosActive
@@ -741,7 +783,10 @@ export default function Layout() {
                 <div className="pb-2.5 border-b border-[#E5DFD5] shrink-0">
                   <NavLink
                     to={posItem.to}
-                    onClick={closeMobileMenu}
+                    onClick={(e) => {
+                      handleNavClick(e, posItem.to)
+                      if (!isCartDirty) closeMobileMenu()
+                    }}
                     className={cn(
                       'flex items-center justify-between p-3 min-h-[48px] rounded-xl text-sm font-bold shadow-xs transition-all border active:scale-[0.99]',
                       isPosActive
@@ -796,7 +841,10 @@ export default function Layout() {
                         key={item.to}
                         to={item.to}
                         ref={isActive ? activeMobileItemRef : undefined}
-                        onClick={closeMobileMenu}
+                        onClick={(e) => {
+                          handleNavClick(e, item.to)
+                          if (!isCartDirty) closeMobileMenu()
+                        }}
                         className={cn(
                           'flex items-center justify-between px-3 py-2.5 min-h-[46px] rounded-xl text-sm font-medium transition-colors select-none active:scale-[0.99]',
                           item.isRestricted
@@ -892,7 +940,12 @@ export default function Layout() {
 
               if (item.center) {
                 return (
-                  <NavLink key={item.to} to={item.to} className="flex flex-col items-center -mt-5">
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    onClick={(e) => handleNavClick(e, item.to)}
+                    className="flex flex-col items-center -mt-5"
+                  >
                     <div className="h-12 w-12 rounded-full bg-gradient-to-tr from-[#7A5C2E] via-[#C6A664] to-[#E8D5A3] shadow-lg flex items-center justify-center text-white ring-4 ring-[#FFFFFF]">
                       <Icon className="h-6 w-6" />
                     </div>
@@ -905,6 +958,7 @@ export default function Layout() {
                 <NavLink
                   key={item.to}
                   to={item.to}
+                  onClick={(e) => handleNavClick(e, item.to)}
                   className={cn(
                     'flex flex-col items-center justify-center py-1 px-2 rounded-lg transition-colors',
                     isActive ? 'text-[#7A5C2E]' : 'text-[#6B655E] hover:text-[#2D2A26]',

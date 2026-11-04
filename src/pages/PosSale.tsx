@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { salesService } from '@/services/salesService'
 import { productService } from '@/services/productService'
 import { useAuth } from '@/contexts/AuthContext'
+import { usePdvGuard } from '@/contexts/PdvGuardContext'
 import { useNavigate } from 'react-router-dom'
 import { Product, Customer, Sale, SaleItem } from '@/types'
 import { getProductFullName } from '@/types/labelContent'
@@ -75,12 +76,14 @@ export interface PosCartItem extends SaleItem {
   stock_origin?: 'general' | 'ecommerce' | 'reseller'
   reseller_id?: string
   reseller_name?: string
+  photo?: string | null
 }
 
 export default function PosSale() {
   const navigate = useNavigate()
   const { isAdmin, isSuperAdmin } = useAuth()
   const canSellFromExternal = isAdmin || isSuperAdmin
+  const { setIsCartDirty, registerLeaveHandler } = usePdvGuard()
 
   // Cart state
   const [cart, setCart] = useState<PosCartItem[]>([])
@@ -120,6 +123,7 @@ export default function PosSale() {
   const [leaveModalStep, setLeaveModalStep] = useState<0 | 1 | 2>(0)
   const pendingNavigationActionRef = useRef<(() => void) | null>(null)
   const isNavigatingAwayRef = useRef<boolean>(false)
+  const isHandlingPopStateRef = useRef<boolean>(false)
 
   // Cliente: busca interativa ao vivo
   const [customerSearchQuery, setCustomerSearchQuery] = useState('')
@@ -206,7 +210,25 @@ export default function PosSale() {
     }
   }
 
-  // Interceptar cliques externos em links / navegação interna se o carrinho tiver itens
+  // Sincronizar estado sujo do carrinho com o PdvGuardContext e registrar callback de saída
+  useEffect(() => {
+    setIsCartDirty(cart.length > 0)
+    return () => {
+      setIsCartDirty(false)
+    }
+  }, [cart.length, setIsCartDirty])
+
+  useEffect(() => {
+    registerLeaveHandler((onConfirm) => {
+      pendingNavigationActionRef.current = onConfirm
+      setLeaveModalStep(1)
+    })
+    return () => {
+      registerLeaveHandler(null)
+    }
+  }, [registerLeaveHandler])
+
+  // Interceptar cliques externos em links, navegação do browser (popstate) e beforeunload se o carrinho tiver itens
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (cart.length > 0) {
@@ -217,6 +239,38 @@ export default function PosSale() {
     }
     window.addEventListener('beforeunload', handleBeforeUnload)
 
+    // Interceptar botão voltar/avançar do navegador quando cart.length > 0
+    if (cart.length > 0) {
+      // Push dummy state no histórico para que o 'voltar' do browser dispare popstate sem sair imediatamente
+      window.history.pushState({ pdvGuard: true }, '')
+
+      const handlePopState = (e: PopStateEvent) => {
+        if (isNavigatingAwayRef.current) return
+
+        // Impede que a saída aconteça e volta ao estado do PDV
+        window.history.pushState({ pdvGuard: true }, '')
+        pendingNavigationActionRef.current = () => {
+          isNavigatingAwayRef.current = true
+          window.history.go(-2)
+        }
+        setLeaveModalStep(1)
+      }
+
+      window.addEventListener('popstate', handlePopState)
+
+      return () => {
+        window.removeEventListener('beforeunload', handleBeforeUnload)
+        window.removeEventListener('popstate', handlePopState)
+      }
+    }
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+    }
+  }, [cart.length])
+
+  useEffect(() => {
+    // Interceptar cliques globais em links <a> na página se o carrinho tiver itens
     const handleDocumentClick = (e: MouseEvent) => {
       if (cart.length === 0) return
       if (isNavigatingAwayRef.current) return
@@ -227,14 +281,14 @@ export default function PosSale() {
       const link = target.closest('a') as HTMLAnchorElement | null
       if (!link) return
 
-      // Não interceptar links internos do recibo/download
+      // Não interceptar links internos de blob ou nova aba
       if (link.getAttribute('href')?.startsWith('blob:')) return
       if (link.target === '_blank') return
 
       const href = link.getAttribute('href')
       if (!href || href.startsWith('#')) return
 
-      // Se for navegação para outra tela
+      // Se for navegação para a própria tela
       const targetUrl = new URL(link.href, window.location.origin)
       if (
         targetUrl.pathname === window.location.pathname &&
@@ -271,7 +325,6 @@ export default function PosSale() {
     document.addEventListener('mousedown', handleOutsideClick)
 
     return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload)
       document.removeEventListener('click', handleDocumentClick, true)
       document.removeEventListener('mousedown', handleOutsideClick)
     }
@@ -284,16 +337,18 @@ export default function PosSale() {
 
   const handleConfirmLeaveStep = () => {
     if (leaveModalStep === 1) {
-      // Primeira confirmação aceita -> passa para a SEGUNDA confirmação
+      // Primeira confirmação aceita -> passa para a SEGUNDA confirmação (mesma pergunta)
       setLeaveModalStep(2)
     } else if (leaveModalStep === 2) {
       // Segunda confirmação aceita -> executa a navegação de fato
       setLeaveModalStep(0)
+      setIsCartDirty(false)
       const action = pendingNavigationActionRef.current
       pendingNavigationActionRef.current = null
       if (action) {
         action()
       } else {
+        isNavigatingAwayRef.current = true
         navigate(-1)
       }
     }
@@ -583,6 +638,7 @@ export default function PosSale() {
       stock_origin: chosenOrigin,
       reseller_id: chosenResellerId,
       reseller_name: chosenResellerName,
+      photo: getProductDisplayPhoto(product),
     }
 
     setCart((prev) => [...prev, newItem])
@@ -1245,9 +1301,49 @@ export default function PosSale() {
                               {/* Descrição completa sem truncamento + Badge de Origem & Seletor de Origem */}
                               <td className="py-2 px-3">
                                 <div className="space-y-1">
-                                  <span className="font-medium text-[#2D2A26] whitespace-normal break-words block leading-relaxed">
-                                    {item.description}
-                                  </span>
+                                  {(() => {
+                                    const prod = products.find((p) => p.id === item.product_id)
+                                    const photo =
+                                      item.photo || (prod ? getProductDisplayPhoto(prod) : null)
+                                    const hasPhoto = Boolean(photo)
+
+                                    return (
+                                      <div className="flex items-start gap-2.5">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            if (prod && hasPhoto) handleOpenLightbox(prod)
+                                          }}
+                                          disabled={!hasPhoto || !prod}
+                                          className={`relative group h-10 w-10 rounded-lg bg-white border border-[#E5DFD5] shrink-0 overflow-hidden flex items-center justify-center ${
+                                            hasPhoto
+                                              ? 'hover:border-[#C6A664] cursor-pointer'
+                                              : 'cursor-default'
+                                          }`}
+                                          title={hasPhoto ? 'Ampliar foto da joia' : 'Sem foto'}
+                                        >
+                                          {hasPhoto ? (
+                                            <>
+                                              <img
+                                                src={photo!}
+                                                alt={item.description}
+                                                className="h-full w-full object-cover group-hover:scale-105 transition-transform"
+                                              />
+                                              <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white">
+                                                <ZoomIn className="h-3 w-3" />
+                                              </div>
+                                            </>
+                                          ) : (
+                                            <PackageCheck className="h-5 w-5 text-[#C6A664]" />
+                                          )}
+                                        </button>
+
+                                        <span className="font-medium text-[#2D2A26] whitespace-normal break-words block leading-relaxed pt-0.5">
+                                          {item.description}
+                                        </span>
+                                      </div>
+                                    )
+                                  })()}
 
                                   {/* Badges e Seleção de Origem */}
                                   {(() => {

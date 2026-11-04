@@ -1,6 +1,7 @@
 import React from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from '@/contexts/AuthContext'
+import { PdvGuardProvider } from '@/contexts/PdvGuardContext'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
 import Layout from '@/components/Layout'
 import { Toaster } from 'sonner'
@@ -42,199 +43,201 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <Toaster richColors position="top-right" />
-        <Routes>
-          {/* Public Routes */}
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/recuperar-senha" element={<ForgotPasswordPage />} />
-          <Route path="/solicitar-revendedor" element={<ResellerRequestPage />} />
-          <Route path="/loja/:resellerId" element={<PublicResellerStore />} />
-          <Route path="/instalar" element={<InstallAppPage />} />
+        <PdvGuardProvider>
+          <Toaster richColors position="top-right" />
+          <Routes>
+            {/* Public Routes */}
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/recuperar-senha" element={<ForgotPasswordPage />} />
+            <Route path="/solicitar-revendedor" element={<ResellerRequestPage />} />
+            <Route path="/loja/:resellerId" element={<PublicResellerStore />} />
+            <Route path="/instalar" element={<InstallAppPage />} />
 
-          {/* Authenticated Root under Layout */}
-          <Route
-            path="/"
-            element={
-              <ProtectedRoute>
-                <Layout />
-              </ProtectedRoute>
-            }
-          >
-            {/* Dashboard / Painel Executivo (Admin & Operator) */}
+            {/* Authenticated Root under Layout */}
             <Route
-              index
+              path="/"
               element={
-                <ProtectedRoute allowedRoles={['admin', 'operator']}>
-                  <Dashboard />
+                <ProtectedRoute>
+                  <Layout />
                 </ProtectedRoute>
               }
-            />
-            <Route path="dashboard" element={<Navigate to="/" replace />} />
+            >
+              {/* Dashboard / Painel Executivo (Admin & Operator) */}
+              <Route
+                index
+                element={
+                  <ProtectedRoute allowedRoles={['admin', 'operator']}>
+                    <Dashboard />
+                  </ProtectedRoute>
+                }
+              />
+              <Route path="dashboard" element={<Navigate to="/" replace />} />
 
-            <Route
-              path="/importar-tecson"
-              element={
-                <ProtectedRoute allowedRoles={['admin']}>
-                  <ImportTecsonPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/importar-scaglioni"
-              element={
-                <ProtectedRoute allowedRoles={['admin']}>
-                  <ImportScaglioniPage />
-                </ProtectedRoute>
-              }
-            />
-            {/* Voice Product Entry (Mobile-first anchor screen) */}
-            <Route
-              path="voz"
-              element={
-                <ProtectedRoute allowedRoles={['admin', 'operator']}>
-                  <VoiceProductEntry />
-                </ProtectedRoute>
-              }
-            />
+              <Route
+                path="/importar-tecson"
+                element={
+                  <ProtectedRoute allowedRoles={['admin']}>
+                    <ImportTecsonPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/importar-scaglioni"
+                element={
+                  <ProtectedRoute allowedRoles={['admin']}>
+                    <ImportScaglioniPage />
+                  </ProtectedRoute>
+                }
+              />
+              {/* Voice Product Entry (Mobile-first anchor screen) */}
+              <Route
+                path="voz"
+                element={
+                  <ProtectedRoute allowedRoles={['admin', 'operator']}>
+                    <VoiceProductEntry />
+                  </ProtectedRoute>
+                }
+              />
 
-            {/* Nova Página "Produtos" (Cadastrar produtos) */}
-            <Route
-              path="produtos"
-              element={
-                <ProtectedRoute allowedRoles={['admin', 'operator']}>
-                  <ProductsPage />
-                </ProtectedRoute>
-              }
-            />
+              {/* Nova Página "Produtos" (Cadastrar produtos) */}
+              <Route
+                path="produtos"
+                element={
+                  <ProtectedRoute allowedRoles={['admin', 'operator']}>
+                    <ProductsPage />
+                  </ProtectedRoute>
+                }
+              />
 
-            {/* Auxiliaries CRUD (Catálogo de Joias - Restrito Superadmin) */}
-            <Route
-              path="auxiliares"
-              element={
-                <ProtectedRoute allowedRoles={['admin', 'operator']}>
-                  <AuxiliariesCrud />
-                </ProtectedRoute>
-              }
-            />
+              {/* Auxiliaries CRUD (Catálogo de Joias - Restrito Superadmin) */}
+              <Route
+                path="auxiliares"
+                element={
+                  <ProtectedRoute allowedRoles={['admin', 'operator']}>
+                    <AuxiliariesCrud />
+                  </ProtectedRoute>
+                }
+              />
 
-            {/* Categories Auxiliary CRUD */}
-            <Route
-              path="categorias"
-              element={
-                <ProtectedRoute allowedRoles={['admin', 'operator']}>
-                  <CategoriesCrud />
-                </ProtectedRoute>
-              }
-            />
+              {/* Categories Auxiliary CRUD */}
+              <Route
+                path="categorias"
+                element={
+                  <ProtectedRoute allowedRoles={['admin', 'operator']}>
+                    <CategoriesCrud />
+                  </ProtectedRoute>
+                }
+              />
 
-            {/* Stock / Inventory */}
-            <Route
-              path="estoque"
-              element={
-                <ProtectedRoute allowedRoles={['admin', 'operator']}>
-                  <StockInventory />
-                </ProtectedRoute>
-              }
-            />
+              {/* Stock / Inventory */}
+              <Route
+                path="estoque"
+                element={
+                  <ProtectedRoute allowedRoles={['admin', 'operator']}>
+                    <StockInventory />
+                  </ProtectedRoute>
+                }
+              />
 
-            {/* Emissão / Geração de Etiquetas */}
-            <Route
-              path="etiquetas"
-              element={
-                <ProtectedRoute allowedRoles={['admin', 'operator']}>
-                  <LabelGenerationPage />
-                </ProtectedRoute>
-              }
-            />
+              {/* Emissão / Geração de Etiquetas */}
+              <Route
+                path="etiquetas"
+                element={
+                  <ProtectedRoute allowedRoles={['admin', 'operator']}>
+                    <LabelGenerationPage />
+                  </ProtectedRoute>
+                }
+              />
 
-            {/* POS Sales */}
-            <Route
-              path="pdv"
-              element={
-                <ProtectedRoute allowedRoles={['admin', 'operator']}>
-                  <PosSale />
-                </ProtectedRoute>
-              }
-            />
+              {/* POS Sales */}
+              <Route
+                path="pdv"
+                element={
+                  <ProtectedRoute allowedRoles={['admin', 'operator']}>
+                    <PosSale />
+                  </ProtectedRoute>
+                }
+              />
 
-            {/* Catalog / Vitrine (Accessible to Resellers, Operators, Admins) */}
-            <Route path="vitrine" element={<CatalogVitrine />} />
+              {/* Catalog / Vitrine (Accessible to Resellers, Operators, Admins) */}
+              <Route path="vitrine" element={<CatalogVitrine />} />
 
-            {/* PÁGINA UNIFICADA: Revendedoras (substitui Consignações e Entregas de Joias) */}
-            <Route path="revendedoras" element={<ResellersUnifiedPage />} />
+              {/* PÁGINA UNIFICADA: Revendedoras (substitui Consignações e Entregas de Joias) */}
+              <Route path="revendedoras" element={<ResellersUnifiedPage />} />
 
-            {/* Redirecionamentos / Rotas Legadas para a nova página unificada */}
-            <Route path="consignacoes" element={<Navigate to="/revendedoras" replace />} />
-            <Route
-              path="revendedora/estoque-entregas"
-              element={<Navigate to="/revendedoras" replace />}
-            />
+              {/* Redirecionamentos / Rotas Legadas para a nova página unificada */}
+              <Route path="consignacoes" element={<Navigate to="/revendedoras" replace />} />
+              <Route
+                path="revendedora/estoque-entregas"
+                element={<Navigate to="/revendedoras" replace />}
+              />
 
-            {/* Configurações da Empresa (Somente Administrador) */}
-            <Route
-              path="empresa"
-              element={
-                <ProtectedRoute allowedRoles={['admin']}>
-                  <CompanySettingsPage />
-                </ProtectedRoute>
-              }
-            />
+              {/* Configurações da Empresa (Somente Administrador) */}
+              <Route
+                path="empresa"
+                element={
+                  <ProtectedRoute allowedRoles={['admin']}>
+                    <CompanySettingsPage />
+                  </ProtectedRoute>
+                }
+              />
 
-            {/* Demais módulos da revendedora */}
-            <Route path="revendedora/pdv" element={<ResellerPosSale />} />
-            <Route
-              path="revendedora/devolucoes-pendencias"
-              element={<ResellerReturnsAndIssues />}
-            />
-            <Route path="revendedora/financeiro" element={<ResellerFinancial />} />
+              {/* Demais módulos da revendedora */}
+              <Route path="revendedora/pdv" element={<ResellerPosSale />} />
+              <Route
+                path="revendedora/devolucoes-pendencias"
+                element={<ResellerReturnsAndIssues />}
+              />
+              <Route path="revendedora/financeiro" element={<ResellerFinancial />} />
 
-            {/* Resellers cadastros (Admin & Operator) */}
-            <Route
-              path="revendedores"
-              element={
-                <ProtectedRoute allowedRoles={['admin', 'operator']}>
-                  <ResellersManagement />
-                </ProtectedRoute>
-              }
-            />
+              {/* Resellers cadastros (Admin & Operator) */}
+              <Route
+                path="revendedores"
+                element={
+                  <ProtectedRoute allowedRoles={['admin', 'operator']}>
+                    <ResellersManagement />
+                  </ProtectedRoute>
+                }
+              />
 
-            {/* Users management (Admin only) */}
-            <Route
-              path="usuarios"
-              element={
-                <ProtectedRoute allowedRoles={['admin']}>
-                  <UsersManagement />
-                </ProtectedRoute>
-              }
-            />
+              {/* Users management (Admin only) */}
+              <Route
+                path="usuarios"
+                element={
+                  <ProtectedRoute allowedRoles={['admin']}>
+                    <UsersManagement />
+                  </ProtectedRoute>
+                }
+              />
 
-            {/* Importação de Produtos (Admin only) */}
-            <Route
-              path="importar-produtos"
-              element={
-                <ProtectedRoute allowedRoles={['admin']}>
-                  <ImportProductsPage />
-                </ProtectedRoute>
-              }
-            />
+              {/* Importação de Produtos (Admin only) */}
+              <Route
+                path="importar-produtos"
+                element={
+                  <ProtectedRoute allowedRoles={['admin']}>
+                    <ImportProductsPage />
+                  </ProtectedRoute>
+                }
+              />
 
-            {/* Automação Scaglioni Joias (Admin only) */}
-            <Route
-              path="automacao"
-              element={
-                <ProtectedRoute allowedRoles={['admin']}>
-                  <AutomationPage />
-                </ProtectedRoute>
-              }
-            />
+              {/* Automação Scaglioni Joias (Admin only) */}
+              <Route
+                path="automacao"
+                element={
+                  <ProtectedRoute allowedRoles={['admin']}>
+                    <AutomationPage />
+                  </ProtectedRoute>
+                }
+              />
 
-            {/* Profile */}
-            <Route path="perfil" element={<UserProfile />} />
-          </Route>
+              {/* Profile */}
+              <Route path="perfil" element={<UserProfile />} />
+            </Route>
 
-          {/* Catch-all 404 */}
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+            {/* Catch-all 404 */}
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </PdvGuardProvider>
       </AuthProvider>
     </BrowserRouter>
   )
