@@ -12,12 +12,13 @@ import {
   Check,
   RotateCcw,
   Eye,
+  ListChecks,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import {
   Select,
@@ -29,6 +30,11 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Product, Brand, ProductCategory } from '@/types'
 import { LABEL_TEMPLATES, LabelTemplateModel } from '@/types/labels'
+import {
+  DEFAULT_LABEL_CONTENT,
+  LabelContentOptions,
+  getProductFullName,
+} from '@/types/labelContent'
 import { LabelPrintModal, PrintQueueItem } from '@/components/LabelPrintModal'
 import { productService } from '@/services/productService'
 import { fetchResellerStockQuantityMap, getProductTotalStock } from '@/services/totalStockService'
@@ -41,8 +47,9 @@ export const LabelGenerationPage: React.FC = () => {
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('')
   const [templateError, setTemplateError] = useState<string>('')
 
-  // Configurações da etiqueta
-  const [showPrice, setShowPrice] = useState<boolean>(true)
+  // Conteúdo da etiqueta (sempre inicia com apenas o código marcado — não persiste entre sessões)
+  const [contentOptions, setContentOptions] = useState<LabelContentOptions>(DEFAULT_LABEL_CONTENT)
+
   const [showAdvancedSettings, setShowAdvancedSettings] = useState<boolean>(false)
   const [manualOffsets, setManualOffsets] = useState({
     marginTop: 0,
@@ -162,6 +169,7 @@ export const LabelGenerationPage: React.FC = () => {
     const initialQty = p.qtde_inicial && p.qtde_inicial > 0 ? Math.floor(p.qtde_inicial) : 1
     const price = typeof p.selling_price === 'number' ? p.selling_price : 0
     const photo = getProductDisplayPhoto(p)
+    const fullName = getProductFullName(p)
 
     // Se já estiver na fila, incrementa ou atualiza
     setPrintQueue((prev) => {
@@ -186,6 +194,7 @@ export const LabelGenerationPage: React.FC = () => {
           code,
           barcodeValue,
           description: p.nome_produto || p.description || 'Produto Scaglioni',
+          fullName,
           price,
           quantity: initialQty,
           imageUrl: photo,
@@ -208,6 +217,7 @@ export const LabelGenerationPage: React.FC = () => {
         code: '',
         barcodeValue: '',
         description: 'Etiqueta vazia (espaço livre na folha)',
+        fullName: '',
         price: 0,
         quantity: 1,
       },
@@ -278,6 +288,11 @@ export const LabelGenerationPage: React.FC = () => {
   const currentTemplate: LabelTemplateModel | undefined = selectedTemplateId
     ? LABEL_TEMPLATES[selectedTemplateId]
     : undefined
+
+  // Alterna uma opção de conteúdo da etiqueta
+  const handleToggleContentOption = (key: keyof LabelContentOptions, checked: boolean) => {
+    setContentOptions((prev) => ({ ...prev, [key]: checked }))
+  }
 
   return (
     <div className="space-y-6 pb-12">
@@ -385,25 +400,61 @@ export const LabelGenerationPage: React.FC = () => {
               )}
             </div>
 
-            {/* Toggle: Exibir preço na etiqueta */}
-            <div className="md:col-span-5 flex flex-wrap items-center justify-between gap-4 p-3 bg-[#FCFAF6] border border-[#E5DFD5] rounded-lg">
-              <div className="space-y-0.5">
-                <Label
-                  htmlFor="show-price"
-                  className="text-sm font-medium text-[#2D2A26] cursor-pointer"
-                >
-                  Exibir preço na etiqueta
+            {/* Conteúdo da etiqueta: o que o usuário quer imprimir */}
+            <div className="md:col-span-5 space-y-2.5 p-3 bg-[#FCFAF6] border border-[#E5DFD5] rounded-lg">
+              <div className="flex items-center gap-1.5">
+                <ListChecks className="h-4 w-4 text-[#7A5C2E]" />
+                <Label className="text-sm font-semibold text-[#2D2A26]">
+                  O que colocar na etiqueta
                 </Label>
-                <p className="text-xs text-[#6B655E]">
-                  Imprime o valor unitário no rodapé da etiqueta
-                </p>
               </div>
-              <Switch
-                id="show-price"
-                checked={showPrice}
-                onCheckedChange={setShowPrice}
-                className="data-[state=checked]:bg-[#7A5C2E]"
-              />
+              <div className="grid grid-cols-1 gap-1.5">
+                <label
+                  htmlFor="label-content-code"
+                  className="flex items-center gap-2 text-sm text-[#2D2A26] cursor-pointer"
+                >
+                  <Checkbox
+                    id="label-content-code"
+                    checked={contentOptions.showCode}
+                    onCheckedChange={(checked) =>
+                      handleToggleContentOption('showCode', checked === true)
+                    }
+                    className="data-[state=checked]:bg-[#7A5C2E] data-[state=checked]:border-[#7A5C2E]"
+                  />
+                  Código
+                </label>
+                <label
+                  htmlFor="label-content-name"
+                  className="flex items-center gap-2 text-sm text-[#2D2A26] cursor-pointer"
+                >
+                  <Checkbox
+                    id="label-content-name"
+                    checked={contentOptions.showFullName}
+                    onCheckedChange={(checked) =>
+                      handleToggleContentOption('showFullName', checked === true)
+                    }
+                    className="data-[state=checked]:bg-[#7A5C2E] data-[state=checked]:border-[#7A5C2E]"
+                  />
+                  Nome completo (categoria + nome)
+                </label>
+                <label
+                  htmlFor="label-content-price"
+                  className="flex items-center gap-2 text-sm text-[#2D2A26] cursor-pointer"
+                >
+                  <Checkbox
+                    id="label-content-price"
+                    checked={contentOptions.showSellingPrice}
+                    onCheckedChange={(checked) =>
+                      handleToggleContentOption('showSellingPrice', checked === true)
+                    }
+                    className="data-[state=checked]:bg-[#7A5C2E] data-[state=checked]:border-[#7A5C2E]"
+                  />
+                  Valor de venda
+                </label>
+              </div>
+              <p className="text-[11px] text-[#6B655E]">
+                O código de barras Code 128 continua sempre presente na etiqueta.
+              </p>
             </div>
           </div>
 
@@ -950,7 +1001,7 @@ export const LabelGenerationPage: React.FC = () => {
           onClose={() => setIsPreviewOpen(false)}
           template={currentTemplate}
           items={printQueue}
-          showPrice={showPrice}
+          contentOptions={contentOptions}
           manualOffsets={manualOffsets}
         />
       )}

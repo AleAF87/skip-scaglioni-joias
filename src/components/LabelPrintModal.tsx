@@ -3,6 +3,7 @@ import { Printer, X, ZoomIn, ZoomOut, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { LabelTemplateModel } from '@/types/labels'
+import { LabelContentOptions } from '@/types/labelContent'
 import { BarcodeSvg } from '@/components/BarcodeSvg'
 import { formatCurrency } from '@/lib/formatters'
 
@@ -13,6 +14,7 @@ export interface PrintQueueItem {
   code: string
   barcodeValue: string
   description: string
+  fullName: string
   price: number
   quantity: number
   imageUrl?: string
@@ -23,7 +25,7 @@ interface LabelPrintModalProps {
   onClose: () => void
   template: LabelTemplateModel
   items: PrintQueueItem[]
-  showPrice: boolean
+  contentOptions: LabelContentOptions
 
   manualOffsets?: {
     marginTop: number
@@ -38,11 +40,13 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
   onClose,
   template,
   items,
-  showPrice,
+  contentOptions,
   manualOffsets = { marginTop: 0, marginLeft: 0, gapHorizontal: 0, gapVertical: 0 },
 }) => {
   const [zoom, setZoom] = React.useState<number>(100)
   const printAreaRef = useRef<HTMLDivElement>(null)
+
+  const { showCode, showFullName, showSellingPrice } = contentOptions
 
   if (!isOpen) return null
 
@@ -54,6 +58,7 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
     code: string
     barcodeValue: string
     description: string
+    fullName: string
     price: number
     key: string
   }> = []
@@ -66,6 +71,7 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
         code: item.code,
         barcodeValue: item.barcodeValue,
         description: item.description,
+        fullName: item.fullName,
         price: item.price,
         key: `${item.id}-${itemIdx}-${i}`,
       })
@@ -85,6 +91,7 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
         code: '',
         barcodeValue: '',
         description: '',
+        fullName: '',
         price: 0,
         key: `pad-${i}-${pageCells.length}`,
       })
@@ -101,6 +108,7 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
         code: '',
         barcodeValue: '',
         description: '',
+        fullName: '',
         price: 0,
         key: `empty-${i}`,
       })
@@ -273,14 +281,16 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
                             <div className="w-full h-[5.5mm] flex items-center justify-center">
                               <BarcodeSvg
                                 value={cell.barcodeValue}
-                                displayText={cell.code}
+                                displayText={showCode ? cell.code : ''}
                                 height={24}
                                 showText={false}
                               />
                             </div>
-                            <span className="font-mono font-black text-[7.5px] tracking-tight mt-[0.3mm]">
-                              {cell.code}
-                            </span>
+                            {showCode && (
+                              <span className="font-mono font-black text-[7.5px] tracking-tight mt-[0.3mm]">
+                                {cell.code}
+                              </span>
+                            )}
                           </div>
 
                           {/* Centro da haste fina (área dobrável do anel) */}
@@ -290,13 +300,15 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
 
                           {/* Lado Direito: Nome da peça e Preço */}
                           <div className="w-[42%] h-full flex flex-col justify-center items-end text-right overflow-hidden pr-0.5">
-                            <span
-                              className="w-full truncate font-medium text-[6.5px] text-gray-800"
-                              title={cell.description}
-                            >
-                              {cell.description || 'Scaglioni Joias'}
-                            </span>
-                            {showPrice && cell.price > 0 && (
+                            {showFullName && (
+                              <span
+                                className="w-full truncate font-medium text-[6.5px] text-gray-800"
+                                title={cell.fullName}
+                              >
+                                {cell.fullName || 'Scaglioni Joias'}
+                              </span>
+                            )}
+                            {showSellingPrice && cell.price > 0 && (
                               <span className="font-bold text-[7.5px] text-black mt-[0.5mm]">
                                 {formatCurrency(cell.price)}
                               </span>
@@ -306,11 +318,18 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
                       ) : (
                         /* Layout padrão (6187, A4349, A4351) */
                         <div className="w-full h-full flex flex-col items-center justify-between text-center overflow-hidden leading-tight font-sans">
+                          {/* Nome completo (categoria + nome) opcional */}
+                          {showFullName && (
+                            <span className="w-full truncate text-[6.5px] text-gray-800 leading-tight pt-[0.2mm]">
+                              {cell.fullName}
+                            </span>
+                          )}
+
                           {/* Barcode ocupando o corpo principal da etiqueta */}
                           <div className="w-full flex-1 flex items-center justify-center min-h-0 overflow-hidden py-[0.3mm]">
                             <BarcodeSvg
                               value={cell.barcodeValue}
-                              displayText={cell.code}
+                              displayText={showCode ? cell.code : ''}
                               height={28}
                               showText={false}
                             />
@@ -318,11 +337,15 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
 
                           {/* Linha inferior: Código sem zeros + Preço opcional */}
                           <div className="w-full flex items-center justify-between px-0.5 text-[7px] font-semibold mt-[0.2mm]">
-                            <span className="font-mono font-bold tracking-tight text-[7.5px]">
-                              {cell.code}
-                            </span>
+                            {showCode ? (
+                              <span className="font-mono font-bold tracking-tight text-[7.5px]">
+                                {cell.code}
+                              </span>
+                            ) : (
+                              <span />
+                            )}
 
-                            {showPrice && cell.price > 0 && (
+                            {showSellingPrice && cell.price > 0 && (
                               <span className="font-bold text-[7px] text-black">
                                 {formatCurrency(cell.price)}
                               </span>
