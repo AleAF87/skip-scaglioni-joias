@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import {
@@ -57,6 +57,72 @@ export default function Layout() {
       return false
     }
   })
+
+  const mobileNavContainerRef = useRef<HTMLElement | null>(null)
+  const activeMobileItemRef = useRef<HTMLAnchorElement | null>(null)
+
+  // Trava o scroll da página enquanto o menu mobile estiver aberto,
+  // para que o único scroll ativo seja o do próprio drawer.
+  useEffect(() => {
+    if (!mobileMenuOpen) return
+    const previousOverflow = document.body.style.overflow
+    const previousTouchAction = document.body.style.touchAction
+    document.body.style.overflow = 'hidden'
+    document.body.style.touchAction = 'none'
+    return () => {
+      document.body.style.overflow = previousOverflow
+      document.body.style.touchAction = previousTouchAction
+    }
+  }, [mobileMenuOpen])
+
+  // Suporte à tecla Esc e ao botão Voltar do Android/navegador quando o menu mobile estiver aberto
+  useEffect(() => {
+    if (!mobileMenuOpen) return
+
+    // Tecla ESC para acessibilidade
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setMobileMenuOpen(false)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+
+    // Push de estado no histórico para capturar o botão voltar do Android sem trocar a URL visível
+    const stateId = 'mobile-menu-open-' + Date.now()
+    window.history.pushState({ mobileMenu: stateId }, '')
+
+    const handlePopState = () => {
+      setMobileMenuOpen(false)
+    }
+    window.addEventListener('popstate', handlePopState)
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('popstate', handlePopState)
+      // Se fechou por outro meio (toque fora, clique em link) e o estado do histórico ainda for o nosso, desfaz o pushState
+      if (window.history.state && window.history.state.mobileMenu === stateId) {
+        window.history.back()
+      }
+    }
+  }, [mobileMenuOpen])
+
+  // Ao abrir o menu mobile, faz scrollIntoView suave para o item ativo ficar imediatamente visível
+  useEffect(() => {
+    if (!mobileMenuOpen) return
+    const timer = setTimeout(() => {
+      if (activeMobileItemRef.current) {
+        activeMobileItemRef.current.scrollIntoView({
+          block: 'center',
+          behavior: 'smooth',
+        })
+      }
+    }, 100)
+    return () => clearTimeout(timer)
+  }, [mobileMenuOpen])
+
+  const closeMobileMenu = useCallback(() => {
+    setMobileMenuOpen(false)
+  }, [])
 
   const toggleSidebar = () => {
     setSidebarCollapsed((prev) => {
@@ -629,10 +695,18 @@ export default function Layout() {
 
           {/* Mobile Drawer Navigation if menu toggled */}
           {mobileMenuOpen && (
-            <div className="lg:hidden fixed inset-0 z-50 bg-[#2D2A26]/50 backdrop-blur-xs flex flex-col">
-              <div className="bg-[#FFFFFF] w-4/5 max-w-xs h-full flex flex-col p-4 shadow-2xl animate-fade-in">
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="Menu principal de navegação"
+              className="lg:hidden fixed inset-0 z-50 bg-[#2D2A26]/60 backdrop-blur-xs flex touch-none animate-fade-in"
+            >
+              <div
+                className="bg-[#FFFFFF] w-[85%] max-w-xs h-[100dvh] max-h-[100dvh] flex flex-col overflow-hidden p-4 shadow-2xl touch-auto"
+                onClick={(e) => e.stopPropagation()}
+              >
                 {/* Header da Gaveta com Logo Oficial */}
-                <div className="flex items-center justify-between pb-3 border-b border-[#E5DFD5]">
+                <div className="flex items-center justify-between pb-3 border-b border-[#E5DFD5] shrink-0">
                   <div className="bg-black p-2 rounded-xl flex items-center justify-center max-w-[180px]">
                     <img
                       src={LOGO_FULL_URL}
@@ -641,16 +715,18 @@ export default function Layout() {
                     />
                   </div>
                   <button
-                    onClick={() => setMobileMenuOpen(false)}
-                    className="p-1 rounded-lg text-[#6B655E] hover:bg-[#F3EAD8]"
+                    type="button"
+                    onClick={closeMobileMenu}
+                    aria-label="Fechar menu"
+                    className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-[#6B655E] hover:bg-[#F3EAD8] active:bg-[#E5DFD5] transition-colors"
                   >
                     <X className="h-5 w-5" />
                   </button>
                 </div>
 
-                <div className="py-3">
-                  <p className="text-sm font-semibold text-[#2D2A26]">{user.name}</p>
-                  <p className="text-xs text-[#6B655E] font-medium">
+                <div className="py-2.5 shrink-0">
+                  <p className="text-sm font-semibold text-[#2D2A26] truncate">{user.name}</p>
+                  <p className="text-xs text-[#6B655E] font-medium truncate">
                     {user.role === 'superadmin'
                       ? 'Super Administrador'
                       : user.role === 'admin'
@@ -662,60 +738,80 @@ export default function Layout() {
                 </div>
 
                 {/* PDV EM DESTAQUE NO TOPO DA GAVETA MOBILE */}
-                <div className="pb-3 border-b border-[#E5DFD5]">
+                <div className="pb-2.5 border-b border-[#E5DFD5] shrink-0">
                   <NavLink
                     to={posItem.to}
-                    onClick={() => setMobileMenuOpen(false)}
+                    onClick={closeMobileMenu}
                     className={cn(
-                      'flex items-center justify-between p-3 rounded-xl text-sm font-bold shadow-xs transition-all border',
+                      'flex items-center justify-between p-3 min-h-[48px] rounded-xl text-sm font-bold shadow-xs transition-all border active:scale-[0.99]',
                       isPosActive
-                        ? 'bg-gradient-to-r from-[#7A5C2E] via-[#A88742] to-[#7A5C2E] text-white border-[#7A5C2E]'
-                        : 'bg-gradient-to-r from-[#F8F3EA] to-[#F3EAD8] text-[#7A5C2E] border-[#C6A664]',
+                        ? 'bg-gradient-to-r from-[#7A5C2E] via-[#A88742] to-[#7A5C2E] text-white border-[#7A5C2E] ring-2 ring-[#C6A664]/50'
+                        : 'bg-gradient-to-r from-[#F8F3EA] to-[#F3EAD8] text-[#7A5C2E] border-[#C6A664] hover:border-[#7A5C2E]',
                     )}
                   >
                     <div className="flex items-center gap-3">
-                      <div className="h-8 w-8 rounded-lg bg-[#7A5C2E] text-white flex items-center justify-center">
+                      <div className="h-8 w-8 rounded-lg bg-[#7A5C2E] text-white flex items-center justify-center shrink-0">
                         <posItem.icon className="h-4 w-4" />
                       </div>
                       <div>
                         <span className="block leading-tight font-serif text-sm">
                           {posItem.label}
                         </span>
-                        <span className="text-[10px] font-normal text-amber-900 block">
+                        <span
+                          className={cn(
+                            'text-[10px] font-normal block',
+                            isPosActive ? 'text-white/85' : 'text-amber-900',
+                          )}
+                        >
                           Acesso prioritário
                         </span>
                       </div>
                     </div>
-                    <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-[#7A5C2E] text-white">
+                    <span
+                      className={cn(
+                        'text-[10px] uppercase font-bold px-2 py-0.5 rounded-full shrink-0',
+                        isPosActive ? 'bg-white text-[#7A5C2E]' : 'bg-[#7A5C2E] text-white',
+                      )}
+                    >
                       {posItem.badge}
                     </span>
                   </NavLink>
                 </div>
 
-                <nav className="flex-1 overflow-y-auto space-y-1 py-2">
+                {/* Lista de navegação com rolagem livre, sem cortes e com padding generoso no fim */}
+                <nav
+                  ref={mobileNavContainerRef}
+                  aria-label="Itens do menu"
+                  className="flex-1 min-h-0 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch] space-y-1 py-2 pr-1"
+                >
                   {navItems.map((item) => {
                     const Icon = item.icon
-                    const isActive = location.pathname.startsWith(item.to)
+                    const isExactRoot = item.to === '/'
+                    const isActive = isExactRoot
+                      ? location.pathname === '/'
+                      : location.pathname.startsWith(item.to)
+
                     return (
                       <NavLink
                         key={item.to}
                         to={item.to}
-                        onClick={() => setMobileMenuOpen(false)}
+                        ref={isActive ? activeMobileItemRef : undefined}
+                        onClick={closeMobileMenu}
                         className={cn(
-                          'flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-colors',
+                          'flex items-center justify-between px-3 py-2.5 min-h-[46px] rounded-xl text-sm font-medium transition-colors select-none active:scale-[0.99]',
                           item.isRestricted
                             ? isActive
-                              ? 'bg-red-50 text-red-600 font-semibold border border-red-200'
-                              : 'text-red-600 hover:bg-red-50'
+                              ? 'bg-red-50 text-red-600 font-bold border border-red-200 shadow-2xs'
+                              : 'text-red-600 hover:bg-red-50 active:bg-red-100'
                             : isActive
-                              ? 'bg-[#C6A664]/15 text-[#7A5C2E] font-semibold'
-                              : 'text-[#6B655E] hover:bg-[#F3EAD8]',
+                              ? 'bg-[#C6A664]/20 text-[#7A5C2E] font-bold shadow-2xs border border-[#C6A664]/40'
+                              : 'text-[#4A453E] hover:bg-[#F3EAD8]/70 active:bg-[#E5DFD5]',
                         )}
                       >
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
                           <Icon
                             className={cn(
-                              'h-4 w-4',
+                              'h-4 w-4 shrink-0',
                               item.isRestricted
                                 ? 'text-red-600'
                                 : isActive
@@ -723,35 +819,48 @@ export default function Layout() {
                                   : 'text-[#6B655E]',
                             )}
                           />
-                          <span>{item.label}</span>
+                          <span className="truncate">{item.label}</span>
                           {item.isRestricted && (
-                            <span className="text-[9px] bg-red-600 text-white px-1.5 py-0.5 rounded font-bold uppercase">
+                            <span className="text-[9px] bg-red-600 text-white px-1.5 py-0.5 rounded-sm font-bold uppercase shrink-0">
                               Restrito
                             </span>
                           )}
                           {item.badgeText && (
-                            <span className="text-[9px] bg-[#F3EAD8] text-[#7A5C2E] border border-[#C6A664]/50 px-1.5 py-0.5 rounded font-bold uppercase">
+                            <span className="text-[9px] bg-[#F3EAD8] text-[#7A5C2E] border border-[#C6A664]/50 px-1.5 py-0.5 rounded-sm font-bold uppercase shrink-0">
                               {item.badgeText}
                             </span>
                           )}
                         </div>
                         <ChevronRight
                           className={cn(
-                            'h-4 w-4',
-                            item.isRestricted ? 'text-red-400' : 'text-[#C6A664]',
+                            'h-4 w-4 shrink-0 transition-transform',
+                            isActive && 'translate-x-0.5',
+                            item.isRestricted
+                              ? 'text-red-400'
+                              : isActive
+                                ? 'text-[#7A5C2E]'
+                                : 'text-[#C6A664]',
                           )}
                         />
                       </NavLink>
                     )
                   })}
+
+                  {/* Espaço extra ao final da rolagem interna para evitar corte ou colagem no footer */}
+                  <div className="h-6" aria-hidden="true" />
                 </nav>
 
-                <div className="pt-3 border-t border-[#E5DFD5] space-y-2">
+                {/* Footer com logout e versão */}
+                <div className="pt-2.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] border-t border-[#E5DFD5] space-y-2 shrink-0 bg-[#FFFFFF]">
                   <button
-                    onClick={handleLogout}
-                    className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium text-[#B3261E] hover:bg-[#B3261E]/10 rounded-xl"
+                    type="button"
+                    onClick={() => {
+                      closeMobileMenu()
+                      handleLogout()
+                    }}
+                    className="w-full min-h-[44px] flex items-center gap-3 px-3 py-2 text-sm font-medium text-[#B3261E] hover:bg-[#B3261E]/10 active:bg-[#B3261E]/20 rounded-xl transition-colors"
                   >
-                    <LogOut className="h-4 w-4" />
+                    <LogOut className="h-4 w-4 shrink-0" />
                     <span>Sair da conta</span>
                   </button>
                   <div className="text-center">
@@ -759,7 +868,14 @@ export default function Layout() {
                   </div>
                 </div>
               </div>
-              <div className="flex-1" onClick={() => setMobileMenuOpen(false)} />
+
+              {/* Backdrop / Área clicável fora do drawer para fechar */}
+              <button
+                type="button"
+                aria-label="Fechar menu clicando fora"
+                className="flex-1 h-full cursor-default focus:outline-hidden bg-transparent border-0"
+                onClick={closeMobileMenu}
+              />
             </div>
           )}
 
