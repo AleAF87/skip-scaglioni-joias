@@ -21,6 +21,7 @@ interface UserEditModalProps {
   onOpenChange: (open: boolean) => void
   onSaved: () => void
   currentUserId?: string
+  isSuperAdmin?: boolean
 }
 
 export function UserEditModal({
@@ -29,6 +30,7 @@ export function UserEditModal({
   onOpenChange,
   onSaved,
   currentUserId,
+  isSuperAdmin = false,
 }: UserEditModalProps) {
   const [loading, setLoading] = useState(false)
 
@@ -87,6 +89,18 @@ export function UserEditModal({
 
   const validate = () => {
     const errs: Record<string, string> = {}
+    if (user?.role === 'superadmin' && !isSuperAdmin) {
+      errs.role = 'Apenas Super Administradores podem editar usuários Superadmin.'
+      toast.error('Apenas Super Administradores podem editar usuários Superadmin.')
+      return false
+    }
+
+    if (role === 'superadmin' && !isSuperAdmin) {
+      errs.role = 'Apenas Super Administradores podem conceder o papel de Super Administrador.'
+      toast.error('Apenas Super Administradores podem conceder o papel de Super Administrador.')
+      return false
+    }
+
     if (!name.trim()) {
       errs.name = 'Nome completo é obrigatório.'
     }
@@ -220,6 +234,7 @@ export function UserEditModal({
             errors={errors}
             clearError={clearError}
             isEditingSelf={isEditingSelf}
+            canAssignSuperadmin={isSuperAdmin}
           />
 
           <UserProfileDetailsFields

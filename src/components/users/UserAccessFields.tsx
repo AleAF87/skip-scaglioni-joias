@@ -18,6 +18,7 @@ interface UserAccessFieldsProps {
   errors: Record<string, string>
   clearError: (field: string) => void
   isEditingSelf?: boolean
+  canAssignSuperadmin?: boolean
 }
 
 export function UserAccessFields({
@@ -34,6 +35,7 @@ export function UserAccessFields({
   errors,
   clearError,
   isEditingSelf,
+  canAssignSuperadmin = true,
 }: UserAccessFieldsProps) {
   return (
     <div className="bg-[#FDFBF7] p-3.5 rounded-lg border border-[#E5DFD5] space-y-3">
@@ -89,7 +91,9 @@ export function UserAccessFields({
             onChange={(e) => setRole(e.target.value as UserRole)}
             className="w-full h-10 rounded-md border border-[#E5DFD5] bg-white px-3 text-sm mt-1 text-[#2D2A26] focus:outline-none focus:ring-2 focus:ring-[#C6A664]"
           >
-            <option value="superadmin">Super Administrador (Acesso Irrestrito)</option>
+            {canAssignSuperadmin && (
+              <option value="superadmin">Super Administrador (Acesso Irrestrito)</option>
+            )}
             <option value="admin">Administrador (Total)</option>
             <option value="operator">Operador (Estoque, Vendas, Dashboard)</option>
             <option value="reseller">Revendedor (Vitrine e Consignação)</option>

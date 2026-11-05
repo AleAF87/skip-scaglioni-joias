@@ -77,7 +77,7 @@ export default function App() {
               <Route
                 path="/importar-tecson"
                 element={
-                  <ProtectedRoute allowedRoles={['admin']}>
+                  <ProtectedRoute allowedRoles={['superadmin']}>
                     <ImportTecsonPage />
                   </ProtectedRoute>
                 }
@@ -85,16 +85,16 @@ export default function App() {
               <Route
                 path="/importar-scaglioni"
                 element={
-                  <ProtectedRoute allowedRoles={['admin']}>
+                  <ProtectedRoute allowedRoles={['superadmin']}>
                     <ImportScaglioniPage />
                   </ProtectedRoute>
                 }
               />
-              {/* Voice Product Entry (Mobile-first anchor screen) */}
+              {/* Voice Product Entry (Exclusivo Superadmin) */}
               <Route
                 path="voz"
                 element={
-                  <ProtectedRoute allowedRoles={['admin', 'operator']}>
+                  <ProtectedRoute allowedRoles={['superadmin']}>
                     <VoiceProductEntry />
                   </ProtectedRoute>
                 }
@@ -114,7 +114,7 @@ export default function App() {
               <Route
                 path="auxiliares"
                 element={
-                  <ProtectedRoute allowedRoles={['admin', 'operator']}>
+                  <ProtectedRoute allowedRoles={['superadmin']}>
                     <AuxiliariesCrud />
                   </ProtectedRoute>
                 }
@@ -173,11 +173,11 @@ export default function App() {
                 element={<Navigate to="/revendedoras" replace />}
               />
 
-              {/* Configurações da Empresa (Somente Administrador) */}
+              {/* Configurações da Empresa (Restrito Superadmin) */}
               <Route
                 path="empresa"
                 element={
-                  <ProtectedRoute allowedRoles={['admin']}>
+                  <ProtectedRoute allowedRoles={['superadmin']}>
                     <CompanySettingsPage />
                   </ProtectedRoute>
                 }
@@ -221,21 +221,21 @@ export default function App() {
                 }
               />
 
-              {/* Importação de Produtos (Admin only) */}
+              {/* Importação de Produtos (Superadmin only) */}
               <Route
                 path="importar-produtos"
                 element={
-                  <ProtectedRoute allowedRoles={['admin']}>
+                  <ProtectedRoute allowedRoles={['superadmin']}>
                     <ImportProductsPage />
                   </ProtectedRoute>
                 }
               />
 
-              {/* Automação Scaglioni Joias (Admin only) */}
+              {/* Automação Scaglioni Joias (Superadmin only) */}
               <Route
                 path="automacao"
                 element={
-                  <ProtectedRoute allowedRoles={['admin']}>
+                  <ProtectedRoute allowedRoles={['superadmin']}>
                     <AutomationPage />
                   </ProtectedRoute>
                 }

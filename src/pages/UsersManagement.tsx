@@ -20,7 +20,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { UserEditModal } from '@/components/users/UserEditModal'
 
 export default function UsersManagement() {
-  const { user: currentUser, isAdmin } = useAuth()
+  const { user: currentUser, isAdmin, isSuperAdmin } = useAuth()
   const [users, setUsers] = useState<AppUser[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -70,18 +70,35 @@ export default function UsersManagement() {
     userId: string,
     newStatus: 'active' | 'rejected' | 'disabled',
     name: string,
+    targetRole?: string,
   ) => {
+    if (targetRole === 'superadmin' && !isSuperAdmin) {
+      toast.error('Apenas Super Administradores podem alterar o status de um Superadmin.')
+      return
+    }
+
     try {
       await pb.collection('users').update(userId, { status: newStatus })
       toast.success(`Usuário "${name}" agora está ${newStatus === 'active' ? 'ativo' : newStatus}!`)
       loadUsers()
-    } catch (err) {
-      toast.error('Erro ao atualizar status.')
+    } catch (err: any) {
+      console.error(err)
+      toast.error(err?.message || 'Erro ao atualizar status.')
     }
   }
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (newPassword.length < 8) {
+      toast.error('A senha deve ter no mínimo 8 caracteres.')
+      return
+    }
+
+    if (newRole === 'superadmin' && !isSuperAdmin) {
+      toast.error('Apenas Super Administradores podem cadastrar um novo Superadmin.')
+      return
+    }
+
     try {
       await pb.collection('users').create({
         name: newName.trim(),
@@ -253,59 +270,72 @@ export default function UsersManagement() {
                     <td className="py-3 px-4 text-xs text-[#6B655E]">{formatDate(u.created)}</td>
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
-                        {isAdmin && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              setEditingUser(u)
-                              setEditModalOpen(true)
-                            }}
-                            className="h-8 border-[#C6A664] text-[#7A5C2E] hover:bg-[#C6A664]/10 hover:text-[#7A5C2E] text-xs font-medium"
-                            title={`Editar dados de ${u.name}`}
+                        {u.role === 'superadmin' && !isSuperAdmin ? (
+                          <span
+                            className="text-xs text-[#6B655E] italic px-2 py-1 bg-[#F5F2EB] rounded-md border border-[#E5DFD5]"
+                            title="Apenas Superadmin pode gerenciar este usuário"
                           >
-                            <Pencil className="h-3.5 w-3.5 mr-1" /> Editar
-                          </Button>
-                        )}
-
-                        {u.status === 'pending' && (
+                            Protegido
+                          </span>
+                        ) : (
                           <>
-                            <Button
-                              size="sm"
-                              onClick={() => handleUpdateStatus(u.id, 'active', u.name)}
-                              className="h-8 bg-[#2E7D4F] text-white text-xs"
-                            >
-                              <CheckCircle className="h-3.5 w-3.5 mr-1" /> Aprovar
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleUpdateStatus(u.id, 'rejected', u.name)}
-                              className="h-8 border-[#B3261E] text-[#B3261E] text-xs"
-                            >
-                              <XCircle className="h-3.5 w-3.5 mr-1" /> Reprovar
-                            </Button>
+                            {isAdmin && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  setEditingUser(u)
+                                  setEditModalOpen(true)
+                                }}
+                                className="h-8 border-[#C6A664] text-[#7A5C2E] hover:bg-[#C6A664]/10 hover:text-[#7A5C2E] text-xs font-medium"
+                                title={`Editar dados de ${u.name}`}
+                              >
+                                <Pencil className="h-3.5 w-3.5 mr-1" /> Editar
+                              </Button>
+                            )}
+
+                            {u.status === 'pending' && (
+                              <>
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleUpdateStatus(u.id, 'active', u.name, u.role)}
+                                  className="h-8 bg-[#2E7D4F] text-white text-xs"
+                                >
+                                  <CheckCircle className="h-3.5 w-3.5 mr-1" /> Aprovar
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() =>
+                                    handleUpdateStatus(u.id, 'rejected', u.name, u.role)
+                                  }
+                                  className="h-8 border-[#B3261E] text-[#B3261E] text-xs"
+                                >
+                                  <XCircle className="h-3.5 w-3.5 mr-1" /> Reprovar
+                                </Button>
+                              </>
+                            )}
+                            {u.status === 'active' && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleUpdateStatus(u.id, 'disabled', u.name, u.role)}
+                                className="h-8 text-[#B3261E] hover:bg-[#B3261E]/10 text-xs"
+                              >
+                                Desativar
+                              </Button>
+                            )}
+                            {u.status === 'disabled' && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleUpdateStatus(u.id, 'active', u.name, u.role)}
+                                className="h-8 text-[#2E7D4F] hover:bg-[#2E7D4F]/10 text-xs"
+                              >
+                                Ativar
+                              </Button>
+                            )}
                           </>
-                        )}
-                        {u.status === 'active' && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => handleUpdateStatus(u.id, 'disabled', u.name)}
-                            className="h-8 text-[#B3261E] hover:bg-[#B3261E]/10 text-xs"
-                          >
-                            Desativar
-                          </Button>
-                        )}
-                        {u.status === 'disabled' && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => handleUpdateStatus(u.id, 'active', u.name)}
-                            className="h-8 text-[#2E7D4F] hover:bg-[#2E7D4F]/10 text-xs"
-                          >
-                            Ativar
-                          </Button>
                         )}
                       </div>
                     </td>
@@ -327,6 +357,7 @@ export default function UsersManagement() {
         }}
         onSaved={loadUsers}
         currentUserId={currentUser?.id}
+        isSuperAdmin={isSuperAdmin}
       />
 
       {/* Create Modal */}
@@ -376,7 +407,9 @@ export default function UsersManagement() {
                 onChange={(e) => setNewRole(e.target.value as AppUser['role'])}
                 className="w-full h-10 rounded-md border border-[#E5DFD5] bg-white px-3 text-sm mt-1"
               >
-                <option value="superadmin">Super Administrador (Acesso Irrestrito)</option>
+                {isSuperAdmin && (
+                  <option value="superadmin">Super Administrador (Acesso Irrestrito)</option>
+                )}
                 <option value="admin">Administrador (Total)</option>
                 <option value="operator">Operador (Estoque, Vendas, Dashboard)</option>
                 <option value="reseller">Revendedor (Vitrine e Consignação própria)</option>

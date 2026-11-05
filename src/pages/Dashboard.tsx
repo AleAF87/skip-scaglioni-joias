@@ -192,11 +192,13 @@ export default function Dashboard() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Link to="/voz">
-            <Button className="bg-gradient-to-r from-[#7A5C2E] to-[#C6A664] hover:opacity-90 text-white font-semibold shadow-xs">
-              <Mic className="h-4 w-4 mr-1.5" /> Cadastro por Voz
-            </Button>
-          </Link>
+          {isSuperAdmin && (
+            <Link to="/voz">
+              <Button className="bg-gradient-to-r from-[#7A5C2E] to-[#C6A664] hover:opacity-90 text-white font-semibold shadow-xs">
+                <Mic className="h-4 w-4 mr-1.5" /> Cadastro por Voz
+              </Button>
+            </Link>
+          )}
           <Link to="/pdv">
             <Button
               variant="outline"

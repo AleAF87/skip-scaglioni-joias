@@ -751,7 +751,7 @@ export default function StockInventory() {
             </Button>
           </div>
 
-          <Link to="/voz">
+          <Link to="/produtos">
             <Button className="bg-gradient-to-r from-[#7A5C2E] to-[#C6A664] hover:opacity-90 text-white font-semibold shadow-xs">
               <Plus className="h-4 w-4 mr-1.5" />
               Novo Produto

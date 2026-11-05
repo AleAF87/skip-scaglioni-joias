@@ -300,24 +300,6 @@ export default function Layout() {
           ? [{ to: '/categorias', label: 'Categorias', icon: Tag }]
           : []),
         ...(isAdmin ? [{ to: '/usuarios', label: 'Gestão de Usuários', icon: UserCheck }] : []),
-        ...(isAdmin
-          ? [
-              {
-                to: '/importar-tecson',
-                label: 'Importar Tecson',
-                icon: FileSpreadsheet,
-              },
-              {
-                to: '/importar-scaglioni',
-                label: 'Importar Scaglioni',
-                icon: FileSpreadsheet,
-              },
-            ]
-          : []),
-        ...(isAdmin
-          ? [{ to: '/empresa', label: 'Dados da Empresa (Contrato)', icon: Building2 }]
-          : []),
-        ...(isAdmin ? [{ to: '/automacao', label: 'Automação', icon: Bot }] : []),
         { to: '/instalar', label: 'Instalar o App (PWA)', icon: Download, badgeText: 'App' },
         { to: '/perfil', label: 'Meu Perfil', icon: User },
       ]
