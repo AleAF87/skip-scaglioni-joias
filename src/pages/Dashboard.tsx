@@ -34,8 +34,10 @@ import {
   CartesianGrid,
 } from 'recharts'
 import { Link } from 'react-router-dom'
+import { useAuth } from '@/contexts/AuthContext'
 
 export default function Dashboard() {
+  const { isSuperAdmin } = useAuth()
   const [salesToday, setSalesToday] = useState(0)
   const [salesMonth, setSalesMonth] = useState(0)
   const [totalStockPieces, setTotalStockPieces] = useState(0)

@@ -16,6 +16,21 @@ routerAdd(
     }
 
     try {
+      // Exigir role superadmin
+      const authRecord = e.auth
+      const actorRole = authRecord ? (authRecord.getString('role') || '').trim() : ''
+      if (actorRole !== 'superadmin') {
+        return e.json(403, {
+          error: 'Acesso restrito. Apenas o Superadmin pode executar rotinas de automação.',
+          passos: [
+            {
+              horario: new Date().toISOString(),
+              mensagem: 'Permissão negada: o usuário autenticado não possui perfil superadmin.',
+            },
+          ],
+        })
+      }
+
       const requestInfo = e.requestInfo()
       const body = requestInfo.body || {}
       const email = (body.email || '').trim()
