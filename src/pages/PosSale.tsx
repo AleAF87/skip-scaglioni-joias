@@ -161,8 +161,11 @@ export default function PosSale() {
   const [lightboxIndex, setLightboxIndex] = useState(0)
 
   const handleOpenLightbox = (p: Product, initialIdx: number = 0) => {
-    if (!p.photos || p.photos.length === 0) return
-    const urls = p.photos.map((ph) => getFileUrl('products', p.id, ph))
+    // Fotos podem vir de duas fontes: galeria local (photos) ou URL externa (image_url,
+    // usado pelos produtos importados que chegam com photos vazio).
+    const urls = (p.photos ?? []).map((ph) => getFileUrl('products', p.id, ph))
+    if (urls.length === 0 && p.image_url) urls.push(p.image_url)
+    if (urls.length === 0) return
     setLightboxPhotos(urls)
     setLightboxTitle(`${p.code} — ${p.description}`)
     setLightboxIndex(initialIdx)
@@ -1173,6 +1176,7 @@ export default function PosSale() {
                             <div className="flex items-center gap-2 min-w-0">
                               <button
                                 type="button"
+                                onMouseDown={(e) => e.stopPropagation()}
                                 onClick={(e) => {
                                   e.stopPropagation()
                                   if (hasPhoto) handleOpenLightbox(p)
@@ -1348,7 +1352,8 @@ export default function PosSale() {
                                       <div className="flex items-start gap-2.5">
                                         <button
                                           type="button"
-                                          onClick={() => {
+                                          onClick={(e) => {
+                                            e.stopPropagation()
                                             if (prod && hasPhoto) handleOpenLightbox(prod)
                                           }}
                                           disabled={!hasPhoto || !prod}
