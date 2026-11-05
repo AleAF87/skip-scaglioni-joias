@@ -1217,7 +1217,7 @@ export default function PosSale() {
                                   )
                                 })()}
                                 <span className="text-xs font-medium text-[#2D2A26] block whitespace-normal break-words mt-0.5">
-                                  {p.description}
+                                  {getProductFullName(p)}
                                 </span>
                               </div>
                             </div>

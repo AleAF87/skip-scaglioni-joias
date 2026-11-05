@@ -73,6 +73,10 @@ export const salesService = {
     return pb.collection('sales').update(id, { status: 'cancelled' })
   },
 
+  async deleteSale(id: string) {
+    return pb.collection('sales').delete(id)
+  },
+
   // Atomic checkout call via backend hook
   async checkout(payload: {
     customer_id?: string
