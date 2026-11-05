@@ -14,10 +14,13 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { UserCheck, Search, CheckCircle, XCircle, Shield, User, Plus } from 'lucide-react'
+import { UserCheck, Search, CheckCircle, XCircle, Shield, User, Plus, Pencil } from 'lucide-react'
 import { toast } from 'sonner'
+import { useAuth } from '@/contexts/AuthContext'
+import { UserEditModal } from '@/components/users/UserEditModal'
 
 export default function UsersManagement() {
+  const { user: currentUser, isAdmin } = useAuth()
   const [users, setUsers] = useState<AppUser[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -30,6 +33,10 @@ export default function UsersManagement() {
   const [newEmail, setNewEmail] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [newRole, setNewRole] = useState<AppUser['role']>('operator')
+
+  // Edit user modal
+  const [editModalOpen, setEditModalOpen] = useState(false)
+  const [editingUser, setEditingUser] = useState<AppUser | null>(null)
 
   useEffect(() => {
     loadUsers()
@@ -246,6 +253,21 @@ export default function UsersManagement() {
                     <td className="py-3 px-4 text-xs text-[#6B655E]">{formatDate(u.created)}</td>
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
+                        {isAdmin && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setEditingUser(u)
+                              setEditModalOpen(true)
+                            }}
+                            className="h-8 border-[#C6A664] text-[#7A5C2E] hover:bg-[#C6A664]/10 hover:text-[#7A5C2E] text-xs font-medium"
+                            title={`Editar dados de ${u.name}`}
+                          >
+                            <Pencil className="h-3.5 w-3.5 mr-1" /> Editar
+                          </Button>
+                        )}
+
                         {u.status === 'pending' && (
                           <>
                             <Button
@@ -294,6 +316,18 @@ export default function UsersManagement() {
           </table>
         </div>
       </Card>
+
+      {/* Edit User Modal */}
+      <UserEditModal
+        user={editingUser}
+        open={editModalOpen}
+        onOpenChange={(isOpen) => {
+          setEditModalOpen(isOpen)
+          if (!isOpen) setEditingUser(null)
+        }}
+        onSaved={loadUsers}
+        currentUserId={currentUser?.id}
+      />
 
       {/* Create Modal */}
       <Dialog open={createModalOpen} onOpenChange={setCreateModalOpen}>
