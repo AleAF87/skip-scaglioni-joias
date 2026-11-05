@@ -66,6 +66,7 @@ import { DeliveryReceiptModal } from '@/components/DeliveryReceiptModal'
 import { ConsignmentContractModal } from '@/components/ConsignmentContractModal'
 import { ImageLightbox } from '@/components/ImageLightbox'
 import { ResellerFinancialContent } from '@/pages/ResellerFinancial'
+import { ResellerReturnsIssuesContent } from '@/pages/ResellerReturnsAndIssues'
 import { toast } from 'sonner'
 
 export default function ResellersUnifiedPage() {
@@ -82,10 +83,10 @@ export default function ResellersUnifiedPage() {
   const [allStockItems, setAllStockItems] = useState<ResellerStockItem[]>([])
   const [isLoadingOverview, setIsLoadingOverview] = useState<boolean>(true)
 
-  // Profile Active Tab: 'deliveries' | 'history_closing' | 'financial' (demais abas migradas para modais e botões contextuais)
-  const [profileTab, setProfileTab] = useState<'deliveries' | 'history_closing' | 'financial'>(
-    'deliveries',
-  )
+  // Profile Active Tab: 'deliveries' | 'history_closing' | 'financial' | 'returns' (demais abas migradas para modais e botões contextuais)
+  const [profileTab, setProfileTab] = useState<
+    'deliveries' | 'history_closing' | 'financial' | 'returns'
+  >('deliveries')
 
   // Modais do Perfil
   const [isNewDeliveryModalOpen, setIsNewDeliveryModalOpen] = useState(false)
@@ -1084,6 +1085,18 @@ export default function ResellersUnifiedPage() {
               <DollarSign className="h-4 w-4" />
               Financeiro &amp; Lucro
             </button>
+
+            <button
+              onClick={() => setProfileTab('returns')}
+              className={`pb-2.5 px-3 font-serif text-xs md:text-sm font-semibold flex items-center gap-1.5 border-b-2 whitespace-nowrap transition-colors ${
+                profileTab === 'returns'
+                  ? 'border-[#7A5C2E] text-[#7A5C2E]'
+                  : 'border-transparent text-[#6B655E] hover:text-[#2D2A26]'
+              }`}
+            >
+              <RotateCcw className="h-4 w-4" />
+              Devolução &amp; Pendências
+            </button>
           </div>
 
           {/* CONTEÚDO DAS ABAS DO PERFIL */}
@@ -1465,6 +1478,11 @@ export default function ResellersUnifiedPage() {
           {/* ABA 3: FINANCEIRO & LUCRO — mesmo conteúdo da página Financeiro, já no contexto
               desta revendedora (sem seletor "Revendedora em Foco") */}
           {profileTab === 'financial' && <ResellerFinancialContent reseller={currentReseller} />}
+
+          {/* ABA 4: DEVOLUÇÃO & PENDÊNCIAS — mesmo conteúdo da página de Devoluções, já no
+              contexto desta revendedora (sem seletor "Revendedora em Análise"). A aba interna
+              de conferência só aparece para admin/operador. */}
+          {profileTab === 'returns' && <ResellerReturnsIssuesContent reseller={currentReseller} />}
         </div>
       )}
 

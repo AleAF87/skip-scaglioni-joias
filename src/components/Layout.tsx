@@ -201,11 +201,6 @@ export default function Layout() {
           label: 'Revendedoras',
           icon: Users2,
         },
-        {
-          to: '/revendedora/devolucoes-pendencias',
-          label: 'Devoluções & Pendências',
-          icon: RotateCcw,
-        },
         { to: '/clientes', label: 'Clientes', icon: Users },
         { to: '/vitrine', label: 'Vitrine de Joias', icon: Store },
         // Páginas restritas a nível superior exibidas em vermelho
@@ -279,11 +274,15 @@ export default function Layout() {
         ...(isReseller
           ? [{ to: '/revendedora/financeiro', label: 'Meu Lucro & Acerto', icon: BadgeDollarSign }]
           : []),
-        {
-          to: '/revendedora/devolucoes-pendencias',
-          label: canManageInternal ? 'Devoluções & Pendências' : 'Minhas Devoluções & Pendências',
-          icon: RotateCcw,
-        },
+        ...(isReseller
+          ? [
+              {
+                to: '/revendedora/devolucoes-pendencias',
+                label: 'Minhas Devoluções & Pendências',
+                icon: RotateCcw,
+              },
+            ]
+          : []),
 
         ...(canManageInternal && !isReseller
           ? [{ to: '/clientes', label: 'Clientes', icon: Users }]

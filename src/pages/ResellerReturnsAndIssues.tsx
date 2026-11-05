@@ -1,17 +1,6 @@
 import React, { useState, useEffect } from 'react'
-import {
-  RotateCcw,
-  AlertTriangle,
-  Sparkles,
-  Search,
-  CheckCircle2,
-  Clock,
-  Boxes,
-  HelpCircle,
-  FileText,
-  DollarSign,
-  ArrowRight,
-} from 'lucide-react'
+import { RotateCcw, AlertTriangle, CheckCircle2, Boxes, FileText, DollarSign } from 'lucide-react'
+import pb from '@/lib/pocketbase/client'
 import { useAuth } from '@/contexts/AuthContext'
 import { resellerService } from '@/services/resellerService'
 import { resellerStockService } from '@/services/resellerStockService'
@@ -24,17 +13,27 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 
-export default function ResellerReturnsAndIssues() {
-  const { user, isAdmin, isOperator, isReseller } = useAuth()
-  const canManage = isAdmin || isOperator
+interface ResellerReturnsIssuesContentProps {
+  reseller: Reseller
+  initialTab?: 'return_form' | 'issues_list' | 'history'
+}
+
+/**
+ * Conteúdo integral da "Devolução, Conferência & Pendências" para UMA revendedora.
+ * Reutilizado por:
+ *  - Página /revendedora/devolucoes-pendencias (revendedora logada vê os próprios dados)
+ *  - Aba "Devolução & Pendências" dentro do perfil da revendedora na página Revendedoras
+ * A revendedora em foco vem pela prop — nunca há seletor "Revendedora em Análise" aqui.
+ */
+export function ResellerReturnsIssuesContent({
+  reseller,
+  initialTab,
+}: ResellerReturnsIssuesContentProps) {
+  const { canManageInternal: canManage } = useAuth()
 
   const [activeTab, setActiveTab] = useState<'return_form' | 'issues_list' | 'history'>(
-    canManage ? 'return_form' : 'issues_list',
+    initialTab || (canManage ? 'return_form' : 'issues_list'),
   )
-
-  const [resellers, setResellers] = useState<Reseller[]>([])
-  const [currentReseller, setCurrentReseller] = useState<Reseller | null>(null)
-  const [selectedResellerId, setSelectedResellerId] = useState<string>('')
 
   // Reseller stock for return conference
   const [stockItems, setStockItems] = useState<ResellerStockItem[]>([])
@@ -68,37 +67,12 @@ export default function ResellerReturnsAndIssues() {
   const [paidNotes, setPaidNotes] = useState('')
 
   useEffect(() => {
-    loadResellerContext()
-  }, [user])
-
-  const loadResellerContext = async () => {
-    try {
-      if (canManage) {
-        const list = await resellerService.getResellers({ status: 'active' })
-        setResellers(list)
-        if (list.length > 0) {
-          setSelectedResellerId(list[0].id)
-          setCurrentReseller(list[0])
-        }
-      } else if (isReseller && user) {
-        const r = await resellerService.getResellerByUserId(user.id)
-        setCurrentReseller(r)
-        setSelectedResellerId(r.id)
-      }
-    } catch (err) {
-      console.error('Erro ao identificar revendedora:', err)
+    if (reseller?.id) {
+      loadStock(reseller.id)
+      loadIssues(reseller.id)
+      loadReturnsHistory(reseller.id)
     }
-  }
-
-  useEffect(() => {
-    if (selectedResellerId) {
-      loadStock(selectedResellerId)
-      loadIssues(selectedResellerId)
-      loadReturnsHistory(selectedResellerId)
-      const found = resellers.find((r) => r.id === selectedResellerId)
-      if (found) setCurrentReseller(found)
-    }
-  }, [selectedResellerId])
+  }, [reseller?.id])
 
   const loadStock = async (resellerId: string) => {
     setIsLoadingStock(true)
@@ -127,7 +101,7 @@ export default function ResellerReturnsAndIssues() {
     setIsLoadingIssues(true)
     try {
       const list = await resellerStockService.getIssues({
-        resellerId: canManage && !resellerId ? undefined : resellerId,
+        resellerId: resellerId,
       })
       setIssues(list)
     } catch (err) {
@@ -141,7 +115,7 @@ export default function ResellerReturnsAndIssues() {
     setIsLoadingHistory(true)
     try {
       const list = await resellerStockService.getReturns({
-        resellerId: canManage && !resellerId ? undefined : resellerId,
+        resellerId: resellerId,
       })
       setReturnsHistory(list)
     } catch (err) {
@@ -169,7 +143,7 @@ export default function ResellerReturnsAndIssues() {
 
   // Submit return & issues
   const handleSubmitReturn = async () => {
-    if (!selectedResellerId) {
+    if (!reseller?.id) {
       toast.error('Selecione uma revendedora.')
       return
     }
@@ -220,7 +194,7 @@ export default function ResellerReturnsAndIssues() {
     setIsSubmitting(true)
     try {
       const res = await resellerStockService.processReturn({
-        reseller_id: selectedResellerId,
+        reseller_id: reseller.id,
         items: itemsToProcess,
         notes: returnNotes,
       })
@@ -229,9 +203,9 @@ export default function ResellerReturnsAndIssues() {
         `Conferência ${res.code} processada com sucesso! ${res.total_returned_qty} peças voltaram ao estoque geral e ${res.total_pending_qty} pendências foram geradas.`,
       )
       setReturnNotes('')
-      await loadStock(selectedResellerId)
-      await loadIssues(selectedResellerId)
-      await loadReturnsHistory(selectedResellerId)
+      await loadStock(reseller.id)
+      await loadIssues(reseller.id)
+      await loadReturnsHistory(reseller.id)
       setActiveTab('issues_list')
     } catch (err: any) {
       console.error('Erro na devolução:', err)
@@ -257,7 +231,7 @@ export default function ResellerReturnsAndIssues() {
       )
       setResolvingIssue(null)
       setPaidNotes('')
-      loadIssues(selectedResellerId)
+      loadIssues(reseller.id)
     } catch (err: any) {
       toast.error(err.message || 'Erro ao resolver pendência.')
     }
@@ -299,35 +273,6 @@ export default function ResellerReturnsAndIssues() {
           </div>
         </div>
       </div>
-
-      {/* Reseller Filter (for Admin/Operator) */}
-      {canManage && (
-        <Card className="border-[#E5DFD5] bg-[#FDFBF7]">
-          <CardContent className="p-3.5 flex items-center justify-between gap-4 flex-wrap">
-            <div className="flex items-center gap-2">
-              <Label className="text-xs font-semibold text-[#7A5C2E]">
-                Revendedora em Análise:
-              </Label>
-              <select
-                value={selectedResellerId}
-                onChange={(e) => setSelectedResellerId(e.target.value)}
-                className="h-8 rounded-md border border-[#E5DFD5] bg-white px-2 text-xs font-medium"
-              >
-                {resellers.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name} ({r.commission_rate || 40}% comissão)
-                  </option>
-                ))}
-              </select>
-            </div>
-            {currentReseller && (
-              <span className="text-xs text-[#6B655E]">
-                Comissão cadastrada: <strong>{currentReseller.commission_rate || 40}%</strong>
-              </span>
-            )}
-          </CardContent>
-        </Card>
-      )}
 
       {/* Tabs */}
       <div className="flex border-b border-[#E5DFD5] gap-4">
@@ -376,9 +321,7 @@ export default function ResellerReturnsAndIssues() {
           <Card className="border-[#E5DFD5]">
             <CardHeader className="p-4 border-b border-[#E5DFD5] bg-[#FDFBF7]">
               <CardTitle className="font-serif text-base text-[#2D2A26] flex items-center justify-between">
-                <span>
-                  Conferência de Joias em Poder de {currentReseller?.name || 'Revendedora'}
-                </span>
+                <span>Conferência de Joias em Poder de {reseller?.name || 'Revendedora'}</span>
                 <span className="text-xs font-normal text-[#6B655E]">
                   Informe as peças devolvidas e as pendentes/extraviadas
                 </span>
@@ -818,4 +761,66 @@ export default function ResellerReturnsAndIssues() {
       )}
     </div>
   )
+}
+
+export default function ResellerReturnsAndIssues() {
+  const { user, isReseller, canManageInternal } = useAuth()
+
+  const [currentReseller, setCurrentReseller] = useState<Reseller | null>(null)
+  const [isLoadingContext, setIsLoadingContext] = useState(true)
+
+  useEffect(() => {
+    loadResellerContext()
+  }, [user])
+
+  const loadResellerContext = async () => {
+    setIsLoadingContext(true)
+    try {
+      // Revendedora logada: sempre os próprios dados (nunca seletor).
+      if (isReseller && user) {
+        const r = await resellerService.getResellerByUserId(user.id)
+        setCurrentReseller(r)
+      }
+      // Admin/operador/superadmin: suporte legado à rota /revendedora/devolucoes-pendencias
+      // com ?reseller=<id>. O acesso natural agora é pelo card da revendedora na página
+      // Revendedoras, que embute o mesmo conteúdo por aba.
+      else if (canManageInternal) {
+        const params = new URLSearchParams(window.location.search)
+        const targetId = params.get('reseller')
+        if (targetId) {
+          try {
+            const r = await pb.collection('resellers').getOne<Reseller>(targetId, {
+              expand: 'user',
+            })
+            setCurrentReseller(r)
+          } catch {
+            /* revendedora não encontrada */
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Erro ao identificar revendedora:', err)
+    } finally {
+      setIsLoadingContext(false)
+    }
+  }
+
+  if (isLoadingContext) {
+    return <div className="py-16 text-center text-xs text-[#8C8275]">Carregando contexto...</div>
+  }
+
+  if (!currentReseller) {
+    return (
+      <div className="py-16 text-center text-xs text-[#8C8275] max-w-md mx-auto space-y-2">
+        <p>Nenhuma revendedora em foco.</p>
+        <p className="text-[11px]">
+          {isReseller
+            ? 'Não foi possível localizar o cadastro da sua revendedora. Contate o administrador.'
+            : 'Acesse as devoluções pelo card da revendedora na página "Revendedoras".'}
+        </p>
+      </div>
+    )
+  }
+
+  return <ResellerReturnsIssuesContent reseller={currentReseller} />
 }
