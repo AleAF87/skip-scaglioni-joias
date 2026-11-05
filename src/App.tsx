@@ -21,6 +21,7 @@ import CatalogVitrine from '@/pages/CatalogVitrine'
 import ConsignmentsManagement from '@/pages/ConsignmentsManagement'
 import ResellersManagement from '@/pages/ResellersManagement'
 import UsersManagement from '@/pages/UsersManagement'
+import CustomersManagement from '@/pages/CustomersManagement'
 import UserProfile from '@/pages/UserProfile'
 import ImportProductsPage from '@/pages/ImportProductsPage'
 import { ImportTecsonPage } from '@/pages/ImportTecsonPage'
@@ -196,6 +197,16 @@ export default function App() {
                 element={
                   <ProtectedRoute allowedRoles={['admin', 'operator']}>
                     <ResellersManagement />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Customers management (Admin & Operator) */}
+              <Route
+                path="clientes"
+                element={
+                  <ProtectedRoute allowedRoles={['admin', 'operator']}>
+                    <CustomersManagement />
                   </ProtectedRoute>
                 }
               />

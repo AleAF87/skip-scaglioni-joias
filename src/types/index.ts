@@ -227,6 +227,12 @@ export interface Customer {
   phone?: string
   email?: string
   cpf?: string
+  birth_date?: string
+  address_street?: string
+  address_number?: string
+  address_complement?: string
+  address_neighborhood?: string
+  address_zip?: string
   city?: string
   state?: string
   notes?: string

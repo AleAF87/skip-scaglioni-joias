@@ -117,6 +117,36 @@ export function formatDate(dateString?: string | null): string {
   }
 }
 
+export function formatCpf(cpf?: string | null): string {
+  if (!cpf) return '—'
+  const clean = cpf.replace(/\D/g, '')
+  if (clean.length === 11) {
+    return clean.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')
+  }
+  return cpf.trim() || '—'
+}
+
+export function formatPhone(phone?: string | null): string {
+  if (!phone) return '—'
+  const clean = phone.replace(/\D/g, '')
+  if (clean.length === 11) {
+    return clean.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3')
+  }
+  if (clean.length === 10) {
+    return clean.replace(/(\d{2})(\d{4})(\d{4})/, '($1) $2-$3')
+  }
+  return phone.trim() || '—'
+}
+
+export function formatCep(cep?: string | null): string {
+  if (!cep) return '—'
+  const clean = cep.replace(/\D/g, '')
+  if (clean.length === 8) {
+    return clean.replace(/(\d{5})(\d{3})/, '$1-$2')
+  }
+  return cep.trim() || '—'
+}
+
 export function formatDateTime(dateString?: string | null): string {
   if (!dateString) return '—'
   try {

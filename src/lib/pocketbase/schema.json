@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-05T13:18:01.145Z",
+  "generatedAt": "2026-11-05T14:18:58.370Z",
   "collections": [
     {
       "name": "users",
@@ -356,11 +356,11 @@
       "name": "customers",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != '' && ((@request.auth.role = 'superadmin' || @request.auth.role = 'admin') || @request.auth.role = 'operator')",
-        "view": "@request.auth.id != '' && ((@request.auth.role = 'superadmin' || @request.auth.role = 'admin') || @request.auth.role = 'operator')",
-        "create": "@request.auth.id != '' && ((@request.auth.role = 'superadmin' || @request.auth.role = 'admin') || @request.auth.role = 'operator')",
-        "update": "@request.auth.id != '' && ((@request.auth.role = 'superadmin' || @request.auth.role = 'admin') || @request.auth.role = 'operator')",
-        "delete": "@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin')"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator')",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator')",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator')",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator')",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator')"
       },
       "fields": [
         {
@@ -415,6 +415,42 @@
         },
         {
           "name": "cpf",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "birth_date",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "address_street",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "address_number",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "address_complement",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "address_neighborhood",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "address_zip",
           "type": "text",
           "required": false,
           "system": false

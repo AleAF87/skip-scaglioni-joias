@@ -13,6 +13,7 @@ import {
   Store,
   UserCheck,
   User,
+  Users,
   LogOut,
   Menu,
   X,
@@ -210,6 +211,7 @@ export default function Layout() {
           label: 'Devoluções & Pendências',
           icon: RotateCcw,
         },
+        { to: '/clientes', label: 'Clientes', icon: Users },
         { to: '/vitrine', label: 'Vitrine de Joias', icon: Store },
         // Páginas restritas a nível superior exibidas em vermelho
         {
@@ -290,6 +292,9 @@ export default function Layout() {
           icon: RotateCcw,
         },
 
+        ...(canManageInternal && !isReseller
+          ? [{ to: '/clientes', label: 'Clientes', icon: Users }]
+          : []),
         { to: '/vitrine', label: 'Vitrine de Joias', icon: Store },
         ...(isAdmin || (canManageInternal && !isReseller)
           ? [{ to: '/categorias', label: 'Categorias', icon: Tag }]
