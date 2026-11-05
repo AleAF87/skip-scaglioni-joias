@@ -883,7 +883,7 @@ export default function ResellersUnifiedPage() {
                           {reseller.commission_rate || 40}% comissão
                         </span>
                       </div>
-                      <CardTitle className="font-serif text-base text-[#2D2A26] mt-2 group-hover:text-[#7A5C2E] transition-colors flex items-center justify-between">
+                      <CardTitle className="font-serif text-base font-bold text-[#2D2A26] mt-2 group-hover:text-[#7A5C2E] transition-colors flex items-center justify-between">
                         <span>{reseller.name}</span>
                         <ChevronRight className="h-4 w-4 text-[#C6A664] opacity-0 group-hover:opacity-100 transition-opacity" />
                       </CardTitle>
@@ -972,9 +972,9 @@ export default function ResellersUnifiedPage() {
 
               <div className="flex items-center gap-2 text-[#7A5C2E]">
                 <Users2 className="h-6 w-6" />
-                <h1 className="font-serif text-2xl md:text-3xl font-bold tracking-tight text-[#2D2A26]">
+                <h2 className="font-serif text-2xl md:text-3xl font-bold tracking-tight text-[#2D2A26]">
                   {currentReseller.name}
-                </h1>
+                </h2>
                 <Badge
                   variant="outline"
                   className="border-[#2E7D4F] text-[#2E7D4F] bg-[#2E7D4F]/10 text-xs ml-1"
@@ -1110,15 +1110,6 @@ export default function ResellersUnifiedPage() {
                   em uma entrega ativa/aberta para consultar as joias em poder e realizar a
                   conferência/devolução.
                 </p>
-                {canManage && (
-                  <Button
-                    size="sm"
-                    onClick={() => setIsNewDeliveryModalOpen(true)}
-                    className="bg-[#7A5C2E] hover:bg-[#634923] text-white text-xs"
-                  >
-                    <Plus className="h-3.5 w-3.5 mr-1" /> Nova Entrega
-                  </Button>
-                )}
               </div>
 
               {isLoadingDeliveries ? (
@@ -1171,7 +1162,7 @@ export default function ResellersUnifiedPage() {
                               )}
                             </Badge>
                           </div>
-                          <CardTitle className="font-serif text-base text-[#2D2A26] mt-2 truncate flex items-center justify-between">
+                          <CardTitle className="font-serif text-base font-bold text-[#2D2A26] mt-2 truncate flex items-center justify-between">
                             <span>{currentReseller.name}</span>
                             <ChevronRight className="h-4 w-4 text-[#C6A664] opacity-0 group-hover:opacity-100 transition-opacity" />
                           </CardTitle>
@@ -1280,7 +1271,7 @@ export default function ResellersUnifiedPage() {
               {/* Resumo Consolidado da Revendedora */}
               <Card className="border-[#E5DFD5] bg-white">
                 <CardHeader className="pb-3 border-b border-[#E5DFD5] bg-[#FDFBF7]">
-                  <CardTitle className="font-serif text-base text-[#2D2A26]">
+                  <CardTitle className="font-serif text-base font-bold text-[#2D2A26]">
                     Resumo Consolidado de {currentReseller.name}
                   </CardTitle>
                   <CardDescription className="text-xs text-[#6B655E]">
@@ -1351,7 +1342,7 @@ export default function ResellersUnifiedPage() {
               {returnsHistory.length > 0 && (
                 <Card className="border-[#E5DFD5] bg-white">
                   <CardHeader className="pb-3 border-b border-[#E5DFD5]">
-                    <CardTitle className="font-serif text-base text-[#2D2A26]">
+                    <CardTitle className="font-serif text-base font-bold text-[#2D2A26]">
                       Conferências de Devolução Registradas ({returnsHistory.length})
                     </CardTitle>
                   </CardHeader>
@@ -1403,7 +1394,7 @@ export default function ResellersUnifiedPage() {
                 <CardHeader className="pb-3 border-b border-[#E5DFD5]">
                   <div className="flex items-center justify-between">
                     <div>
-                      <CardTitle className="font-serif text-base text-[#2D2A26]">
+                      <CardTitle className="font-serif text-base font-bold text-[#2D2A26]">
                         Histórico Arquivado de Listas Anteriores ({legacyLists.length})
                       </CardTitle>
                       <CardDescription className="text-xs text-[#6B655E]">
@@ -1474,7 +1465,9 @@ export default function ResellersUnifiedPage() {
 
           {/* ABA 3: FINANCEIRO & LUCRO — mesmo conteúdo da página Financeiro, já no contexto
               desta revendedora (sem seletor "Revendedora em Foco") */}
-          {profileTab === 'financial' && <ResellerFinancialContent reseller={currentReseller} />}
+          {profileTab === 'financial' && (
+            <ResellerFinancialContent reseller={currentReseller} showCatalogButton={false} />
+          )}
 
           {/* ABA 4: DEVOLUÇÃO & PENDÊNCIAS — mesmo conteúdo da página de Devoluções, já no
               contexto desta revendedora (sem seletor "Revendedora em Análise"). A aba interna
@@ -1546,9 +1539,9 @@ export default function ResellersUnifiedPage() {
         <Dialog open={isNewDeliveryModalOpen} onOpenChange={setIsNewDeliveryModalOpen}>
           <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto p-6 bg-white border-[#E5DFD5]">
             <DialogHeader className="pb-3 border-b border-[#E5DFD5]">
-              <DialogTitle className="font-serif text-xl text-[#2D2A26] flex items-center gap-2">
-                <PackagePlus className="h-5 w-5 text-[#7A5C2E]" />
-                Nova Entrega de Joias — {currentReseller.name}
+              <DialogTitle className="font-serif text-xl font-bold text-[#2D2A26] flex items-center gap-2">
+                <PackagePlus className="h-5 w-5" />
+                Nova Entrega para {currentReseller.name}
               </DialogTitle>
               <DialogDescription className="text-xs text-[#6B655E]">
                 Selecione as joias disponíveis no estoque geral da loja. As peças selecionadas serão
@@ -1562,9 +1555,9 @@ export default function ResellersUnifiedPage() {
                 <Card className="border-[#E5DFD5] bg-white shadow-xs">
                   <CardHeader className="pb-3 border-b border-[#E5DFD5] bg-[#FDFBF7]">
                     <div className="flex items-center justify-between">
-                      <span className="font-serif text-sm font-semibold text-[#2D2A26]">
+                      <h4 className="font-serif text-base font-bold text-[#2D2A26]">
                         Estoque Geral Disponível
-                      </span>
+                      </h4>
                       <span className="text-[11px] text-[#6B655E]">
                         {availableProducts.length} itens listados
                       </span>
@@ -1704,9 +1697,9 @@ export default function ResellersUnifiedPage() {
                 <Card className="border-[#E5DFD5] bg-white shadow-xs">
                   <CardHeader className="pb-3 border-b border-[#E5DFD5] bg-[#FDFBF7]">
                     <div className="flex items-center justify-between">
-                      <span className="font-serif text-sm font-semibold text-[#2D2A26]">
+                      <h4 className="font-serif text-base font-bold text-[#2D2A26]">
                         Cesta da Entrega
-                      </span>
+                      </h4>
                       <Badge variant="outline" className="border-[#C6A664] text-[#7A5C2E]">
                         {totalDeliveryItemsCount} peças
                       </Badge>
@@ -1902,7 +1895,7 @@ export default function ResellersUnifiedPage() {
           <DialogContent className="max-w-4xl max-h-[88vh] overflow-y-auto p-6 bg-white border-[#E5DFD5]">
             <DialogHeader className="pb-3 border-b border-[#E5DFD5]">
               <div className="flex items-center justify-between flex-wrap gap-2">
-                <DialogTitle className="font-serif text-xl text-[#2D2A26] flex items-center gap-2">
+                <DialogTitle className="font-serif text-xl font-bold text-[#2D2A26] flex items-center gap-2">
                   <Boxes className="h-5 w-5 text-[#7A5C2E]" />
                   Joias em Poder — {currentReseller.name}
                 </DialogTitle>
@@ -2056,7 +2049,7 @@ export default function ResellersUnifiedPage() {
         <Dialog open={isConferenceModalOpen} onOpenChange={setIsConferenceModalOpen}>
           <DialogContent className="max-w-5xl max-h-[88vh] overflow-y-auto p-6 bg-white border-[#E5DFD5]">
             <DialogHeader className="pb-3 border-b border-[#E5DFD5]">
-              <DialogTitle className="font-serif text-xl text-[#2D2A26] flex items-center gap-2">
+              <DialogTitle className="font-serif text-xl font-bold text-[#2D2A26] flex items-center gap-2">
                 <RotateCcw className="h-5 w-5 text-[#7A5C2E]" />
                 Conferência & Devolução de Joias — {currentReseller.name}
               </DialogTitle>

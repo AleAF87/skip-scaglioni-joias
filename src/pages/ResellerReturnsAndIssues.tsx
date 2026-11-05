@@ -320,7 +320,7 @@ export function ResellerReturnsIssuesContent({
         <div className="space-y-4">
           <Card className="border-[#E5DFD5]">
             <CardHeader className="p-4 border-b border-[#E5DFD5] bg-[#FDFBF7]">
-              <CardTitle className="font-serif text-base text-[#2D2A26] flex items-center justify-between">
+              <CardTitle className="font-serif text-base font-bold text-[#2D2A26] flex items-center justify-between">
                 <span>Conferência de Joias em Poder de {reseller?.name || 'Revendedora'}</span>
                 <span className="text-xs font-normal text-[#6B655E]">
                   Informe as peças devolvidas e as pendentes/extraviadas
@@ -494,7 +494,7 @@ export function ResellerReturnsIssuesContent({
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-[#FDFBF7] p-4 rounded-xl border border-[#E5DFD5]">
             <div>
-              <h3 className="font-serif font-bold text-sm text-[#2D2A26]">
+              <h3 className="font-serif text-base font-bold text-[#2D2A26]">
                 Peças Não Devolvidas & Pendências Financeiras
               </h3>
               <p className="text-xs text-[#6B655E]">
@@ -654,7 +654,7 @@ export function ResellerReturnsIssuesContent({
                         {formatDateTime(ret.created)}
                       </span>
                     </div>
-                    <CardTitle className="font-serif text-sm font-bold text-[#2D2A26] mt-2">
+                    <CardTitle className="font-serif text-base font-bold text-[#2D2A26] mt-2">
                       {ret.expand?.reseller?.name || 'Revendedora'}
                     </CardTitle>
                   </CardHeader>

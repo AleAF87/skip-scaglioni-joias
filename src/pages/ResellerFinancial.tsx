@@ -15,6 +15,9 @@ import { toast } from 'sonner'
 interface ResellerFinancialContentProps {
   reseller: Reseller
   onBack?: () => void
+  /** Esconde o botão "Catálogo da Loja" quando renderizado como aba do perfil
+   *  (o topo da ficha já tem "Loja Virtual"). Padrão true mantém a página standalone. */
+  showCatalogButton?: boolean
 }
 
 /**
@@ -24,7 +27,11 @@ interface ResellerFinancialContentProps {
  *  - Aba "Financeiro & Lucro" dentro do perfil da revendedora na página Revendedoras
  * A lógica de cálculo vem de resellerStockService.getFinancialSummary — nunca duplique aqui.
  */
-export function ResellerFinancialContent({ reseller, onBack }: ResellerFinancialContentProps) {
+export function ResellerFinancialContent({
+  reseller,
+  onBack,
+  showCatalogButton = true,
+}: ResellerFinancialContentProps) {
   const [summary, setSummary] = useState<{
     totalSalesGross: number
     totalProfit: number
@@ -74,28 +81,40 @@ export function ResellerFinancialContent({ reseller, onBack }: ResellerFinancial
           )}
           <div className="flex items-center gap-2 text-[#7A5C2E]">
             <DollarSign className="h-5 w-5" />
-            <h2 className="font-serif text-2xl font-bold tracking-tight text-[#2D2A26]">
-              Financeiro &amp; Lucro da Revendedora
-            </h2>
+            {showCatalogButton ? (
+              <h2 className="font-serif text-2xl font-bold tracking-tight text-[#2D2A26]">
+                Financeiro &amp; Lucro da Revendedora
+              </h2>
+            ) : (
+              <h3 className="font-serif text-base font-bold tracking-tight text-[#2D2A26]">
+                Financeiro &amp; Lucro da Revendedora
+              </h3>
+            )}
           </div>
-          <p className="text-sm text-[#6B655E] mt-1">
+          <p
+            className={
+              showCatalogButton ? 'text-sm text-[#6B655E] mt-1' : 'text-xs text-[#6B655E] mt-1'
+            }
+          >
             Acompanhe {reseller.name ? `os dados de ${reseller.name}` : 'os dados da revendedora'} —
             lucro acumulado, repasses devidos à Scaglioni e pendências em aberto.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Link to={`/loja/${reseller.id}`} target="_blank">
-            <Button
-              variant="outline"
-              size="sm"
-              className="border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] text-xs flex items-center gap-1.5"
-            >
-              <Store className="h-3.5 w-3.5" />
-              Catálogo da Loja
-            </Button>
-          </Link>
-        </div>
+        {showCatalogButton && (
+          <div className="flex items-center gap-2">
+            <Link to={`/loja/${reseller.id}`} target="_blank">
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] text-xs flex items-center gap-1.5"
+              >
+                <Store className="h-3.5 w-3.5" />
+                Catálogo da Loja
+              </Button>
+            </Link>
+          </div>
+        )}
       </div>
 
       {isLoading ? (
@@ -174,7 +193,7 @@ export function ResellerFinancialContent({ reseller, onBack }: ResellerFinancial
           {/* Breakdown Explanation */}
           <Card className="border-[#E5DFD5] bg-white">
             <CardHeader className="p-4 border-b border-[#E5DFD5] bg-[#FDFBF7]">
-              <CardTitle className="font-serif text-base text-[#2D2A26] flex items-center gap-2">
+              <CardTitle className="font-serif text-base font-bold text-[#2D2A26] flex items-center gap-2">
                 <Receipt className="h-4 w-4 text-[#7A5C2E]" />
                 <span>Demonstrativo do Valor Devido à Scaglioni Joias</span>
               </CardTitle>
@@ -247,7 +266,7 @@ export function ResellerFinancialContent({ reseller, onBack }: ResellerFinancial
           {summary.pendingIssuesList.length > 0 && (
             <Card className="border-amber-200">
               <CardHeader className="p-4 border-b border-amber-200 bg-amber-50/50">
-                <CardTitle className="font-serif text-sm text-amber-950 flex items-center gap-2">
+                <CardTitle className="font-serif text-base font-bold text-amber-950 flex items-center gap-2">
                   <AlertTriangle className="h-4 w-4 text-amber-800" />
                   <span>Pendências Pendentes de Regularização</span>
                 </CardTitle>
@@ -295,7 +314,7 @@ export function ResellerFinancialContent({ reseller, onBack }: ResellerFinancial
           {/* Recent Sales by this reseller */}
           <Card className="border-[#E5DFD5]">
             <CardHeader className="p-4 border-b border-[#E5DFD5] bg-[#FDFBF7]">
-              <CardTitle className="font-serif text-sm text-[#2D2A26]">
+              <CardTitle className="font-serif text-base font-bold text-[#2D2A26]">
                 Últimas Vendas Realizadas no PDV
               </CardTitle>
             </CardHeader>
