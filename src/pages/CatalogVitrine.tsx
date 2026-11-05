@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import pb from '@/lib/pocketbase/client'
 import { productService } from '@/services/productService'
 import { productCreationService } from '@/services/productCreationService'
@@ -63,6 +63,20 @@ export default function CatalogVitrine() {
       setTipoCategories(cats.filter((c) => c.group !== 'metal'))
     } catch (err) {
       console.error(err)
+    }
+  }
+
+  // Busca os ids de produtos vinculados a uma categoria via product_category_links.
+  // Categoria sem vínculo devolve lista vazia (o filtro resultará em nenhum produto).
+  const fetchCategoryProductIds = async (categoryId: string): Promise<string[]> => {
+    try {
+      const links = await pb.collection('product_category_links').getFullList<{
+        product: string
+      }>({ filter: `category = '${categoryId}'` })
+      return links.map((l) => l.product)
+    } catch (err) {
+      console.error(err)
+      return []
     }
   }
 
