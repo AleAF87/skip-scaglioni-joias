@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react'
+import pb from '@/lib/pocketbase/client'
 import { productService } from '@/services/productService'
-import { Product, ProductType, ProductMaterial } from '@/types'
+import { productCreationService } from '@/services/productCreationService'
+import { Product, ProductCategory } from '@/types'
+import { getProductFullName } from '@/types/labelContent'
 import { formatCurrency, getFileUrl, getProductDisplayPhoto } from '@/lib/formatters'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -8,25 +11,15 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ImageLightbox } from '@/components/ImageLightbox'
-import {
-  Store,
-  Search,
-  Filter,
-  Gem,
-  Eye,
-  Sparkles,
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  ZoomIn,
-} from 'lucide-react'
+import { Search, Gem, Eye, Sparkles, ZoomIn } from 'lucide-react'
 import { LOGO_ICON_URL } from '@/constants/branding'
 
 export default function CatalogVitrine() {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
-  const [types, setTypes] = useState<ProductType[]>([])
-  const [materials, setMaterials] = useState<ProductMaterial[]>([])
+  // Filtros Metal e Tipo vêm da página de Categorias (product_categories.group)
+  const [metalCategories, setMetalCategories] = useState<ProductCategory[]>([])
+  const [tipoCategories, setTipoCategories] = useState<ProductCategory[]>([])
 
   // Filters
   const [search, setSearch] = useState('')
@@ -64,9 +57,10 @@ export default function CatalogVitrine() {
 
   const loadAuxiliaries = async () => {
     try {
-      const data = await productService.getAuxiliaryData()
-      setTypes(data.types)
-      setMaterials(data.materials)
+      // Mesma fonte de dados da página de Categorias: product_categories (não arquivadas)
+      const cats = await productCreationService.getCategories()
+      setMetalCategories(cats.filter((c) => c.group === 'metal'))
+      setTipoCategories(cats.filter((c) => c.group !== 'metal'))
     } catch (err) {
       console.error(err)
     }
@@ -75,12 +69,30 @@ export default function CatalogVitrine() {
   const loadCatalog = async () => {
     setLoading(true)
     try {
-      const res = await productService.getProducts({
+      const filters: string[] = []
+      const baseFilter = productService.buildProductFilterString({
         search,
-        type: selectedType,
-        material: selectedMaterial,
         status: 'available', // Vitrine showcases available items
-        perPage: 40,
+      })
+      if (baseFilter) filters.push(baseFilter)
+
+      // Filtro Metal / Tipo: busca os produtos vinculados às categorias escolhidas
+      // (product_category_links — mesma fonte da página de Categorias)
+      const activeCategoryIds = [selectedType, selectedMaterial].filter(Boolean)
+      if (activeCategoryIds.length > 0) {
+        const linkFilters = await Promise.all(
+          activeCategoryIds.map(async (categoryId) => {
+            const prodIds = await fetchCategoryProductIds(categoryId)
+            return `(${prodIds.length > 0 ? prodIds.map((id) => `id = '${id}'`).join(' || ') : "id = ''"})`
+          }),
+        )
+        filters.push(linkFilters.join(' && '))
+      }
+
+      const res = await pb.collection('products').getList<Product>(1, 40, {
+        filter: filters.join(' && ') || undefined,
+        sort: '-created',
+        expand: 'type,material,size,marca_id,product_category_links(product).category',
       })
       setProducts(res.items)
     } catch (err) {
@@ -131,14 +143,14 @@ export default function CatalogVitrine() {
 
             <div>
               <select
-                value={selectedType}
-                onChange={(e) => setSelectedType(e.target.value)}
+                value={selectedMaterial}
+                onChange={(e) => setSelectedMaterial(e.target.value)}
                 className="w-full h-10 rounded-md border border-[#E5DFD5] bg-white px-3 py-2 text-sm text-[#2D2A26] focus:outline-none focus:ring-2 focus:ring-[#C6A664]"
               >
-                <option value="">Todos os Tipos</option>
-                {types.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
+                <option value="">Todos os Metais</option>
+                {metalCategories.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
                   </option>
                 ))}
               </select>
@@ -146,14 +158,14 @@ export default function CatalogVitrine() {
 
             <div>
               <select
-                value={selectedMaterial}
-                onChange={(e) => setSelectedMaterial(e.target.value)}
+                value={selectedType}
+                onChange={(e) => setSelectedType(e.target.value)}
                 className="w-full h-10 rounded-md border border-[#E5DFD5] bg-white px-3 py-2 text-sm text-[#2D2A26] focus:outline-none focus:ring-2 focus:ring-[#C6A664]"
               >
-                <option value="">Todos os Materiais</option>
-                {materials.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
+                <option value="">Todos os Tipos</option>
+                {tipoCategories.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
                   </option>
                 ))}
               </select>
@@ -244,24 +256,12 @@ export default function CatalogVitrine() {
                       {p.code}
                     </span>
                   </div>
-
-                  <div className="absolute top-2 right-2">
-                    <Badge
-                      variant="secondary"
-                      className="bg-[#FFFFFF]/90 text-[#2D2A26] text-[10px] font-medium capitalize"
-                    >
-                      {p.expand?.type?.name || 'Joia'}
-                    </Badge>
-                  </div>
                 </div>
 
-                {/* Info Container — Colunas/badges separados para Tipo, Tamanho e Perfil */}
+                {/* Info Container — apenas nome do produto (Categoria — Nome), sem descrição */}
                 <CardContent className="p-4 flex-1 flex flex-col justify-between">
                   <div>
                     <div className="flex flex-wrap items-center gap-1.5 text-[11px] mb-1.5">
-                      <span className="px-1.5 py-0.5 rounded-md bg-[#F3EAD8] text-[#7A5C2E] font-medium">
-                        {p.expand?.type?.name || 'Joia'}
-                      </span>
                       <span className="px-1.5 py-0.5 rounded-md bg-neutral-100 text-[#2D2A26]">
                         Tam: {p.expand?.size?.name || 'Único'}
                       </span>
@@ -270,7 +270,7 @@ export default function CatalogVitrine() {
                       </span>
                     </div>
                     <h3 className="font-serif text-base font-bold text-[#2D2A26] mt-1 leading-snug whitespace-normal break-words">
-                      {p.description}
+                      {getProductFullName(p)}
                     </h3>
                   </div>
 
@@ -410,6 +410,13 @@ export default function CatalogVitrine() {
                   </span>
                 </div>
               </div>
+
+              {selectedProduct.description && (
+                <div className="p-3 bg-white border border-[#E5DFD5] rounded-xl text-xs text-[#6B655E] whitespace-pre-line">
+                  <strong className="text-[#2D2A26] block mb-1">Descrição:</strong>
+                  {selectedProduct.description}
+                </div>
+              )}
 
               {selectedProduct.observations && (
                 <div className="p-3 bg-white border border-[#E5DFD5] rounded-xl text-xs text-[#6B655E]">

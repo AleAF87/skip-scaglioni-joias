@@ -1286,6 +1286,11 @@ routerAdd(
                     .replace(/[^a-z0-9]+/g, '-')
                     .replace(/^-+|-+$/g, '')
                   catRecord.set('slug', catSlug || 'cat-' + Math.floor(1000 + Math.random() * 9000))
+                  // Grupo inferido: nomes de metal conhecidos entram em 'metal', demais em 'tipo'
+                  // (importação antiga criava categorias com group vazio, o que quebra filtros)
+                  const isMetalCat =
+                    /metal|ouro|prata|rodio|r[oó]dio|inox|a[çc]o|banho|dourad/i.test(cleanCat)
+                  catRecord.set('group', isMetalCat ? 'metal' : 'tipo')
                   $app.save(catRecord)
                 }
 
