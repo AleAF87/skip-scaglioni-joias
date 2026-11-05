@@ -1280,11 +1280,8 @@ export default function ResellersUnifiedPage() {
               {/* Resumo Consolidado da Revendedora */}
               <Card className="border-[#E5DFD5] bg-white">
                 <CardHeader className="pb-3 border-b border-[#E5DFD5] bg-[#FDFBF7]">
-                  <CardTitle className="font-serif text-base text-[#2D2A26] flex items-center justify-between">
-                    <span>Resumo Consolidado de {currentReseller.name}</span>
-                    <Badge variant="outline" className="border-[#7A5C2E] text-[#7A5C2E]">
-                      Fechamento & Posição Atual
-                    </Badge>
+                  <CardTitle className="font-serif text-base text-[#2D2A26]">
+                    Resumo Consolidado de {currentReseller.name}
                   </CardTitle>
                   <CardDescription className="text-xs text-[#6B655E]">
                     Visão sintética das peças entregues, vendidas no PDV, devolvidas e ainda em
