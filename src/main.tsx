@@ -9,6 +9,8 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker
       .register('/sw.js', { scope: '/' })
       .then((reg) => {
+        // Força busca imediata de atualizações do Service Worker
+        reg.update().catch(() => {})
         if (import.meta.env.DEV) {
           console.debug('[PWA] Service Worker registrado com escopo:', reg.scope)
         }

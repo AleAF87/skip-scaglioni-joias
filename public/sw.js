@@ -1,8 +1,7 @@
-// Service Worker básico para permitir instalação PWA (app shell) e offline fallback mínimo
-const CACHE_NAME = 'scaglioni-cache-v2'
-const PRECACHE_URLS = [
-  '/',
-  '/index.html',
+// Service Worker para PWA da Scaglioni Joias.
+// Garante atualização imediata (skipWaiting + clients.claim) e expurgo de qualquer cache antigo.
+const CACHE_NAME = 'scaglioni-cache-v3'
+const STATIC_ASSETS = [
   '/manifest.webmanifest',
   '/favicon.ico',
   '/favicon-32x32.png',
@@ -14,10 +13,11 @@ const PRECACHE_URLS = [
 ]
 
 self.addEventListener('install', (event) => {
+  // Força ativação imediata sem esperar fechamento das abas abertas
   self.skipWaiting()
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(PRECACHE_URLS).catch(() => {})
+      return cache.addAll(STATIC_ASSETS).catch(() => {})
     }),
   )
 })
@@ -27,6 +27,7 @@ self.addEventListener('activate', (event) => {
     caches
       .keys()
       .then((keys) => {
+        // Exclui TODOS os caches anteriores
         return Promise.all(
           keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)),
         )
@@ -46,15 +47,30 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // Network-first com fallback para cache
+  const url = new URL(event.request.url)
+
+  // Documentos HTML (navegação e /index.html): NUNCA serve do cache, sempre rede
+  if (event.request.mode === 'navigate' || url.pathname === '/' || url.pathname === '/index.html') {
+    event.respondWith(
+      fetch(event.request, { cache: 'no-cache' }).catch(() => {
+        return caches.match('/index.html') || new Response('Offline', { status: 503 })
+      }),
+    )
+    return
+  }
+
+  // Assets estáticos imutáveis com hash ou ícones
   event.respondWith(
     fetch(event.request)
       .then((response) => {
         if (response && response.status === 200 && response.type === 'basic') {
-          const responseToCache = response.clone()
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseToCache)
-          })
+          // Apenas assets de imagem/ícones são armazenados no cache estático
+          if (url.pathname.startsWith('/assets/') || STATIC_ASSETS.includes(url.pathname)) {
+            const responseToCache = response.clone()
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseToCache)
+            })
+          }
         }
         return response
       })
@@ -62,9 +78,6 @@ self.addEventListener('fetch', (event) => {
         return caches.match(event.request).then((cachedResponse) => {
           if (cachedResponse) {
             return cachedResponse
-          }
-          if (event.request.mode === 'navigate') {
-            return caches.match('/')
           }
           return new Response('Offline', { status: 503, statusText: 'Offline' })
         })
