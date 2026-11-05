@@ -65,6 +65,7 @@ import { TouchSignaturePad } from '@/components/TouchSignaturePad'
 import { DeliveryReceiptModal } from '@/components/DeliveryReceiptModal'
 import { ConsignmentContractModal } from '@/components/ConsignmentContractModal'
 import { ImageLightbox } from '@/components/ImageLightbox'
+import { ResellerFinancialContent } from '@/pages/ResellerFinancial'
 import { toast } from 'sonner'
 
 export default function ResellersUnifiedPage() {
@@ -81,8 +82,10 @@ export default function ResellersUnifiedPage() {
   const [allStockItems, setAllStockItems] = useState<ResellerStockItem[]>([])
   const [isLoadingOverview, setIsLoadingOverview] = useState<boolean>(true)
 
-  // Profile Active Tab: 'deliveries' | 'history_closing' (demais abas migradas para modais e botões contextuais)
-  const [profileTab, setProfileTab] = useState<'deliveries' | 'history_closing'>('deliveries')
+  // Profile Active Tab: 'deliveries' | 'history_closing' | 'financial' (demais abas migradas para modais e botões contextuais)
+  const [profileTab, setProfileTab] = useState<'deliveries' | 'history_closing' | 'financial'>(
+    'deliveries',
+  )
 
   // Modais do Perfil
   const [isNewDeliveryModalOpen, setIsNewDeliveryModalOpen] = useState(false)
@@ -228,10 +231,11 @@ export default function ResellersUnifiedPage() {
     }
   }
 
-  // Navigate into a Reseller profile
+  // Navigate into a Reseller profile — abre direto na aba Financeiro & Lucro (pedido do usuário:
+  // o conteúdo da antiga página Financeiro agora vive dentro dos dados da revendedora)
   const handleOpenResellerProfile = (reseller: Reseller, action?: 'new_delivery' | 'stock') => {
     setCurrentReseller(reseller)
-    setProfileTab('deliveries')
+    setProfileTab('financial')
     if (canManage) {
       setSearchParams({ reseller: reseller.id }, { replace: true })
     }
@@ -1020,16 +1024,15 @@ export default function ResellersUnifiedPage() {
                 </Button>
               </Link>
 
-              <Link to="/revendedora/financeiro">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="border-[#E5DFD5] text-[#2D2A26] hover:bg-[#FDFBF7] text-xs flex items-center gap-1.5"
-                >
-                  <DollarSign className="h-3.5 w-3.5 text-[#2E7D4F]" />
-                  Financeiro
-                </Button>
-              </Link>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setProfileTab('financial')}
+                className="border-[#E5DFD5] text-[#2D2A26] hover:bg-[#FDFBF7] text-xs flex items-center gap-1.5"
+              >
+                <DollarSign className="h-3.5 w-3.5 text-[#2E7D4F]" />
+                Financeiro
+              </Button>
 
               {canManage && (
                 <Button
@@ -1068,6 +1071,18 @@ export default function ResellersUnifiedPage() {
             >
               <FileCheck2 className="h-4 w-4" />
               Histórico & Fechamentos ({legacyLists.length + returnsHistory.length})
+            </button>
+
+            <button
+              onClick={() => setProfileTab('financial')}
+              className={`pb-2.5 px-3 font-serif text-xs md:text-sm font-semibold flex items-center gap-1.5 border-b-2 whitespace-nowrap transition-colors ${
+                profileTab === 'financial'
+                  ? 'border-[#7A5C2E] text-[#7A5C2E]'
+                  : 'border-transparent text-[#6B655E] hover:text-[#2D2A26]'
+              }`}
+            >
+              <DollarSign className="h-4 w-4" />
+              Financeiro &amp; Lucro
             </button>
           </div>
 
@@ -1446,6 +1461,10 @@ export default function ResellersUnifiedPage() {
               </Card>
             </div>
           )}
+
+          {/* ABA 3: FINANCEIRO & LUCRO — mesmo conteúdo da página Financeiro, já no contexto
+              desta revendedora (sem seletor "Revendedora em Foco") */}
+          {profileTab === 'financial' && <ResellerFinancialContent reseller={currentReseller} />}
         </div>
       )}
 

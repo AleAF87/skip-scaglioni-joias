@@ -202,11 +202,6 @@ export default function Layout() {
           icon: Users2,
         },
         {
-          to: '/revendedora/financeiro',
-          label: 'Lucro & Financeiro Vendedoras',
-          icon: BadgeDollarSign,
-        },
-        {
           to: '/revendedora/devolucoes-pendencias',
           label: 'Devoluções & Pendências',
           icon: RotateCcw,
@@ -281,11 +276,9 @@ export default function Layout() {
           icon: Users2,
           highlight: !canManageInternal,
         },
-        {
-          to: '/revendedora/financeiro',
-          label: canManageInternal ? 'Lucro & Financeiro Vendedoras' : 'Meu Lucro & Acerto',
-          icon: BadgeDollarSign,
-        },
+        ...(isReseller
+          ? [{ to: '/revendedora/financeiro', label: 'Meu Lucro & Acerto', icon: BadgeDollarSign }]
+          : []),
         {
           to: '/revendedora/devolucoes-pendencias',
           label: canManageInternal ? 'Devoluções & Pendências' : 'Minhas Devoluções & Pendências',
@@ -314,7 +307,13 @@ export default function Layout() {
       : [{ to: '/revendedora/pdv', label: 'Meu PDV', icon: ShoppingCart }]),
     ...(canManageInternal
       ? [{ to: '/produtos', label: 'Cadastrar Produtos', icon: Boxes, center: true }]
-      : [{ to: '/revendedora/financeiro', label: 'Lucro', icon: BadgeDollarSign }]),
+      : [
+          {
+            to: '/revendedoras',
+            label: 'Financeiro',
+            icon: BadgeDollarSign,
+          },
+        ]),
     { to: '/vitrine', label: 'Vitrine', icon: Store },
     { to: '/perfil', label: 'Perfil', icon: User },
   ]

@@ -1,17 +1,6 @@
 import React, { useState, useEffect } from 'react'
-import {
-  DollarSign,
-  TrendingUp,
-  AlertTriangle,
-  Boxes,
-  Sparkles,
-  Calendar,
-  CreditCard,
-  CheckCircle2,
-  Receipt,
-  Store,
-  User,
-} from 'lucide-react'
+import { DollarSign, TrendingUp, AlertTriangle, Boxes, Receipt, Store } from 'lucide-react'
+import pb from '@/lib/pocketbase/client'
 import { useAuth } from '@/contexts/AuthContext'
 import { resellerService } from '@/services/resellerService'
 import { resellerStockService } from '@/services/resellerStockService'
@@ -20,19 +9,22 @@ import { formatCurrency, formatDateTime } from '@/lib/formatters'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Label } from '@/components/ui/label'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 
-export default function ResellerFinancial() {
-  const { user, isAdmin, isOperator, isReseller } = useAuth()
-  const canManage = isAdmin || isOperator
+interface ResellerFinancialContentProps {
+  reseller: Reseller
+  onBack?: () => void
+}
 
-  const [resellers, setResellers] = useState<Reseller[]>([])
-  const [currentReseller, setCurrentReseller] = useState<Reseller | null>(null)
-  const [selectedResellerId, setSelectedResellerId] = useState<string>('')
-
-  const [isLoading, setIsLoading] = useState(true)
+/**
+ * Conteúdo integral do "Financeiro & Lucro da Revendedora" para UMA revendedora.
+ * Reutilizado por:
+ *  - Página /revendedora/financeiro (revendedora logada vê os próprios dados)
+ *  - Aba "Financeiro & Lucro" dentro do perfil da revendedora na página Revendedoras
+ * A lógica de cálculo vem de resellerStockService.getFinancialSummary — nunca duplique aqui.
+ */
+export function ResellerFinancialContent({ reseller, onBack }: ResellerFinancialContentProps) {
   const [summary, setSummary] = useState<{
     totalSalesGross: number
     totalProfit: number
@@ -47,40 +39,15 @@ export default function ResellerFinancial() {
     recentSales: ResellerSale[]
     pendingIssuesList: ResellerIssue[]
   } | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    loadResellerContext()
-  }, [user])
-
-  const loadResellerContext = async () => {
-    try {
-      if (canManage) {
-        const list = await resellerService.getResellers({ status: 'active' })
-        setResellers(list)
-        if (list.length > 0) {
-          setSelectedResellerId(list[0].id)
-          setCurrentReseller(list[0])
-        }
-      } else if (isReseller && user) {
-        const r = await resellerService.getResellerByUserId(user.id)
-        setCurrentReseller(r)
-        setSelectedResellerId(r.id)
-      }
-    } catch (err) {
-      console.error('Erro ao identificar revendedora:', err)
-    }
-  }
-
-  useEffect(() => {
-    if (selectedResellerId) {
-      loadFinancialData(selectedResellerId)
-      const found = resellers.find((r) => r.id === selectedResellerId)
-      if (found) setCurrentReseller(found)
-    }
-  }, [selectedResellerId])
+    loadFinancialData(reseller.id)
+  }, [reseller.id])
 
   const loadFinancialData = async (resellerId: string) => {
     setIsLoading(true)
+    setSummary(null)
     try {
       const data = await resellerStockService.getFinancialSummary(resellerId)
       setSummary(data)
@@ -96,63 +63,40 @@ export default function ResellerFinancial() {
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#E5DFD5] pb-5">
-        <div>
+        <div className="space-y-1">
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="text-xs text-[#7A5C2E] hover:text-[#634923] hover:bg-[#F3EAD8] p-0 h-auto font-medium flex items-center gap-1.5"
+            >
+              ← Voltar
+            </button>
+          )}
           <div className="flex items-center gap-2 text-[#7A5C2E]">
             <DollarSign className="h-5 w-5" />
-            <h1 className="font-serif text-2xl font-bold tracking-tight text-[#2D2A26]">
-              Financeiro & Lucro da Revendedora
-            </h1>
+            <h2 className="font-serif text-2xl font-bold tracking-tight text-[#2D2A26]">
+              Financeiro &amp; Lucro da Revendedora
+            </h2>
           </div>
           <p className="text-sm text-[#6B655E] mt-1">
-            {canManage
-              ? 'Acompanhamento do lucro gerado pela vendedora, repasses devidos à Scaglioni e pendências em aberto.'
-              : 'Acompanhe seu lucro acumulado das vendas e o valor a pagar à Scaglioni quando prestar contas.'}
+            Acompanhe {reseller.name ? `os dados de ${reseller.name}` : 'os dados da revendedora'} —
+            lucro acumulado, repasses devidos à Scaglioni e pendências em aberto.
           </p>
         </div>
 
-        {currentReseller && (
-          <div className="flex items-center gap-2">
-            <Link to={`/loja/${currentReseller.id}`} target="_blank">
-              <Button
-                variant="outline"
-                size="sm"
-                className="border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] text-xs flex items-center gap-1.5"
-              >
-                <Store className="h-3.5 w-3.5" />
-                Catálogo da Loja
-              </Button>
-            </Link>
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          <Link to={`/loja/${reseller.id}`} target="_blank">
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] text-xs flex items-center gap-1.5"
+            >
+              <Store className="h-3.5 w-3.5" />
+              Catálogo da Loja
+            </Button>
+          </Link>
+        </div>
       </div>
-
-      {/* Reseller Switcher for Admin/Operator */}
-      {canManage && (
-        <Card className="border-[#E5DFD5] bg-[#FDFBF7]">
-          <CardContent className="p-3.5 flex items-center justify-between gap-4 flex-wrap">
-            <div className="flex items-center gap-2">
-              <Label className="text-xs font-semibold text-[#7A5C2E]">Revendedora em Foco:</Label>
-              <select
-                value={selectedResellerId}
-                onChange={(e) => setSelectedResellerId(e.target.value)}
-                className="h-8 rounded-md border border-[#E5DFD5] bg-white px-2 text-xs font-medium"
-              >
-                {resellers.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name} ({r.commission_rate || 40}% comissão)
-                  </option>
-                ))}
-              </select>
-            </div>
-            {currentReseller && (
-              <span className="text-xs text-[#6B655E]">
-                Percentual de lucro da vendedora:{' '}
-                <strong>{currentReseller.commission_rate || 40}%</strong>
-              </span>
-            )}
-          </CardContent>
-        </Card>
-      )}
 
       {isLoading ? (
         <div className="py-16 text-center text-xs text-[#8C8275]">
@@ -173,7 +117,7 @@ export default function ResellerFinancial() {
                   {formatCurrency(summary.totalProfit)}
                 </div>
                 <p className="text-[11px] text-emerald-700">
-                  Ganhos confirmados ({currentReseller?.commission_rate || 40}% sobre vendas)
+                  Ganhos confirmados ({reseller.commission_rate || 40}% sobre vendas)
                 </p>
               </CardContent>
             </Card>
@@ -248,7 +192,7 @@ export default function ResellerFinancial() {
                     </strong>
                   </div>
                   <div className="flex justify-between text-emerald-700">
-                    <span>- Seu Lucro ({currentReseller?.commission_rate || 40}%):</span>
+                    <span>- Seu Lucro ({reseller.commission_rate || 40}%):</span>
                     <strong>- {formatCurrency(summary.totalProfit)}</strong>
                   </div>
                   <div className="flex justify-between text-[#7A5C2E] font-bold border-t border-[#E5DFD5] pt-1.5">
@@ -404,4 +348,66 @@ export default function ResellerFinancial() {
       ) : null}
     </div>
   )
+}
+
+export default function ResellerFinancial() {
+  const { user, isReseller, canManageInternal } = useAuth()
+
+  const [currentReseller, setCurrentReseller] = useState<Reseller | null>(null)
+  const [isLoadingContext, setIsLoadingContext] = useState(true)
+
+  useEffect(() => {
+    loadResellerContext()
+  }, [user])
+
+  const loadResellerContext = async () => {
+    setIsLoadingContext(true)
+    try {
+      // Revendedora logada: sempre os próprios dados (nunca seletor).
+      if (isReseller && user) {
+        const r = await resellerService.getResellerByUserId(user.id)
+        setCurrentReseller(r)
+      }
+      // Admin/operador/superadmin: suporte legado à rota /revendedora/financeiro com
+      // ?reseller=<id> (mantém funcionando internamente, mas o acesso natural é o card
+      // na página Revendedoras, que embute o mesmo conteúdo por aba).
+      else if (canManageInternal) {
+        const params = new URLSearchParams(window.location.search)
+        const targetId = params.get('reseller')
+        if (targetId) {
+          try {
+            const r = await pb.collection('resellers').getOne<Reseller>(targetId, {
+              expand: 'user',
+            })
+            setCurrentReseller(r)
+          } catch {
+            /* revendedora não encontrada */
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Erro ao identificar revendedora:', err)
+    } finally {
+      setIsLoadingContext(false)
+    }
+  }
+
+  if (isLoadingContext) {
+    return <div className="py-16 text-center text-xs text-[#8C8275]">Carregando contexto...</div>
+  }
+
+  if (!currentReseller) {
+    return (
+      <div className="py-16 text-center text-xs text-[#8C8275] max-w-md mx-auto space-y-2">
+        <p>Nenhuma revendedora em foco.</p>
+        <p className="text-[11px]">
+          {isReseller
+            ? 'Não foi possível localizar o cadastro da sua revendedora. Contate o administrador.'
+            : 'Acesse o financeiro pelo card da revendedora na página "Revendedoras".'}
+        </p>
+      </div>
+    )
+  }
+
+  return <ResellerFinancialContent reseller={currentReseller} />
 }
