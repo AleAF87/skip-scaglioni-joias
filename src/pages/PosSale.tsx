@@ -115,6 +115,10 @@ export default function PosSale() {
   const [pendingModalOpen, setPendingModalOpen] = useState(false)
   const [activePendingSaleId, setActivePendingSaleId] = useState<string | null>(null)
 
+  // Deletion of pending reservation state
+  const [reservationToDelete, setReservationToDelete] = useState<Sale | null>(null)
+  const [isDeletingReservation, setIsDeletingReservation] = useState(false)
+
   // Recent sales / reservations (Últimas compras/reservas)
   const [recentSales, setRecentSales] = useState<Sale[]>([])
   const [loadingRecentSales, setLoadingRecentSales] = useState(false)
@@ -781,6 +785,39 @@ export default function PosSale() {
       loadRecentSales()
     } catch (err: any) {
       toast.error('Erro ao salvar reserva pendente: ' + (err.message || ''))
+    }
+  }
+
+  // Delete Pending Reservation with safe confirmation
+  const handleConfirmDeleteReservation = async () => {
+    if (!reservationToDelete) return
+    const target = reservationToDelete
+    setIsDeletingReservation(true)
+    try {
+      await salesService.deleteSale(target.id)
+      toast.success(`Reserva ${target.code} excluída com sucesso!`)
+
+      // Se a venda excluída estava sendo editada no carrinho, resetar o ID pendente ativo
+      if (activePendingSaleId === target.id) {
+        setActivePendingSaleId(null)
+      }
+
+      // Atualiza o estado local imediatamente
+      setPendingSales((prev) => prev.filter((s) => s.id !== target.id))
+      setRecentSales((prev) => prev.filter((s) => s.id !== target.id))
+
+      // Fecha o diálogo de confirmação
+      setReservationToDelete(null)
+
+      // Recarrega do servidor em background
+      loadPendingSales()
+      loadRecentSales()
+    } catch (err: any) {
+      console.error('Erro ao excluir reserva:', err)
+      const msg = err?.data?.message || err?.message || 'Falha ao excluir a reserva.'
+      toast.error('Erro ao excluir reserva: ' + msg)
+    } finally {
+      setIsDeletingReservation(false)
     }
   }
 
@@ -1824,13 +1861,24 @@ export default function PosSale() {
                                 {formatCurrency(sale.total)}
                               </span>
                               {isPending && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleResumePending(sale)}
-                                  className="text-[10px] text-[#7A5C2E] hover:underline font-semibold"
-                                >
-                                  Retomar
-                                </button>
+                                <div className="flex items-center justify-end gap-2 mt-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => setReservationToDelete(sale)}
+                                    title="Excluir reserva"
+                                    className="p-1 text-[#8C8275] hover:text-[#B3261E] hover:bg-[#FEE2E2]/60 rounded transition-colors"
+                                    aria-label="Excluir reserva"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleResumePending(sale)}
+                                    className="text-[10px] text-[#7A5C2E] hover:underline font-semibold"
+                                  >
+                                    Retomar
+                                  </button>
+                                </div>
                               )}
                             </div>
                           </div>
@@ -2060,14 +2108,25 @@ export default function PosSale() {
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 sm:gap-3">
                     <span className="font-serif font-bold text-base text-[#2D2A26]">
                       {formatCurrency(ps.total)}
                     </span>
                     <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setReservationToDelete(ps)}
+                      title="Excluir reserva"
+                      className="h-9 w-9 min-w-9 text-[#8C8275] hover:text-[#B3261E] hover:bg-[#FEE2E2]/60 rounded-lg transition-colors"
+                      aria-label="Excluir reserva"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                    <Button
                       size="sm"
                       onClick={() => handleResumePending(ps)}
-                      className="bg-[#7A5C2E] text-white"
+                      className="bg-[#7A5C2E] text-white h-9"
                     >
                       Retomar <ArrowRight className="h-3.5 w-3.5 ml-1" />
                     </Button>
@@ -2387,6 +2446,83 @@ export default function PosSale() {
         initialIndex={lightboxIndex}
         title={lightboxTitle}
       />
+
+      {/* Modal de Confirmação para Excluir Reserva Pendente */}
+      <Dialog
+        open={Boolean(reservationToDelete)}
+        onOpenChange={(open) => {
+          if (!open && !isDeletingReservation) {
+            setReservationToDelete(null)
+          }
+        }}
+      >
+        <DialogContent className="max-w-md bg-white border border-[#E5DFD5] shadow-xl p-6">
+          <DialogHeader>
+            <div className="flex items-center gap-3 text-[#B3261E] mb-1">
+              <span className="p-2.5 rounded-2xl bg-[#B3261E]/10 text-[#B3261E]">
+                <Trash2 className="h-5 w-5" />
+              </span>
+              <div>
+                <DialogTitle className="font-serif text-lg text-[#2D2A26]">
+                  Excluir reserva pendente?
+                </DialogTitle>
+                <p className="text-xs text-[#8C8275]">Esta ação não pode ser desfeita</p>
+              </div>
+            </div>
+          </DialogHeader>
+
+          {reservationToDelete && (
+            <div className="py-2 space-y-3">
+              <div className="p-3 rounded-xl bg-[#FDFBF7] border border-[#E5DFD5] space-y-1 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono font-bold text-[#7A5C2E]">
+                    {reservationToDelete.code}
+                  </span>
+                  <Badge className="bg-[#FEF3C7] text-[#B26A00] border border-[#B26A00]/30 text-[10px] px-1.5 py-0 h-4">
+                    Reserva
+                  </Badge>
+                </div>
+                <p className="text-[#2D2A26] font-medium">
+                  <strong>Cliente:</strong>{' '}
+                  {reservationToDelete.expand?.customer?.name ||
+                    (reservationToDelete.customer ? 'Cliente cadastrado' : 'Consumidor Final')}
+                </p>
+                <div className="flex items-center justify-between text-[#6B655E] pt-1">
+                  <span>Data: {formatDateTime(reservationToDelete.created)}</span>
+                  <span className="font-bold text-[#2D2A26]">
+                    {formatCurrency(reservationToDelete.total)}
+                  </span>
+                </div>
+              </div>
+
+              <p className="text-xs text-[#6B655E]">
+                Como esta reserva ainda está pendente, o estoque não foi baixado e não haverá
+                impacto nas quantidades das peças. Tem certeza que deseja remover esta reserva?
+              </p>
+            </div>
+          )}
+
+          <DialogFooter className="pt-2 flex flex-col-reverse sm:flex-row gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isDeletingReservation}
+              onClick={() => setReservationToDelete(null)}
+              className="w-full sm:w-auto border-[#7A5C2E] text-[#7A5C2E] hover:bg-[#F3EAD8] text-xs h-10 font-semibold"
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              disabled={isDeletingReservation}
+              onClick={handleConfirmDeleteReservation}
+              className="w-full sm:w-auto bg-[#B3261E] hover:bg-[#8F1E18] text-white text-xs h-10 font-semibold"
+            >
+              {isDeletingReservation ? 'Excluindo...' : 'Sim, excluir reserva'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Modal de Dupla Confirmação ao sair da tela com itens no carrinho */}
       <Dialog
