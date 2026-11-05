@@ -5,6 +5,7 @@ import { productCreationService } from '@/services/productCreationService'
 import { Product, ProductCategory } from '@/types'
 import { getProductFullName } from '@/types/labelContent'
 import { formatCurrency, getFileUrl, getProductDisplayPhoto } from '@/lib/formatters'
+import { fetchResellerStockQuantityMap, getProductTotalStock } from '@/services/totalStockService'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -17,6 +18,13 @@ import { LOGO_ICON_URL } from '@/constants/branding'
 export default function CatalogVitrine() {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
+  // Categorias de cada produto: vínculos product_category_links → product_categories,
+  // carregados uma vez e mapeados por produto (usados nos cards e no modal).
+  const [categoryNamesByProduct, setCategoryNamesByProduct] = useState<Map<string, string[]>>(
+    new Map(),
+  )
+  // Soma de tudo que está em posse das revendedoras (por produto) para o estoque geral do modal
+  const [resellerQtyMap, setResellerQtyMap] = useState<Map<string, number>>(new Map())
   // Filtros Metal e Tipo vêm da página de Categorias (product_categories.group)
   const [metalCategories, setMetalCategories] = useState<ProductCategory[]>([])
   const [tipoCategories, setTipoCategories] = useState<ProductCategory[]>([])
@@ -25,7 +33,6 @@ export default function CatalogVitrine() {
   const [search, setSearch] = useState('')
   const [selectedType, setSelectedType] = useState('')
   const [selectedMaterial, setSelectedMaterial] = useState('')
-  const [targetAudience, setTargetAudience] = useState('')
 
   // Detail Modal
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
@@ -53,7 +60,7 @@ export default function CatalogVitrine() {
 
   useEffect(() => {
     loadCatalog()
-  }, [search, selectedType, selectedMaterial, targetAudience])
+  }, [search, selectedType, selectedMaterial])
 
   const loadAuxiliaries = async () => {
     try {
@@ -64,6 +71,28 @@ export default function CatalogVitrine() {
     } catch (err) {
       console.error(err)
     }
+  }
+
+  // Carrega os vínculos de categorias uma vez e mapeia product → nomes das categorias
+  // (sem duplicidade, apenas com nomes preenchidos).
+  const loadCategoryLinksMap = async (): Promise<Map<string, string[]>> => {
+    const map = new Map<string, string[]>()
+    try {
+      const links = await pb.collection('product_category_links').getFullList<{
+        product: string
+        expand?: { category?: ProductCategory }
+      }>({ expand: 'category' })
+      links.forEach((l) => {
+        const name = l.expand?.category?.name?.trim()
+        if (!name || !l.product) return
+        const names = map.get(l.product) || []
+        if (!names.includes(name)) names.push(name)
+        map.set(l.product, names)
+      })
+    } catch (err) {
+      console.error(err)
+    }
+    return map
   }
 
   // Busca os ids de produtos vinculados a uma categoria via product_category_links.
@@ -103,12 +132,18 @@ export default function CatalogVitrine() {
         filters.push(linkFilters.join(' && '))
       }
 
-      const res = await pb.collection('products').getList<Product>(1, 40, {
-        filter: filters.join(' && ') || undefined,
-        sort: '-created',
-        expand: 'type,material,size,marca_id,product_category_links(product).category',
-      })
+      const [res, resellerMap, catMap] = await Promise.all([
+        pb.collection('products').getList<Product>(1, 40, {
+          filter: filters.join(' && ') || undefined,
+          sort: '-created',
+          expand: 'type,material,size,marca_id,product_category_links(product).category',
+        }),
+        fetchResellerStockQuantityMap(),
+        loadCategoryLinksMap(),
+      ])
       setProducts(res.items)
+      setResellerQtyMap(resellerMap)
+      setCategoryNamesByProduct(catMap)
     } catch (err) {
       console.error(err)
     } finally {
@@ -144,7 +179,7 @@ export default function CatalogVitrine() {
       {/* Filter Bar */}
       <Card className="border-[#E5DFD5] bg-white shadow-xs">
         <CardContent className="p-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             <div className="relative">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-[#6B655E]" />
               <Input
@@ -182,19 +217,6 @@ export default function CatalogVitrine() {
                     {t.name}
                   </option>
                 ))}
-              </select>
-            </div>
-
-            <div>
-              <select
-                value={targetAudience}
-                onChange={(e) => setTargetAudience(e.target.value)}
-                className="w-full h-10 rounded-md border border-[#E5DFD5] bg-white px-3 py-2 text-sm text-[#2D2A26] focus:outline-none focus:ring-2 focus:ring-[#C6A664]"
-              >
-                <option value="">Todo Perfil</option>
-                <option value="feminino">Feminino</option>
-                <option value="masculino">Masculino</option>
-                <option value="unissex">Unissex</option>
               </select>
             </div>
           </div>
@@ -275,15 +297,20 @@ export default function CatalogVitrine() {
                 {/* Info Container — apenas nome do produto (Categoria — Nome), sem descrição */}
                 <CardContent className="p-4 flex-1 flex flex-col justify-between">
                   <div>
-                    <div className="flex flex-wrap items-center gap-1.5 text-[11px] mb-1.5">
-                      <span className="px-1.5 py-0.5 rounded-md bg-neutral-100 text-[#2D2A26]">
-                        Tam: {p.expand?.size?.name || 'Único'}
-                      </span>
-                      <span className="px-1.5 py-0.5 rounded-md bg-neutral-100 text-[#2D2A26] capitalize">
-                        Perfil: {p.target_audience || 'Unissex'}
-                      </span>
-                    </div>
-                    <h3 className="font-serif text-base font-bold text-[#2D2A26] mt-1 leading-snug whitespace-normal break-words">
+                    {/* Categorias cadastradas do produto (somente o nome de cada uma) */}
+                    {(categoryNamesByProduct.get(p.id) || []).length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5 text-[11px] mb-1.5">
+                        {(categoryNamesByProduct.get(p.id) || []).map((catName) => (
+                          <span
+                            key={catName}
+                            className="px-1.5 py-0.5 rounded-md bg-[#C6A664]/15 text-[#7A5C2E] font-semibold"
+                          >
+                            {catName}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <h3 className="font-serif text-base font-bold text-[#2D2A26] leading-snug whitespace-normal break-words">
                       {getProductFullName(p)}
                     </h3>
                   </div>
@@ -316,21 +343,7 @@ export default function CatalogVitrine() {
         <DialogContent className="max-w-2xl bg-white max-h-[90vh] overflow-y-auto">
           {selectedProduct && (
             <div className="space-y-5">
-              <DialogHeader>
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-xs font-bold px-2 py-0.5 rounded-md bg-[#C6A664]/20 text-[#7A5C2E]">
-                    {selectedProduct.code}
-                  </span>
-                  <Badge variant="outline" className="capitalize text-xs">
-                    {selectedProduct.expand?.type?.name || 'Joia'}
-                  </Badge>
-                </div>
-                <DialogTitle className="font-serif text-xl md:text-2xl text-[#2D2A26] mt-2">
-                  {selectedProduct.description}
-                </DialogTitle>
-              </DialogHeader>
-
-              {/* Gallery view */}
+              {/* (1) Imagem do produto — galeria */}
               <div className="space-y-3">
                 <div
                   className="relative aspect-video w-full rounded-xl overflow-hidden bg-[#FDFBF7] border border-[#E5DFD5] flex items-center justify-center cursor-pointer group"
@@ -397,8 +410,72 @@ export default function CatalogVitrine() {
                 )}
               </div>
 
-              {/* Specs Grid — Separado Tipo, Tamanho e Perfil */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 bg-[#FDFBF7] rounded-xl border border-[#E5DFD5] text-xs">
+              {/* (2) Código */}
+              <div>
+                <span className="text-[10px] text-[#6B655E] uppercase tracking-wider block">
+                  Código
+                </span>
+                <span className="font-mono text-sm font-bold text-[#7A5C2E]">
+                  {selectedProduct.code}
+                </span>
+              </div>
+
+              {/* (3) Categorias cadastradas do produto */}
+              {(categoryNamesByProduct.get(selectedProduct.id) || []).length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {(categoryNamesByProduct.get(selectedProduct.id) || []).map((catName) => (
+                    <span
+                      key={catName}
+                      className="px-2 py-0.5 rounded-md bg-[#C6A664]/15 text-[#7A5C2E] text-xs font-semibold"
+                    >
+                      {catName}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* (4) Nome do produto */}
+              <DialogTitle className="font-serif text-xl md:text-2xl text-[#2D2A26] leading-snug">
+                {selectedProduct.nome_produto || selectedProduct.description || 'Produto Scaglioni'}
+              </DialogTitle>
+
+              {/* (5) Descrição */}
+              {selectedProduct.description && (
+                <div className="p-3 bg-white border border-[#E5DFD5] rounded-xl text-xs text-[#6B655E] whitespace-pre-line">
+                  <strong className="text-[#2D2A26] block mb-1">Descrição:</strong>
+                  {selectedProduct.description}
+                </div>
+              )}
+
+              {/* (6) Preço de venda em destaque */}
+              <div className="p-4 rounded-xl bg-[#F3EAD8] border border-[#C6A664]/50">
+                <span className="text-[10px] text-[#7A5C2E] uppercase tracking-wider block">
+                  Preço de Venda
+                </span>
+                <span className="font-serif text-3xl font-bold text-[#7A5C2E]">
+                  {formatCurrency(selectedProduct.selling_price)}
+                </span>
+              </div>
+
+              {/* (7) Quantidade em estoque geral (soma de todos os estoques da peça) */}
+              <div>
+                <span className="text-[10px] text-[#6B655E] uppercase tracking-wider block">
+                  Estoque Geral
+                </span>
+                <span className="font-serif text-xl font-bold text-[#2E7D4F]">
+                  {getProductTotalStock(
+                    selectedProduct,
+                    resellerQtyMap.get(selectedProduct.id) || 0,
+                  )}{' '}
+                  unid.
+                </span>
+                <span className="text-[11px] text-[#6B655E] block mt-0.5">
+                  Loja física + E-commerce + Revendedoras
+                </span>
+              </div>
+
+              {/* Tipo, Tamanho e Perfil */}
+              <div className="grid grid-cols-3 gap-3 p-4 bg-[#FDFBF7] rounded-xl border border-[#E5DFD5] text-xs">
                 <div>
                   <span className="text-[#6B655E] block">Tipo:</span>
                   <span className="font-semibold text-[#2D2A26]">
@@ -417,20 +494,7 @@ export default function CatalogVitrine() {
                     {selectedProduct.target_audience || 'Unissex'}
                   </span>
                 </div>
-                <div>
-                  <span className="text-[#6B655E] block">Disponibilidade:</span>
-                  <span className="font-semibold text-[#2E7D4F]">
-                    Em estoque ({selectedProduct.quantity} unid.)
-                  </span>
-                </div>
               </div>
-
-              {selectedProduct.description && (
-                <div className="p-3 bg-white border border-[#E5DFD5] rounded-xl text-xs text-[#6B655E] whitespace-pre-line">
-                  <strong className="text-[#2D2A26] block mb-1">Descrição:</strong>
-                  {selectedProduct.description}
-                </div>
-              )}
 
               {selectedProduct.observations && (
                 <div className="p-3 bg-white border border-[#E5DFD5] rounded-xl text-xs text-[#6B655E]">
@@ -439,15 +503,7 @@ export default function CatalogVitrine() {
                 </div>
               )}
 
-              {/* Price footer */}
-              <div className="pt-3 border-t border-[#E5DFD5] flex items-center justify-between">
-                <div>
-                  <span className="text-xs text-[#6B655E] block">Preço de Venda</span>
-                  <span className="font-serif text-2xl font-bold text-[#7A5C2E]">
-                    {formatCurrency(selectedProduct.selling_price)}
-                  </span>
-                </div>
-
+              <div className="pt-3 border-t border-[#E5DFD5] flex justify-end">
                 <Button
                   onClick={() => setSelectedProduct(null)}
                   className="bg-[#7A5C2E] text-white"
