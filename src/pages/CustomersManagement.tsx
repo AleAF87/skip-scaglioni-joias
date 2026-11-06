@@ -31,10 +31,12 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
+import { CUSTOMER_NO_EDIT_MSG, useCanEditCustomer } from '@/lib/customerPermissions'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { CustomerModal } from '@/components/customers/CustomerModal'
 
 export default function CustomersManagement() {
-  const { canManageInternal } = useAuth()
+  const { canManageInternal, isReseller } = useAuth()
   const [customers, setCustomers] = useState<Customer[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -51,6 +53,13 @@ export default function CustomersManagement() {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false)
   const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+
+  // Edição permitida: equipe (operador/admin/superadmin) edita qualquer cliente;
+  // revendedora só edita clientes que ELA mesma cadastrou (created_by). A regra
+  // também é aplicada na API (updateRule da collection customers) — ver
+  // src/lib/customerPermissions.tsx.
+  const canEditCustomer = useCanEditCustomer()
+  const canDeleteCustomer = () => canManageInternal
 
   useEffect(() => {
     loadCustomers()
@@ -124,7 +133,7 @@ export default function CustomersManagement() {
           </p>
         </div>
 
-        {canManageInternal && (
+        {(canManageInternal || isReseller) && (
           <Button
             onClick={handleOpenCreate}
             className="bg-gradient-to-r from-[#7A5C2E] to-[#C6A664] hover:opacity-90 text-white font-medium text-xs flex items-center gap-1.5 shadow-sm"
@@ -281,25 +290,45 @@ export default function CustomersManagement() {
                           Compras
                         </Button>
 
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleOpenEdit(c, 'dados')}
-                          className="h-8 border-[#C6A664] text-[#7A5C2E] hover:bg-[#C6A664]/10 text-xs font-medium"
-                          title={`Editar dados de ${c.name}`}
-                        >
-                          <Pencil className="h-3.5 w-3.5 mr-1" /> Editar
-                        </Button>
+                        {canEditCustomer(c) ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleOpenEdit(c, 'dados')}
+                            className="h-8 border-[#C6A664] text-[#7A5C2E] hover:bg-[#C6A664]/10 text-xs font-medium"
+                            title={`Editar dados de ${c.name}`}
+                          >
+                            <Pencil className="h-3.5 w-3.5 mr-1" /> Editar
+                          </Button>
+                        ) : (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled
+                                className="h-8 border-[#E5DFD5] text-[#6B655E]/50 text-xs font-medium cursor-not-allowed"
+                              >
+                                <Pencil className="h-3.5 w-3.5 mr-1" /> Editar
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <span className="text-[11px]">{CUSTOMER_NO_EDIT_MSG}</span>
+                            </TooltipContent>
+                          </Tooltip>
+                        )}
 
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => handleOpenDelete(c)}
-                          className="h-8 text-[#B3261E] hover:bg-[#B3261E]/10 text-xs"
-                          title={`Excluir cliente ${c.name}`}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                        {canDeleteCustomer() && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleOpenDelete(c)}
+                            className="h-8 text-[#B3261E] hover:bg-[#B3261E]/10 text-xs"
+                            title={`Excluir cliente ${c.name}`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -346,6 +375,7 @@ export default function CustomersManagement() {
         onOpenChange={setModalOpen}
         onSaved={loadCustomers}
         initialTab={modalInitialTab}
+        canEdit={modalCustomer ? canEditCustomer(modalCustomer) : true}
       />
 
       {/* Modal de Confirmação de Exclusão */}

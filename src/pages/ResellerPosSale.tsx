@@ -170,24 +170,17 @@ export default function ResellerPosSale() {
     }
   }, [selectedResellerId])
 
-  // Clientes visíveis: revendedora só vê os que ELA cadastrou (regra também no backend);
-  // operador/admin/superadmin veem todos.
+  // Clientes visíveis: TODOS os clientes para qualquer usuário autenticado
+  // (regra da collection customers também permite). Revendedora vê os dela e os
+  // cadastrados por outras revendedoras e pela equipe — vínculo por ID.
   const loadCustomers = useCallback(async () => {
     try {
       if (!user) return
-      if (isReseller) {
-        const list = await pb.collection('customers').getFullList<Customer>({
-          filter: `created_by = '${user.id}'`,
-          sort: 'name',
-        })
-        setCustomers(list)
-      } else {
-        setCustomers(await customerService.getAllCustomers())
-      }
+      setCustomers(await customerService.getAllCustomers())
     } catch (err) {
       console.error('Erro ao carregar clientes:', err)
     }
-  }, [user, isReseller])
+  }, [user])
 
   useEffect(() => {
     loadCustomers()
@@ -500,13 +493,14 @@ export default function ResellerPosSale() {
     }
     setIsSavingCustomer(true)
     try {
+      // O created_by real é gravado automaticamente pelo hook no backend; o front
+      // só envia os dados cadastrais do cliente.
       const created = await customerService.createCustomer({
         name: newCustomer.name.trim(),
         cpf: newCustomer.cpf.trim() || undefined,
         phone: newCustomer.phone.trim() || undefined,
         email: newCustomer.email.trim() || undefined,
-        created_by: user?.id,
-      } as any)
+      })
       setCustomers((prev) => [...prev, created])
       setSelectedCustomer(created)
       setCustomerQuery(getMaskedCustomerLabel(created))

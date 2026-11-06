@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-06T13:36:41.065Z",
+  "generatedAt": "2026-11-06T13:44:14.290Z",
   "collections": [
     {
       "name": "users",
@@ -356,10 +356,10 @@
       "name": "customers",
       "type": "base",
       "apiRules": {
-        "list": "(@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator') || (@request.auth.role = 'reseller' && created_by = @request.auth.id))",
-        "view": "(@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator') || (@request.auth.role = 'reseller' && created_by = @request.auth.id))",
-        "create": "(@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator') || (@request.auth.role = 'reseller' && (@request.body.created_by = @request.auth.id || @request.body.created_by:isset = false)))",
-        "update": "@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator')",
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != '' && ((@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator') || created_by = @request.auth.id)",
         "delete": "@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator')"
       },
       "fields": [

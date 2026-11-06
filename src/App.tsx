@@ -201,11 +201,12 @@ export default function App() {
                 }
               />
 
-              {/* Customers management (Admin & Operator) */}
+              {/* Customers management (Admin & Operator & Revendedor) —
+                  revendedora vê todos os clientes, mas só edita os que ela criou */}
               <Route
                 path="clientes"
                 element={
-                  <ProtectedRoute allowedRoles={['admin', 'operator']}>
+                  <ProtectedRoute allowedRoles={['admin', 'operator', 'reseller']}>
                     <CustomersManagement />
                   </ProtectedRoute>
                 }

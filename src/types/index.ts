@@ -236,6 +236,7 @@ export interface Customer {
   city?: string
   state?: string
   notes?: string
+  created_by?: string
   created: string
   updated: string
 }

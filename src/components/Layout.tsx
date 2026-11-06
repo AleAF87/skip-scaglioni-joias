@@ -284,9 +284,7 @@ export default function Layout() {
             ]
           : []),
 
-        ...(canManageInternal && !isReseller
-          ? [{ to: '/clientes', label: 'Clientes', icon: Users }]
-          : []),
+        { to: '/clientes', label: 'Clientes', icon: Users },
         { to: '/vitrine', label: 'Vitrine de Joias', icon: Store },
         ...(isAdmin || (canManageInternal && !isReseller)
           ? [{ to: '/categorias', label: 'Categorias', icon: Tag }]

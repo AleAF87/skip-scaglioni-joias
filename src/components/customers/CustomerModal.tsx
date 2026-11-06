@@ -15,6 +15,7 @@ import { Loader2, UserCog, UserPlus, ShoppingBag, Info } from 'lucide-react'
 import { toast } from 'sonner'
 import { CustomerFormFields, CustomerFormState } from './CustomerFormFields'
 import { CustomerPurchasesHistory } from './CustomerPurchasesHistory'
+import { CustomerNoEditNotice } from '@/lib/customerPermissions'
 
 interface CustomerModalProps {
   customer: Customer | null
@@ -22,6 +23,7 @@ interface CustomerModalProps {
   onOpenChange: (open: boolean) => void
   onSaved: () => void
   initialTab?: 'dados' | 'historico'
+  canEdit?: boolean
 }
 
 const emptyForm: CustomerFormState = {
@@ -46,6 +48,7 @@ export function CustomerModal({
   onOpenChange,
   onSaved,
   initialTab = 'dados',
+  canEdit = true,
 }: CustomerModalProps) {
   const [loading, setLoading] = useState(false)
   const [activeTab, setActiveTab] = useState<'dados' | 'historico'>(initialTab)
@@ -57,6 +60,8 @@ export function CustomerModal({
   const [loadingPurchases, setLoadingPurchases] = useState(false)
 
   const isEditing = Boolean(customer?.id)
+  // Sem permissão de edição: o modal abre apenas em modo leitura + histórico
+  const readOnly = isEditing && !canEdit
 
   useEffect(() => {
     if (open) {
@@ -184,11 +189,13 @@ export function CustomerModal({
             </span>
             <div>
               <DialogTitle className="font-serif text-xl text-[#2D2A26]">
-                {isEditing ? 'Editar Cliente' : 'Novo Cliente'}
+                {isEditing ? (readOnly ? 'Dados do Cliente' : 'Editar Cliente') : 'Novo Cliente'}
               </DialogTitle>
               <DialogDescription className="text-xs text-[#6B655E] mt-0.5">
                 {isEditing
-                  ? `Atualize os dados e consulte o histórico de compras de ${customer?.name || 'cliente'}.`
+                  ? readOnly
+                    ? `Consulta dos dados e histórico de compras de ${customer?.name || 'cliente'} — somente quem cadastrou o cliente ou a equipe pode editá-lo.`
+                    : `Atualize os dados e consulte o histórico de compras de ${customer?.name || 'cliente'}.`
                   : 'Cadastre um novo cliente com os dados de contato, endereço e identificação.'}
               </DialogDescription>
             </div>
@@ -219,12 +226,14 @@ export function CustomerModal({
 
             <TabsContent value="dados" className="pt-2">
               <form onSubmit={handleSubmit} className="space-y-4">
-                <CustomerFormFields
-                  form={form}
-                  onChange={handleFieldChange}
-                  errors={errors}
-                  clearError={clearError}
-                />
+                <fieldset disabled={readOnly} className={readOnly ? 'opacity-60' : undefined}>
+                  <CustomerFormFields
+                    form={form}
+                    onChange={handleFieldChange}
+                    errors={errors}
+                    clearError={clearError}
+                  />
+                </fieldset>
 
                 <DialogFooter className="pt-3 gap-2">
                   <Button
@@ -236,19 +245,23 @@ export function CustomerModal({
                   >
                     Cancelar
                   </Button>
-                  <Button
-                    type="submit"
-                    disabled={loading}
-                    className="bg-gradient-to-r from-[#7A5C2E] to-[#C6A664] hover:opacity-90 text-white font-semibold"
-                  >
-                    {loading ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Salvando...
-                      </>
-                    ) : (
-                      'Salvar Alterações'
-                    )}
-                  </Button>
+                  {readOnly ? (
+                    <CustomerNoEditNotice className="flex-1" />
+                  ) : (
+                    <Button
+                      type="submit"
+                      disabled={loading}
+                      className="bg-gradient-to-r from-[#7A5C2E] to-[#C6A664] hover:opacity-90 text-white font-semibold"
+                    >
+                      {loading ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Salvando...
+                        </>
+                      ) : (
+                        'Salvar Alterações'
+                      )}
+                    </Button>
+                  )}
                 </DialogFooter>
               </form>
             </TabsContent>
