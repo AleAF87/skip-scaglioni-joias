@@ -274,7 +274,7 @@ export default function ResellerPosSale() {
   // Leitura (câmera ou Enter no campo de busca): procura o produto NO ESTOQUE DA REVENDEDORA
   const handleScanCode = (
     barcode: string,
-    options?: { forceDuplicate?: boolean },
+    options?: { forceDuplicate?: boolean; viaCamera?: boolean },
   ): boolean | { requiresDuplicateConfirmation: boolean; product?: any } => {
     const code = (barcode || '').trim()
     if (!code) return false
@@ -291,9 +291,9 @@ export default function ResellerPosSale() {
     const prod = found.expand?.product
     const alreadyInCart = cart.some((c) => c.stockItem.product === found.product)
 
-    // A pergunta de duplicado SÓ vale para leitura por câmera (scanner modal);
+    // A pergunta de duplicado SÓ vale para leitura por câmera (scanner modal, viaCamera=true);
     // leitor físico/Enter no campo não pergunta e não tem delay.
-    if (alreadyInCart && !options?.forceDuplicate && options?.viaCamera) {
+    if (alreadyInCart && !options?.forceDuplicate && options?.viaCamera === true) {
       return { requiresDuplicateConfirmation: true, product: prod }
     }
 

@@ -19,11 +19,14 @@ interface BarcodeScannerModalProps {
   onClose: () => void
   onScan: (
     barcode: string,
-    options?: { forceDuplicate?: boolean },
+    options?: { forceDuplicate?: boolean; viaCamera?: boolean },
   ) => boolean | { requiresDuplicateConfirmation: boolean; product?: any } | void
   selectedOriginLabel?: string
   originTitle?: string
   lastScannedCode?: string
+  // viaCamera=true ativa a pergunta "Deseja incluir mais um produto já cadastrado?"
+  // (fluxo por câmera). false/ausente = nunca pergunta (leitor físico/Enter).
+  viaCamera?: boolean
 }
 
 declare global {
@@ -40,6 +43,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   selectedOriginLabel,
   originTitle,
   lastScannedCode,
+  viaCamera = false,
 }) => {
   const currentOriginLabel = originTitle || selectedOriginLabel || 'Estoque Geral'
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -356,8 +360,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     }, 3000)
 
     try {
-      // Chama o callback do PDV
-      const scanResult: any = onScan(code)
+      // Chama o callback do PDV (viaCamera indica que a leitura veio da câmera)
+      const scanResult: any = onScan(code, { viaCamera })
 
       // Caso o produto já esteja listado na venda atual, o callback solicita confirmação do usuário
       if (
@@ -424,7 +428,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
     if (confirm) {
       // "Sim" -> força a inclusão do produto
-      const result = onScan(code, { forceDuplicate: true })
+      const result = onScan(code, { forceDuplicate: true, viaCamera })
       const isSuccess = result !== false
 
       if (isSuccess) {

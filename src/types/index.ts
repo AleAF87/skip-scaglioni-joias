@@ -365,9 +365,12 @@ export interface ResellerSale {
   id: string
   code: string
   reseller: string
+  // Vínculo do cliente SEMPRE pelo ID (nunca CPF); ausente = Consumidor Final
+  customer?: string
   customer_name?: string
   customer_phone?: string
-  status: 'completed' | 'cancelled'
+  // 'pending' = reserva criada no PDV da revendedora
+  status: 'pending' | 'completed' | 'cancelled'
   items: ResellerSaleItem[]
   subtotal: number
   discount: number
@@ -382,6 +385,7 @@ export interface ResellerSale {
   updated: string
   expand?: {
     reseller?: Reseller
+    customer?: Customer
   }
 }
 
