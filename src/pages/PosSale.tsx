@@ -14,11 +14,7 @@ import {
 import { isExactCodeMatch, matchesProductQuery } from '@/lib/barcodeSearch'
 import { BarcodeScannerModal } from '@/components/pos/BarcodeScannerModal'
 import { useMemo } from 'react'
-import {
-  customerDigitsOnly,
-  filterCustomersLive,
-  getMaskedCustomerLabel,
-} from '@/lib/customerSearch'
+import { filterCustomersLive, getMaskedCustomerLabel } from '@/lib/customerSearch'
 import {
   formatCurrency,
   formatDateTime,
