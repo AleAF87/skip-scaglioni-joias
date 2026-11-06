@@ -25,6 +25,7 @@ import {
   AlertCircle,
   Barcode,
   AlertTriangle,
+  Camera,
 } from 'lucide-react'
 import { isExactCodeMatch, matchesProductQuery } from '@/lib/barcodeSearch'
 import {
@@ -67,6 +68,7 @@ import { ConsignmentContractModal } from '@/components/ConsignmentContractModal'
 import { ImageLightbox } from '@/components/ImageLightbox'
 import { ResellerFinancialContent } from '@/pages/ResellerFinancial'
 import { ResellerReturnsIssuesContent } from '@/pages/ResellerReturnsAndIssues'
+import { BarcodeScannerModal } from '@/components/pos/BarcodeScannerModal'
 import { toast } from 'sonner'
 
 export default function ResellersUnifiedPage() {
@@ -128,6 +130,8 @@ export default function ResellersUnifiedPage() {
   const [deliveryScanAlert, setDeliveryScanAlert] = useState<string | null>(null)
   const [isSearchingDeliveryBarcode, setIsSearchingDeliveryBarcode] = useState(false)
   const deliveryBarcodeInputRef = useRef<HTMLInputElement>(null)
+  const [isDeliveryCameraOpen, setIsDeliveryCameraOpen] = useState(false)
+  const lastScannedDeliveryCodeRef = useRef<string>('')
 
   // Returns / Devoluções & Conferência State
   const [conferenceMap, setConferenceMap] = useState<
@@ -363,6 +367,8 @@ export default function ResellersUnifiedPage() {
       loadAvailableProducts()
       setDeliveryBarcodeScan('')
       setDeliveryScanAlert(null)
+      setIsDeliveryCameraOpen(false)
+      lastScannedDeliveryCodeRef.current = ''
       // Auto-foco imediato no leitor de código de barras
       setTimeout(() => {
         deliveryBarcodeInputRef.current?.focus()
@@ -380,6 +386,86 @@ export default function ResellersUnifiedPage() {
       }, 100)
     }
   }, [currentReseller?.id, isConferenceModalOpen])
+
+  // Leitura por CÂMERA - Modal de Entrega (mesmo modelo do PDV: 3s de cooldown, bip e pergunta de duplicado)
+  // onScan pode retornar Promise (consulta ao banco) — o scanner espera o resultado.
+  const handleDeliveryCameraScan = async (
+    barcode: string,
+    options?: { forceDuplicate?: boolean; viaCamera?: boolean },
+  ): Promise<boolean | { requiresDuplicateConfirmation: boolean; product?: Product }> => {
+    const rawCode = (barcode || '').trim()
+    if (!rawCode) return false
+
+    // Já lido agora mesmo (ref, sem depender de re-render): câmera pergunta sobre duplicado
+    if (
+      lastScannedDeliveryCodeRef.current === rawCode &&
+      !options?.forceDuplicate &&
+      options?.viaCamera === true
+    ) {
+      // Reencontra o produto para exibir na pergunta
+      const dupProd =
+        availableProducts.find((p) => isExactCodeMatch(p, rawCode)) ||
+        (await (async () => {
+          try {
+            const res = await productService.getProducts({ search: rawCode, perPage: 10 })
+            return res.items.find((p) => isExactCodeMatch(p, rawCode)) || null
+          } catch {
+            return null
+          }
+        })())
+      return { requiresDuplicateConfirmation: true, product: dupProd || undefined }
+    }
+
+    lastScannedDeliveryCodeRef.current = rawCode
+    setDeliveryScanAlert(null)
+
+    // 1. Primeiro tenta na lista em memória (disponíveis carregados)
+    let found: Product | undefined = availableProducts.find((p) => isExactCodeMatch(p, rawCode))
+
+    // 2. Se não achar na página atual ou estoque local, busca no banco geral
+    if (!found) {
+      const res = await productService.getProducts({ search: rawCode, perPage: 10 })
+      found = res.items.find((p) => isExactCodeMatch(p, rawCode))
+    }
+
+    if (!found) {
+      setDeliveryScanAlert(`Código "${rawCode}" não encontrado no cadastro de produtos.`)
+      return false
+    }
+
+    if (found.quantity <= 0) {
+      setDeliveryScanAlert(
+        `Peça "${found.code} — ${found.description || found.nome_produto}" sem saldo disponível no estoque geral da loja (0 unidades).`,
+      )
+      return false
+    }
+
+    // Câmera: se o produto já está na lista da entrega, pergunta antes de incluir mais um
+    const existingInDelivery = deliveryItems.find((it) => it.product.id === found!.id)
+    const currentQtyInBasket = existingInDelivery ? existingInDelivery.quantity : 0
+    if (currentQtyInBasket > 0 && !options?.forceDuplicate && options?.viaCamera === true) {
+      return { requiresDuplicateConfirmation: true, product: found }
+    }
+
+    if (currentQtyInBasket >= found.quantity) {
+      setDeliveryScanAlert(
+        `Estoque geral da loja possui apenas ${found.quantity} unidade(s) de "${found.code}". Não é possível adicionar mais.`,
+      )
+      return false
+    }
+
+    // Sucesso: adiciona/incrementa em 1
+    handleAddProductToDelivery(found)
+    setDeliveryScanAlert(null)
+    return true
+  }
+
+  // Resumo de peças que a revendedora JÁ tem em mãos (consignadas) — exibido no modal Nova Entrega
+  const resellerHandQty = stockItems.reduce((acc, it) => acc + it.quantity, 0)
+  const resellerHandValue = stockItems.reduce(
+    (acc, it) => acc + it.quantity * (it.selling_price || it.expand?.product?.selling_price || 0),
+    0,
+  )
 
   // Handler de leitura de código de barras - Modal de Entrega
   const handleDeliveryBarcodeKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -1564,7 +1650,7 @@ export default function ResellersUnifiedPage() {
                     </div>
                     {/* Leitor de Código de Barras (Ativo e Focado por Padrão) */}
                     <div className="mt-2.5 p-2.5 bg-[#F3EAD8]/50 rounded-xl border border-[#C6A664]/60 space-y-1.5">
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between gap-2">
                         <Label className="text-xs font-bold text-[#7A5C2E] flex items-center gap-1.5">
                           <Barcode className="h-4 w-4 text-[#7A5C2E]" />
                           Modo Leitor de Código de Barras
@@ -1576,6 +1662,18 @@ export default function ResellersUnifiedPage() {
                           Cada leitura = +1 na cesta
                         </span>
                       </div>
+                      {/* Câmera do celular — mesmo modelo do PDV: leitura sequencial com delay de 3s,
+                          contagem regressiva visual, bip e pergunta de produto duplicado (só na câmera) */}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setIsDeliveryCameraOpen(true)}
+                        className="w-full h-9 text-xs font-semibold border-[#7A5C2E] text-[#7A5C2E] hover:bg-[#7A5C2E] hover:text-white bg-white flex items-center justify-center gap-1.5"
+                      >
+                        <Camera className="h-4 w-4" />
+                        Ler pela Câmera do Celular
+                      </Button>
                       <div className="relative">
                         <Barcode className="absolute left-3 top-2.5 h-4 w-4 text-[#7A5C2E]" />
                         <Input
@@ -1594,6 +1692,36 @@ export default function ResellersUnifiedPage() {
                           <span>{deliveryScanAlert}</span>
                         </div>
                       )}
+                    </div>
+
+                    {/* Resumo: quantas peças a revendedora JÁ tem em mãos antes de consignar mais */}
+                    <div className="mt-2.5 flex items-center gap-2.5 p-2.5 rounded-xl border border-[#C6A664]/40 bg-white">
+                      <div className="p-2 rounded-lg bg-[#F3EAD8] shrink-0">
+                        <Boxes className="h-4 w-4 text-[#7A5C2E]" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[11px] text-[#6B655E] leading-tight">
+                          {currentReseller.name} já tem em mãos:
+                        </p>
+                        <p className="text-xs font-bold text-[#2D2A26] leading-tight mt-0.5">
+                          {resellerHandQty} peça{resellerHandQty === 1 ? '' : 's'} em consignação
+                          <span className="font-normal text-[#6B655E]">
+                            {' '}
+                            • {formatCurrency(resellerHandValue)} • {stockItems.length} modelo
+                            {stockItems.length === 1 ? '' : 's'}
+                          </span>
+                        </p>
+                      </div>
+                      <Badge
+                        variant="outline"
+                        className={`shrink-0 text-[10px] ${
+                          resellerHandQty + totalDeliveryItemsCount > 80
+                            ? 'border-amber-400 text-amber-700 bg-amber-50'
+                            : 'border-[#C6A664] text-[#7A5C2E]'
+                        }`}
+                      >
+                        {resellerHandQty + totalDeliveryItemsCount} peças após esta entrega
+                      </Badge>
                     </div>
 
                     <div className="relative mt-2">
@@ -1885,6 +2013,17 @@ export default function ResellersUnifiedPage() {
             </div>
           </DialogContent>
         </Dialog>
+      )}
+
+      {/* Leitor por câmera do modal Nova Entrega — mesmo componente do PDV (delay 3s, contagem
+          regressiva, bip/vibração, lanterna e pergunta de duplicado apenas na câmera) */}
+      {isNewDeliveryModalOpen && isDeliveryCameraOpen && (
+        <BarcodeScannerModal
+          onClose={() => setIsDeliveryCameraOpen(false)}
+          onScan={handleDeliveryCameraScan}
+          originTitle={`Entrega para ${currentReseller?.name || 'Revendedora'}`}
+          viaCamera
+        />
       )}
 
       {/* ------------------------------------------------------------------- */}

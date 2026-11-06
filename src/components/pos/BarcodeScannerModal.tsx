@@ -17,10 +17,15 @@ import { Badge } from '@/components/ui/badge'
 interface BarcodeScannerModalProps {
   isOpen?: boolean
   onClose: () => void
+  // onScan pode ser síncrono (PDVs) ou assíncrono (modal Nova Entrega, que consulta o banco).
   onScan: (
     barcode: string,
     options?: { forceDuplicate?: boolean; viaCamera?: boolean },
-  ) => boolean | { requiresDuplicateConfirmation: boolean; product?: any } | void
+  ) =>
+    | boolean
+    | { requiresDuplicateConfirmation: boolean; product?: any }
+    | void
+    | Promise<boolean | { requiresDuplicateConfirmation: boolean; product?: any } | void>
   selectedOriginLabel?: string
   originTitle?: string
   lastScannedCode?: string
@@ -333,8 +338,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     }
   }
 
-  // Processa código lido de forma contínua ("sequencieira")
-  const handleCodeDetected = (rawCode: string) => {
+  // Processa código lido de forma contínua ("sequencieira") — suporta callbacks síncronos e assíncronos
+  const handleCodeDetected = async (rawCode: string) => {
     const code = (rawCode || '').trim()
     if (!code) return
 
@@ -360,8 +365,9 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     }, 3000)
 
     try {
-      // Chama o callback do PDV (viaCamera indica que a leitura veio da câmera)
-      const scanResult: any = onScan(code, { viaCamera })
+      // Chama o callback do PDV (viaCamera indica que a leitura veio da câmera).
+      // Pode devolver Promise (consulta ao banco no modal Nova Entrega) ou valor direto.
+      const scanResult: any = await onScan(code, { viaCamera })
 
       // Caso o produto já esteja listado na venda atual, o callback solicita confirmação do usuário
       if (
@@ -411,7 +417,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   }
 
   // Resposta à pergunta: "Deseja incluir mais um produto já cadastrado?"
-  const handleConfirmDuplicate = (confirm: boolean) => {
+  const handleConfirmDuplicate = async (confirm: boolean) => {
     if (!duplicatePrompt) return
     const { code } = duplicatePrompt
 
@@ -428,7 +434,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
     if (confirm) {
       // "Sim" -> força a inclusão do produto
-      const result = onScan(code, { forceDuplicate: true, viaCamera })
+      const result: any = await onScan(code, { forceDuplicate: true, viaCamera })
       const isSuccess = result !== false
 
       if (isSuccess) {
