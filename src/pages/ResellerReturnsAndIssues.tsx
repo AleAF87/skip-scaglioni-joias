@@ -1,11 +1,20 @@
 import React, { useState, useEffect } from 'react'
-import { RotateCcw, AlertTriangle, CheckCircle2, Boxes, FileText, DollarSign } from 'lucide-react'
+import {
+  RotateCcw,
+  AlertTriangle,
+  CheckCircle2,
+  Boxes,
+  FileText,
+  DollarSign,
+  Printer,
+} from 'lucide-react'
 import pb from '@/lib/pocketbase/client'
 import { useAuth } from '@/contexts/AuthContext'
 import { resellerService } from '@/services/resellerService'
 import { resellerStockService } from '@/services/resellerStockService'
 import { ResellerStockItem, Reseller, ResellerReturn, ResellerIssue } from '@/types'
 import { formatCurrency, formatDateTime } from '@/lib/formatters'
+import { SettlementReceiptModal } from '@/components/SettlementReceiptModal'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -61,6 +70,10 @@ export function ResellerReturnsIssuesContent({
   // Returns history
   const [returnsHistory, setReturnsHistory] = useState<ResellerReturn[]>([])
   const [isLoadingHistory, setIsLoadingHistory] = useState(false)
+
+  // Comprovante de Fechamento / Acerto State
+  const [selectedReceipt, setSelectedReceipt] = useState<ResellerReturn | null>(null)
+  const [isReceiptOpen, setIsReceiptOpen] = useState(false)
 
   // Quitting an issue
   const [resolvingIssue, setResolvingIssue] = useState<ResellerIssue | null>(null)
@@ -205,7 +218,43 @@ export function ResellerReturnsIssuesContent({
       setReturnNotes('')
       await loadStock(reseller.id)
       await loadIssues(reseller.id)
-      await loadReturnsHistory(reseller.id)
+      const updatedHistory = await resellerStockService.getReturns({ resellerId: reseller.id })
+      setReturnsHistory(updatedHistory)
+
+      // Abre comprovante automaticamente após finalizar
+      const matched = updatedHistory.find((r) => r.id === res.return_id)
+      const receiptData: ResellerReturn = matched || {
+        id: res.return_id,
+        code: res.code,
+        reseller: reseller.id,
+        operator: pb.authStore.record?.id,
+        status: 'completed',
+        items: itemsToProcess.map((it) => {
+          const itemStock = stockItems.find((s) => s.product === it.product_id)
+          const p = itemStock?.expand?.product
+          return {
+            product_id: it.product_id,
+            code: p?.code || '—',
+            description: p?.description || p?.nome_produto || 'Joia',
+            selling_price: p?.selling_price || itemStock?.selling_price || 0,
+            returned_qty: it.returned_qty,
+            pending_qty: it.pending_qty,
+            pending_reason: it.pending_reason,
+          }
+        }),
+        total_returned_qty: res.total_returned_qty,
+        total_pending_qty: res.total_pending_qty,
+        total_pending_value_due: res.total_pending_value_due,
+        notes: returnNotes,
+        created: new Date().toISOString(),
+        updated: new Date().toISOString(),
+        expand: {
+          reseller,
+        },
+      }
+      setSelectedReceipt(receiptData)
+      setIsReceiptOpen(true)
+
       setActiveTab('issues_list')
     } catch (err: any) {
       console.error('Erro na devolução:', err)
@@ -682,6 +731,20 @@ export function ResellerReturnsIssuesContent({
                         "{ret.notes}"
                       </p>
                     )}
+                    <div className="pt-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setSelectedReceipt(ret)
+                          setIsReceiptOpen(true)
+                        }}
+                        className="w-full h-8 text-xs border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] flex items-center justify-center gap-1.5 font-medium"
+                      >
+                        <Printer className="h-3.5 w-3.5" />
+                        Comprovante do Fechamento
+                      </Button>
+                    </div>
                   </CardContent>
                 </Card>
               ))}
@@ -689,6 +752,17 @@ export function ResellerReturnsIssuesContent({
           )}
         </div>
       )}
+
+      {/* Settlement Receipt Modal */}
+      <SettlementReceiptModal
+        settlement={selectedReceipt}
+        resellerNameFallback={reseller?.name}
+        isOpen={isReceiptOpen}
+        onClose={() => {
+          setIsReceiptOpen(false)
+          setSelectedReceipt(null)
+        }}
+      />
 
       {/* Resolve Issue Modal (Admin / Operator) */}
       {resolvingIssue && (

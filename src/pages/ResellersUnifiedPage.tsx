@@ -26,6 +26,7 @@ import {
   Barcode,
   AlertTriangle,
   Camera,
+  Printer,
 } from 'lucide-react'
 import { isExactCodeMatch, matchesProductQuery } from '@/lib/barcodeSearch'
 import {
@@ -64,6 +65,7 @@ import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { TouchSignaturePad } from '@/components/TouchSignaturePad'
 import { DeliveryReceiptModal } from '@/components/DeliveryReceiptModal'
+import { SettlementReceiptModal } from '@/components/SettlementReceiptModal'
 import { ConsignmentContractModal } from '@/components/ConsignmentContractModal'
 import { ImageLightbox } from '@/components/ImageLightbox'
 import { ResellerFinancialContent } from '@/pages/ResellerFinancial'
@@ -154,6 +156,14 @@ export default function ResellersUnifiedPage() {
   const [returnBarcodeScan, setReturnBarcodeScan] = useState('')
   const [returnScanAlert, setReturnScanAlert] = useState<string | null>(null)
   const returnBarcodeInputRef = useRef<HTMLInputElement>(null)
+  const [isReturnCameraOpen, setIsReturnCameraOpen] = useState(false)
+  const lastScannedReturnCodeRef = useRef<string>('')
+
+  // Comprovante de Fechamento / Acerto State
+  const [selectedSettlementReceipt, setSelectedSettlementReceipt] = useState<ResellerReturn | null>(
+    null,
+  )
+  const [isSettlementReceiptOpen, setIsSettlementReceiptOpen] = useState(false)
 
   // Legacy / Historical Consignment Lists
   const [legacyLists, setLegacyLists] = useState<ConsignmentList[]>([])
@@ -380,12 +390,93 @@ export default function ResellersUnifiedPage() {
     if (currentReseller && isConferenceModalOpen) {
       setReturnBarcodeScan('')
       setReturnScanAlert(null)
+      setIsReturnCameraOpen(false)
+      lastScannedReturnCodeRef.current = ''
       // Auto-foco imediato no leitor de código de barras
       setTimeout(() => {
         returnBarcodeInputRef.current?.focus()
       }, 100)
     }
   }, [currentReseller?.id, isConferenceModalOpen])
+
+  // Leitura por CÂMERA - Modal de Conferência & Devolução (mesmo modelo do PDV e Nova Entrega:
+  // cooldown de 3s, bip, vibração, lanterna e pergunta de duplicado só na câmera)
+  const handleReturnCameraScan = async (
+    barcode: string,
+    options?: { forceDuplicate?: boolean; viaCamera?: boolean },
+  ): Promise<boolean | { requiresDuplicateConfirmation: boolean; product?: Product }> => {
+    const rawCode = (barcode || '').trim()
+    if (!rawCode) return false
+
+    // Busca nas joias que estão EM PODER desta revendedora (stockItems)
+    let foundStockItem = stockItems.find((it) => {
+      const prod = it.expand?.product
+      return prod && isExactCodeMatch(prod, rawCode)
+    })
+
+    let foundProd: Product | null = foundStockItem?.expand?.product || null
+
+    if (!foundStockItem) {
+      try {
+        const res = await productService.getProducts({ search: rawCode, perPage: 10 })
+        foundProd = res.items.find((p) => isExactCodeMatch(p, rawCode)) || null
+        if (foundProd) {
+          foundStockItem = stockItems.find((it) => it.product === foundProd?.id)
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    if (!foundStockItem || !foundProd) {
+      const alertMsg = `ALERTA: A peça código "${rawCode}" NÃO pertence ao estoque em poder de ${currentReseller?.name || 'esta revendedora'}! Não foi entregue a ela.`
+      setReturnScanAlert(alertMsg)
+      toast.error(`Peça "${rawCode}" não pertence a esta revendedora!`)
+      return false
+    }
+
+    const prodId = foundStockItem.product
+    const currentConf = conferenceMap[prodId] || {
+      returned_qty: 0,
+      pending_qty: 0,
+      pending_reason: 'extraviada',
+      pending_notes: '',
+    }
+
+    // Pergunta de duplicado: apenas pela câmera caso seja o mesmo código lido repetido ou já tenha retornado > 0
+    const alreadyReturned = (currentConf.returned_qty || 0) > 0
+    const isSameCodeAsLast = lastScannedReturnCodeRef.current === rawCode
+    if (
+      (isSameCodeAsLast || alreadyReturned) &&
+      !options?.forceDuplicate &&
+      options?.viaCamera === true
+    ) {
+      return { requiresDuplicateConfirmation: true, product: foundProd }
+    }
+
+    lastScannedReturnCodeRef.current = rawCode
+
+    const newReturnedQty = (currentConf.returned_qty || 0) + 1
+    const totalCount = newReturnedQty + (currentConf.pending_qty || 0)
+
+    if (totalCount > foundStockItem.quantity) {
+      setReturnScanAlert(
+        `A revendedora possui apenas ${foundStockItem.quantity} unidade(s) de "${foundProd.code}". A quantidade devolvida não pode exceder o saldo em poder.`,
+      )
+      toast.warning(
+        `Saldo máximo em mãos atingido (${foundStockItem.quantity} un) para ${foundProd.code}.`,
+      )
+      return false
+    }
+
+    // Incrementa a quantidade devolvida em 1
+    handleItemChange(prodId, 'returned_qty', newReturnedQty)
+    toast.success(
+      `+1 devolvido: ${foundProd.code} (${newReturnedQty} de ${foundStockItem.quantity} un)`,
+    )
+    setReturnScanAlert(null)
+    return true
+  }
 
   // Leitura por CÂMERA - Modal de Entrega (mesmo modelo do PDV: 3s de cooldown, bip e pergunta de duplicado)
   // onScan pode retornar Promise (consulta ao banco) — o scanner espera o resultado.
@@ -791,11 +882,50 @@ export default function ResellersUnifiedPage() {
       setIsConferenceModalOpen(false)
       await loadStock(currentReseller.id)
       await loadIssues(currentReseller.id)
-      await loadReturnsHistory(currentReseller.id)
+      const updatedReturns = await resellerStockService.getReturns({
+        resellerId: currentReseller.id,
+      })
+      setReturnsHistory(updatedReturns)
       if (canManage) {
         const allStock = await resellerStockService.getAllResellerStockItems('')
         setAllStockItems(allStock)
       }
+
+      // TAREFA 2: Comprovante de fechamento abre automaticamente após finalizar com sucesso
+      const matchedReturn = updatedReturns.find((r) => r.id === res.return_id)
+      const syntheticReturn: ResellerReturn = matchedReturn || {
+        id: res.return_id,
+        code: res.code,
+        reseller: currentReseller.id,
+        operator: user?.id,
+        status: 'completed',
+        items: itemsToProcess.map((it) => {
+          const itemStock = stockItems.find((s) => s.product === it.product_id)
+          const p = itemStock?.expand?.product
+          return {
+            product_id: it.product_id,
+            code: p?.code || '—',
+            description: p?.description || p?.nome_produto || 'Joia',
+            selling_price: p?.selling_price || itemStock?.selling_price || 0,
+            returned_qty: it.returned_qty,
+            pending_qty: it.pending_qty,
+            pending_reason: it.pending_reason,
+          }
+        }),
+        total_returned_qty: res.total_returned_qty,
+        total_pending_qty: res.total_pending_qty,
+        total_pending_value_due: res.total_pending_value_due,
+        notes: returnNotes,
+        created: new Date().toISOString(),
+        updated: new Date().toISOString(),
+        expand: {
+          reseller: currentReseller,
+          operator: user as any,
+        },
+      }
+
+      setSelectedSettlementReceipt(syntheticReturn)
+      setIsSettlementReceiptOpen(true)
     } catch (err: any) {
       console.error('Erro na devolução:', err)
       toast.error(err.message || 'Falha ao processar devolução.')
@@ -1443,6 +1573,7 @@ export default function ResellersUnifiedPage() {
                             <th className="py-2.5 px-4 text-center">Devolvidas</th>
                             <th className="py-2.5 px-4 text-center">Pendentes</th>
                             <th className="py-2.5 px-4 text-right">Valor Pendente</th>
+                            <th className="py-2.5 px-4 text-right">Ação</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-[#E5DFD5]">
@@ -1465,6 +1596,20 @@ export default function ResellersUnifiedPage() {
                               </td>
                               <td className="py-2.5 px-4 text-right font-bold text-[#7A5C2E]">
                                 {formatCurrency(ret.total_pending_value_due)}
+                              </td>
+                              <td className="py-2.5 px-4 text-right">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    setSelectedSettlementReceipt(ret)
+                                    setIsSettlementReceiptOpen(true)
+                                  }}
+                                  className="h-7 text-xs border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] flex items-center gap-1.5 ml-auto font-medium"
+                                >
+                                  <Printer className="h-3.5 w-3.5" />
+                                  Comprovante
+                                </Button>
                               </td>
                             </tr>
                           ))}
@@ -1617,6 +1762,29 @@ export default function ResellersUnifiedPage() {
         initialIndex={lightboxIndex}
         title={lightboxTitle}
       />
+
+      {/* Comprovante do Fechamento / Acerto Modal */}
+      <SettlementReceiptModal
+        settlement={selectedSettlementReceipt}
+        resellerNameFallback={currentReseller?.name}
+        closedByName={user?.name}
+        isOpen={isSettlementReceiptOpen}
+        onClose={() => {
+          setIsSettlementReceiptOpen(false)
+          setSelectedSettlementReceipt(null)
+        }}
+      />
+
+      {/* Scanner por Câmera no Modal de Conferência & Devolução */}
+      {isConferenceModalOpen && isReturnCameraOpen && (
+        <BarcodeScannerModal
+          isOpen={isReturnCameraOpen}
+          onClose={() => setIsReturnCameraOpen(false)}
+          onScan={handleReturnCameraScan}
+          originTitle={`Devolução — ${currentReseller?.name || 'Revendedora'}`}
+          viaCamera
+        />
+      )}
 
       {/* ------------------------------------------------------------------- */}
       {/* MODAL 1: NOVA ENTREGA DE JOIAS */}
@@ -2199,7 +2367,7 @@ export default function ResellersUnifiedPage() {
             </DialogHeader>
 
             <div className="space-y-4 pt-2">
-              {/* Leitor de Código de Barras (Ativo e Focado por Padrão) */}
+              {/* Leitor de Código de Barras (Ativo e Focado por Padrão) + Câmera do Celular */}
               <div className="p-3 bg-[#F3EAD8]/50 rounded-xl border border-[#C6A664]/60 space-y-2">
                 <div className="flex items-center justify-between">
                   <Label className="text-xs font-bold text-[#7A5C2E] flex items-center gap-1.5">
@@ -2213,6 +2381,20 @@ export default function ResellersUnifiedPage() {
                     Cada leitura = +1 devolução contada
                   </span>
                 </div>
+
+                {/* Opção 1: Ler pela Câmera do Celular (delay 3s, bip, vibração, lanterna, pergunta duplicado) */}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsReturnCameraOpen(true)}
+                  className="w-full h-9 text-xs font-semibold border-[#7A5C2E] text-[#7A5C2E] hover:bg-[#7A5C2E] hover:text-white bg-white flex items-center justify-center gap-1.5"
+                >
+                  <Camera className="h-4 w-4" />
+                  Ler pela Câmera do Celular
+                </Button>
+
+                {/* Opção 2: Leitor Físico (Enter automático, instantâneo, sem pergunta) */}
                 <div className="relative">
                   <Barcode className="absolute left-3 top-2.5 h-4 w-4 text-[#7A5C2E]" />
                   <Input
