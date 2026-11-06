@@ -28,15 +28,19 @@ import {
   Phone,
   Mail,
   User,
+  FileSpreadsheet,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
 import { CUSTOMER_NO_EDIT_MSG, useCanEditCustomer } from '@/lib/customerPermissions'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { CustomerModal } from '@/components/customers/CustomerModal'
+import { CustomerImportModal } from '@/components/customers/CustomerImportModal'
+import { isExcludedStatus } from '@/services/customerImportService'
 
 export default function CustomersManagement() {
   const { canManageInternal, isReseller } = useAuth()
+  const isAdminOrSuper = canManageInternal && !isReseller
   const [customers, setCustomers] = useState<Customer[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -53,6 +57,9 @@ export default function CustomersManagement() {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false)
   const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+
+  // Modal de Importação de Planilha (só admin/superadmin)
+  const [importModalOpen, setImportModalOpen] = useState(false)
 
   // Edição permitida: equipe (operador/admin/superadmin) edita qualquer cliente;
   // revendedora só edita clientes que ELA mesma cadastrou (created_by). A regra
@@ -134,12 +141,23 @@ export default function CustomersManagement() {
         </div>
 
         {(canManageInternal || isReseller) && (
-          <Button
-            onClick={handleOpenCreate}
-            className="bg-gradient-to-r from-[#7A5C2E] to-[#C6A664] hover:opacity-90 text-white font-medium text-xs flex items-center gap-1.5 shadow-sm"
-          >
-            <Plus className="h-4 w-4" /> Novo Cliente
-          </Button>
+          <div className="flex items-center gap-2">
+            {isAdminOrSuper && (
+              <Button
+                onClick={() => setImportModalOpen(true)}
+                variant="outline"
+                className="border-[#C6A664] text-[#7A5C2E] hover:bg-[#C6A664]/10 font-medium text-xs flex items-center gap-1.5 shadow-sm"
+              >
+                <FileSpreadsheet className="h-4 w-4" /> Importar planilha
+              </Button>
+            )}
+            <Button
+              onClick={handleOpenCreate}
+              className="bg-gradient-to-r from-[#7A5C2E] to-[#C6A664] hover:opacity-90 text-white font-medium text-xs flex items-center gap-1.5 shadow-sm"
+            >
+              <Plus className="h-4 w-4" /> Novo Cliente
+            </Button>
+          </div>
         )}
       </div>
 
@@ -228,7 +246,14 @@ export default function CustomersManagement() {
                   <tr key={c.id} className="hover:bg-[#FDFBF7]/70 transition-colors">
                     {/* Nome + ID */}
                     <td className="py-3 px-4">
-                      <div className="font-semibold text-[#2D2A26]">{c.name}</div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-semibold text-[#2D2A26]">{c.name}</span>
+                        {isExcludedStatus(c.status) && (
+                          <span className="px-1.5 py-0.5 rounded-full bg-[#B3261E]/10 text-[#B3261E] border border-[#B3261E]/30 text-[9px] font-semibold uppercase tracking-wide">
+                            Excluído
+                          </span>
+                        )}
+                      </div>
                       <div className="text-[10px] text-[#6B655E] font-mono mt-0.5">ID: {c.id}</div>
                     </td>
 
@@ -376,6 +401,13 @@ export default function CustomersManagement() {
         onSaved={loadCustomers}
         initialTab={modalInitialTab}
         canEdit={modalCustomer ? canEditCustomer(modalCustomer) : true}
+      />
+
+      {/* Modal de Importação de Planilha */}
+      <CustomerImportModal
+        open={importModalOpen}
+        onOpenChange={setImportModalOpen}
+        onImported={loadCustomers}
       />
 
       {/* Modal de Confirmação de Exclusão */}

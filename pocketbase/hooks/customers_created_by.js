@@ -1,13 +1,17 @@
 // Hook da collection customers: registro de quem fez o PRIMEIRO cadastro do cliente.
 // 1. onCreate: grava automaticamente o id do usuário autenticado que criou o registro
 //    (sobrescreve qualquer valor enviado no body — o cliente nunca declara o próprio criador).
+//    EXCEÇÃO (decisão do usuário): registros vindos do IMPORTADOR DE PLANILHA
+//    (import_source = 'planilha') ficam com created_by VAZIO, mesmo que a
+//    criação seja feita por um admin autenticado.
 // 2. onUpdate: impede que o created_by seja alterado — o campo guarda o criador original
 //    e volta sempre ao valor do banco, mesmo se o body tentar sobrescrevê-lo.
 // Usuários sem auth (painel/superuser/migração) não alteram a regra: mantêm o valor enviado.
 
 onRecordCreateRequest((e) => {
   const auth = e.auth
-  if (auth && auth.id) {
+  const importSource = e.record.getString('import_source')
+  if (auth && auth.id && importSource !== 'planilha') {
     e.record.set('created_by', auth.id)
   }
   return e.next()
