@@ -80,10 +80,115 @@ export function ResellerReturnsIssuesContent({
   const [paidNotes, setPaidNotes] = useState('')
 
   useEffect(() => {
-    if (reseller?.id) {
-      loadStock(reseller.id)
-      loadIssues(reseller.id)
-      loadReturnsHistory(reseller.id)
+    if (!reseller?.id) return
+
+    let isMounted = true
+    let debounceTimer: any = null
+
+    const fetchAllData = async (silent = false) => {
+      if (!silent) {
+        setIsLoadingStock(true)
+        setIsLoadingIssues(true)
+        setIsLoadingHistory(true)
+      }
+      try {
+        const [items, issuesList, returnsList] = await Promise.all([
+          resellerStockService.getResellerStock(reseller.id),
+          resellerStockService.getIssues({ resellerId: reseller.id }),
+          resellerStockService.getReturns({ resellerId: reseller.id }),
+        ])
+        if (!isMounted) return
+
+        setStockItems(items)
+        setIssues(issuesList)
+        setReturnsHistory(returnsList)
+
+        // Atualiza o conferenceMap preservando digitação em andamento do usuário se houver
+        setConferenceMap((prev) => {
+          const updated: Record<string, any> = {}
+          items.forEach((it) => {
+            updated[it.product] = prev[it.product] || {
+              returned_qty: 0,
+              pending_qty: 0,
+              pending_reason: 'extraviada',
+              pending_notes: '',
+            }
+          })
+          return updated
+        })
+      } catch (err) {
+        console.error('Erro ao carregar dados da revendedora:', err)
+      } finally {
+        if (isMounted && !silent) {
+          setIsLoadingStock(false)
+          setIsLoadingIssues(false)
+          setIsLoadingHistory(false)
+        }
+      }
+    }
+
+    // Carga inicial
+    fetchAllData(false)
+
+    // Debounce leve (350ms)
+    const scheduleRefresh = () => {
+      if (debounceTimer) clearTimeout(debounceTimer)
+      debounceTimer = setTimeout(() => {
+        if (isMounted) {
+          fetchAllData(true)
+        }
+      }, 350)
+    }
+
+    // Subscrição em tempo real para coleções ligadas a estoque, devoluções, pendências e vendas
+    const collectionsToWatch = [
+      'reseller_stock_items',
+      'reseller_returns',
+      'reseller_issues',
+      'reseller_sales',
+    ]
+    let subscriptionsActive = true
+
+    collectionsToWatch.forEach((colName) => {
+      try {
+        pb.collection(colName)
+          .subscribe('*', (e) => {
+            const recordReseller = (e.record as any)?.reseller
+            if (!recordReseller || recordReseller === reseller.id) {
+              scheduleRefresh()
+            }
+          })
+          .catch((err) => {
+            console.warn(`[Realtime Returns] Erro ao assinar ${colName}:`, err)
+          })
+      } catch (err) {
+        console.warn(`[Realtime Returns] Falha ao iniciar subscribe em ${colName}:`, err)
+      }
+    })
+
+    // Polling leve de fallback (a cada 20s)
+    const pollInterval = setInterval(() => {
+      if (isMounted) {
+        fetchAllData(true)
+      }
+    }, 20000)
+
+    return () => {
+      isMounted = false
+      if (debounceTimer) clearTimeout(debounceTimer)
+      clearInterval(pollInterval)
+      if (subscriptionsActive) {
+        subscriptionsActive = false
+        collectionsToWatch.forEach((colName) => {
+          try {
+            pb.collection(colName)
+              .unsubscribe('*')
+              .catch(() => {})
+          } catch {
+            /* ignore */
+          }
+        })
+      }
     }
   }, [reseller?.id])
 
@@ -92,17 +197,18 @@ export function ResellerReturnsIssuesContent({
     try {
       const items = await resellerStockService.getResellerStock(resellerId)
       setStockItems(items)
-      // Initialize map
-      const initialMap: Record<string, any> = {}
-      items.forEach((it) => {
-        initialMap[it.product] = {
-          returned_qty: 0,
-          pending_qty: 0,
-          pending_reason: 'extraviada',
-          pending_notes: '',
-        }
+      setConferenceMap((prev) => {
+        const initialMap: Record<string, any> = {}
+        items.forEach((it) => {
+          initialMap[it.product] = prev[it.product] || {
+            returned_qty: 0,
+            pending_qty: 0,
+            pending_reason: 'extraviada',
+            pending_notes: '',
+          }
+        })
+        return initialMap
       })
-      setConferenceMap(initialMap)
     } catch (err) {
       console.error('Erro ao carregar estoque da revendedora:', err)
     } finally {

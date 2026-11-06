@@ -71,6 +71,7 @@ import { ImageLightbox } from '@/components/ImageLightbox'
 import { ResellerFinancialContent } from '@/pages/ResellerFinancial'
 import { ResellerReturnsIssuesContent } from '@/pages/ResellerReturnsAndIssues'
 import { BarcodeScannerModal } from '@/components/pos/BarcodeScannerModal'
+import pb from '@/lib/pocketbase/client'
 import { toast } from 'sonner'
 
 export default function ResellersUnifiedPage() {
@@ -275,14 +276,130 @@ export default function ResellersUnifiedPage() {
     setSearchParams({}, { replace: true })
   }
 
-  // 2. Load context data whenever currentReseller changes
+  // 2. Load context data whenever currentReseller changes with realtime auto-refresh
   useEffect(() => {
-    if (currentReseller) {
-      loadDeliveries(currentReseller.id)
-      loadStock(currentReseller.id)
-      loadIssues(currentReseller.id)
-      loadReturnsHistory(currentReseller.id)
-      loadLegacyLists(currentReseller.id)
+    if (!currentReseller?.id) return
+
+    const resellerId = currentReseller.id
+    let isMounted = true
+    let debounceTimer: any = null
+
+    // Função silenciosa de recarga de contexto da revendedora
+    const refreshContextData = async (silent = false) => {
+      if (!silent) {
+        setIsLoadingDeliveries(true)
+        setIsLoadingStock(true)
+      }
+      try {
+        const [dels, items, issuesList, returnsList, legacy] = await Promise.all([
+          resellerStockService.getDeliveries({ resellerId }),
+          resellerStockService.getResellerStock(resellerId),
+          resellerStockService.getIssues({ resellerId }),
+          resellerStockService.getReturns({ resellerId }),
+          resellerService.getConsignmentLists({ resellerId }),
+        ])
+        if (!isMounted) return
+
+        setDeliveries(dels)
+        setStockItems(items)
+        setIssues(issuesList)
+        setReturnsHistory(returnsList)
+        setLegacyLists(legacy)
+
+        // Atualiza conferenceMap preservando digitação em andamento
+        setConferenceMap((prev) => {
+          const updated: Record<
+            string,
+            {
+              returned_qty: number
+              pending_qty: number
+              pending_reason: 'extraviada' | 'venda_avulsa_sem_pdv' | 'outros'
+              pending_notes: string
+            }
+          > = {}
+          items.forEach((it) => {
+            updated[it.product] = prev[it.product] || {
+              returned_qty: 0,
+              pending_qty: 0,
+              pending_reason: 'extraviada',
+              pending_notes: '',
+            }
+          })
+          return updated
+        })
+      } catch (err) {
+        console.error('Erro ao carregar dados da revendedora:', err)
+      } finally {
+        if (isMounted && !silent) {
+          setIsLoadingDeliveries(false)
+          setIsLoadingStock(false)
+        }
+      }
+    }
+
+    // Carga inicial
+    refreshContextData(false)
+
+    // Debounce leve (350ms) para não recarregar em rajada
+    const scheduleRefresh = () => {
+      if (debounceTimer) clearTimeout(debounceTimer)
+      debounceTimer = setTimeout(() => {
+        if (isMounted) {
+          refreshContextData(true)
+        }
+      }, 350)
+    }
+
+    // Subscrição em tempo real para coleções relacionadas à revendedora
+    const collectionsToWatch = [
+      'reseller_sales',
+      'reseller_stock_items',
+      'reseller_deliveries',
+      'reseller_returns',
+      'reseller_issues',
+    ]
+    let subscriptionsActive = true
+
+    collectionsToWatch.forEach((colName) => {
+      try {
+        pb.collection(colName)
+          .subscribe('*', (e) => {
+            const recordReseller = (e.record as any)?.reseller
+            if (!recordReseller || recordReseller === resellerId) {
+              scheduleRefresh()
+            }
+          })
+          .catch((err) => {
+            console.warn(`[Realtime Unified] Erro ao assinar ${colName}:`, err)
+          })
+      } catch (err) {
+        console.warn(`[Realtime Unified] Falha ao iniciar subscribe em ${colName}:`, err)
+      }
+    })
+
+    // Polling de fallback (a cada 20s)
+    const pollInterval = setInterval(() => {
+      if (isMounted) {
+        refreshContextData(true)
+      }
+    }, 20000)
+
+    return () => {
+      isMounted = false
+      if (debounceTimer) clearTimeout(debounceTimer)
+      clearInterval(pollInterval)
+      if (subscriptionsActive) {
+        subscriptionsActive = false
+        collectionsToWatch.forEach((colName) => {
+          try {
+            pb.collection(colName)
+              .unsubscribe('*')
+              .catch(() => {})
+          } catch {
+            /* ignore */
+          }
+        })
+      }
     }
   }, [currentReseller?.id])
 

@@ -49,12 +49,94 @@ export function ResellerFinancialContent({
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    loadFinancialData(reseller.id)
+    let isMounted = true
+    let debounceTimer: any = null
+
+    const fetchFinancial = async (silent = false) => {
+      if (!silent) {
+        setIsLoading(true)
+      }
+      try {
+        const data = await resellerStockService.getFinancialSummary(reseller.id)
+        if (isMounted) {
+          setSummary(data)
+        }
+      } catch (err) {
+        console.error('Erro ao calcular financeiro:', err)
+        if (!silent) {
+          toast.error('Erro ao carregar dados financeiros.')
+        }
+      } finally {
+        if (isMounted && !silent) {
+          setIsLoading(false)
+        }
+      }
+    }
+
+    // Carga inicial
+    fetchFinancial(false)
+
+    // Debounce leve (350ms) para não recarregar em rajada de eventos em tempo real
+    const scheduleRefresh = () => {
+      if (debounceTimer) clearTimeout(debounceTimer)
+      debounceTimer = setTimeout(() => {
+        if (isMounted) {
+          fetchFinancial(true)
+        }
+      }, 350)
+    }
+
+    // Subscrição em tempo real no PocketBase para as coleções que alimentam o financeiro:
+    // reseller_sales (vendas no PDV), reseller_stock_items (estoque em posse) e reseller_issues (pendências/extravios)
+    const collectionsToWatch = ['reseller_sales', 'reseller_stock_items', 'reseller_issues']
+    let subscriptionsActive = true
+
+    collectionsToWatch.forEach((colName) => {
+      try {
+        pb.collection(colName)
+          .subscribe('*', (e) => {
+            // Se o evento carrega reseller, filtra para o reseller atual quando aplicável
+            const recordReseller = (e.record as any)?.reseller
+            if (!recordReseller || recordReseller === reseller.id) {
+              scheduleRefresh()
+            }
+          })
+          .catch((err) => {
+            console.warn(`[Realtime Financial] Erro ao assinar ${colName}:`, err)
+          })
+      } catch (err) {
+        console.warn(`[Realtime Financial] Falha ao iniciar subscribe em ${colName}:`, err)
+      }
+    })
+
+    // Polling leve de fallback (a cada 20s) garantindo atualização contínua mesmo se websocket oscilar
+    const pollInterval = setInterval(() => {
+      if (isMounted) {
+        fetchFinancial(true)
+      }
+    }, 20000)
+
+    return () => {
+      isMounted = false
+      if (debounceTimer) clearTimeout(debounceTimer)
+      clearInterval(pollInterval)
+      if (subscriptionsActive) {
+        subscriptionsActive = false
+        collectionsToWatch.forEach((colName) => {
+          try {
+            pb.collection(colName)
+              .unsubscribe('*')
+              .catch(() => {})
+          } catch {
+            /* ignore */
+          }
+        })
+      }
+    }
   }, [reseller.id])
 
   const loadFinancialData = async (resellerId: string) => {
     setIsLoading(true)
-    setSummary(null)
     try {
       const data = await resellerStockService.getFinancialSummary(resellerId)
       setSummary(data)

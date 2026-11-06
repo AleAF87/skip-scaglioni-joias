@@ -51,21 +51,240 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    loadDashboardMetrics()
+    let isMounted = true
+    let debounceTimer: any = null
+
+    const fetchMetrics = async (silent = false) => {
+      if (!silent) {
+        setLoading(true)
+      }
+      try {
+        const [prodRes, salesRes, consignRes, settingsRes, resellerMap, resellerStockRes] =
+          await Promise.all([
+            pb.collection('products').getFullList({ expand: 'type' }),
+            pb.collection('sales').getFullList({ sort: '-created', expand: 'customer' }),
+            pb.collection('consignment_lists').getFullList(),
+            pb.collection('settings').getFullList(),
+            fetchResellerStockQuantityMap(),
+            pb
+              .collection('reseller_stock_items')
+              .getFullList({ filter: 'quantity > 0' })
+              .catch(() => []),
+          ])
+
+        if (!isMounted) return
+
+        // Stock totals (estoque total somado: geral + e-commerce + revendedoras)
+        let pieces = 0
+        let value = 0
+        const lowStock: any[] = []
+        const typeCounter: { [key: string]: number } = {}
+
+        prodRes.forEach((p: any) => {
+          const resQty = resellerMap.get(p.id) || 0
+          const qty = getProductTotalStock(p, resQty)
+          pieces += qty
+          value += qty * (p.selling_price || 0)
+
+          // Regra da usuária: o alerta ativa quando a quantidade atual atinge o estoque mínimo (30% do inicial gravado)
+          const initial =
+            typeof p.qtde_inicial === 'number' && p.qtde_inicial > 0 ? p.qtde_inicial : qty || 1
+          const effectiveMin =
+            p.minimum_quantity && p.minimum_quantity > 0
+              ? p.minimum_quantity
+              : Math.max(1, Math.round(initial * 0.3))
+
+          if (qty <= effectiveMin) {
+            lowStock.push({ ...p, totalStock: qty })
+          }
+          const typeName = p.expand?.type?.name || 'Outros'
+          typeCounter[typeName] = (typeCounter[typeName] || 0) + qty
+        })
+
+        setTotalStockPieces(pieces)
+        setTotalStockValue(value)
+        setLowStockProducts(lowStock.slice(0, 5))
+
+        // Category chart data
+        const catChart = Object.keys(typeCounter).map((name) => ({
+          name,
+          value: typeCounter[name],
+        }))
+        setCategoryData(catChart)
+
+        // Sales metrics
+        const now = new Date()
+        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime()
+
+        let todaySum = 0
+        let monthSum = 0
+
+        // Last 7 days bucket
+        const days7Map: { [key: string]: number } = {}
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date()
+          d.setDate(d.getDate() - i)
+          const dayLabel = d.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit' })
+          days7Map[dayLabel] = 0
+        }
+
+        salesRes.forEach((s: any) => {
+          if (s.status === 'completed') {
+            const sDate = new Date(s.created)
+            const sTime = sDate.getTime()
+            const sVal = s.total || 0
+
+            if (sTime >= startOfDay) todaySum += sVal
+            if (sTime >= startOfMonth) monthSum += sVal
+
+            // Check if in 7 days
+            const diffDays = Math.floor((now.getTime() - sTime) / (1000 * 60 * 60 * 24))
+            if (diffDays <= 6 && diffDays >= 0) {
+              const dayLabel = sDate.toLocaleDateString('pt-BR', {
+                weekday: 'short',
+                day: '2-digit',
+              })
+              if (days7Map[dayLabel] !== undefined) {
+                days7Map[dayLabel] += sVal
+              }
+            }
+          }
+        })
+
+        setSalesToday(todaySum)
+        setSalesMonth(monthSum)
+        setRecentSales(salesRes.slice(0, 5))
+
+        setChartSales7Days(
+          Object.keys(days7Map).map((day) => ({
+            day,
+            total: days7Map[day],
+          })),
+        )
+
+        // Consignments metrics — soma listas em aberto + saldo real com revendedoras
+        let openConsignCount = 0
+        let totalConsignedPieces = 0
+
+        consignRes.forEach((c: any) => {
+          if (c.status === 'pending' || c.status === 'accepted' || c.status === 'in_progress') {
+            openConsignCount++
+            try {
+              const items = Array.isArray(c.items) ? c.items : JSON.parse(c.items || '[]')
+              items.forEach((it: any) => {
+                totalConsignedPieces += it.quantity || 0
+              })
+            } catch {
+              /* intentionally ignored */
+            }
+          }
+        })
+
+        // Se houver itens na collection direta de estoque de revendedoras, unifica ou prioriza
+        if (Array.isArray(resellerStockRes) && resellerStockRes.length > 0) {
+          let directCount = 0
+          resellerStockRes.forEach((item: any) => {
+            directCount += Number(item.quantity) || 0
+          })
+          if (directCount > 0) {
+            totalConsignedPieces = directCount
+          }
+        }
+
+        setOpenConsignmentsCount(openConsignCount)
+        setConsignedPieces(totalConsignedPieces)
+      } catch (err) {
+        console.error(err)
+      } finally {
+        if (isMounted && !silent) {
+          setLoading(false)
+        }
+      }
+    }
+
+    // Carga inicial
+    fetchMetrics(false)
+
+    // Debounce leve (400ms) para não recarregar em rajadas
+    const scheduleRefresh = () => {
+      if (debounceTimer) clearTimeout(debounceTimer)
+      debounceTimer = setTimeout(() => {
+        if (isMounted) {
+          fetchMetrics(true)
+        }
+      }, 400)
+    }
+
+    // Subscrição em tempo real para coleções que afetam os KPIs do Dashboard:
+    // sales (vendas do PDV admin), reseller_sales (vendas de revendedora), products (estoque/produtos),
+    // reseller_stock_items (estoque em posse), consignment_lists e reseller_deliveries
+    const collectionsToWatch = [
+      'sales',
+      'reseller_sales',
+      'products',
+      'reseller_stock_items',
+      'consignment_lists',
+      'reseller_deliveries',
+    ]
+    let subscriptionsActive = true
+
+    collectionsToWatch.forEach((colName) => {
+      try {
+        pb.collection(colName)
+          .subscribe('*', () => {
+            scheduleRefresh()
+          })
+          .catch((err) => {
+            console.warn(`[Realtime Dashboard] Erro ao assinar ${colName}:`, err)
+          })
+      } catch (err) {
+        console.warn(`[Realtime Dashboard] Falha ao iniciar subscribe em ${colName}:`, err)
+      }
+    })
+
+    // Polling de fallback (a cada 20s)
+    const pollInterval = setInterval(() => {
+      if (isMounted) {
+        fetchMetrics(true)
+      }
+    }, 20000)
+
+    return () => {
+      isMounted = false
+      if (debounceTimer) clearTimeout(debounceTimer)
+      clearInterval(pollInterval)
+      if (subscriptionsActive) {
+        subscriptionsActive = false
+        collectionsToWatch.forEach((colName) => {
+          try {
+            pb.collection(colName)
+              .unsubscribe('*')
+              .catch(() => {})
+          } catch {
+            /* ignore */
+          }
+        })
+      }
+    }
   }, [])
 
   const loadDashboardMetrics = async () => {
     setLoading(true)
     try {
-      const [prodRes, salesRes, consignRes, settingsRes, resellerMap] = await Promise.all([
-        pb.collection('products').getFullList({ expand: 'type' }),
-        pb.collection('sales').getFullList({ sort: '-created', expand: 'customer' }),
-        pb.collection('consignment_lists').getFullList(),
-        pb.collection('settings').getFullList(),
-        fetchResellerStockQuantityMap(),
-      ])
+      const [prodRes, salesRes, consignRes, settingsRes, resellerMap, resellerStockRes] =
+        await Promise.all([
+          pb.collection('products').getFullList({ expand: 'type' }),
+          pb.collection('sales').getFullList({ sort: '-created', expand: 'customer' }),
+          pb.collection('consignment_lists').getFullList(),
+          pb.collection('settings').getFullList(),
+          fetchResellerStockQuantityMap(),
+          pb
+            .collection('reseller_stock_items')
+            .getFullList({ filter: 'quantity > 0' })
+            .catch(() => []),
+        ])
 
-      // Stock totals (estoque total somado: geral + e-commerce + revendedoras)
       let pieces = 0
       let value = 0
       const lowStock: any[] = []
@@ -77,7 +296,6 @@ export default function Dashboard() {
         pieces += qty
         value += qty * (p.selling_price || 0)
 
-        // Regra da usuária: o alerta ativa quando a quantidade atual atinge o estoque mínimo (30% do inicial gravado)
         const initial =
           typeof p.qtde_inicial === 'number' && p.qtde_inicial > 0 ? p.qtde_inicial : qty || 1
         const effectiveMin =
@@ -96,14 +314,12 @@ export default function Dashboard() {
       setTotalStockValue(value)
       setLowStockProducts(lowStock.slice(0, 5))
 
-      // Category chart data
       const catChart = Object.keys(typeCounter).map((name) => ({
         name,
         value: typeCounter[name],
       }))
       setCategoryData(catChart)
 
-      // Sales metrics
       const now = new Date()
       const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime()
@@ -111,7 +327,6 @@ export default function Dashboard() {
       let todaySum = 0
       let monthSum = 0
 
-      // Last 7 days bucket
       const days7Map: { [key: string]: number } = {}
       for (let i = 6; i >= 0; i--) {
         const d = new Date()
@@ -129,7 +344,6 @@ export default function Dashboard() {
           if (sTime >= startOfDay) todaySum += sVal
           if (sTime >= startOfMonth) monthSum += sVal
 
-          // Check if in 7 days
           const diffDays = Math.floor((now.getTime() - sTime) / (1000 * 60 * 60 * 24))
           if (diffDays <= 6 && diffDays >= 0) {
             const dayLabel = sDate.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit' })
@@ -151,7 +365,6 @@ export default function Dashboard() {
         })),
       )
 
-      // Consignments metrics
       let openConsignCount = 0
       let totalConsignedPieces = 0
 
@@ -168,6 +381,16 @@ export default function Dashboard() {
           }
         }
       })
+
+      if (Array.isArray(resellerStockRes) && resellerStockRes.length > 0) {
+        let directCount = 0
+        resellerStockRes.forEach((item: any) => {
+          directCount += Number(item.quantity) || 0
+        })
+        if (directCount > 0) {
+          totalConsignedPieces = directCount
+        }
+      }
 
       setOpenConsignmentsCount(openConsignCount)
       setConsignedPieces(totalConsignedPieces)
