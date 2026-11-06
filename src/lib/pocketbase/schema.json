@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-06T11:55:53.040Z",
+  "generatedAt": "2026-11-06T12:48:18.548Z",
   "collections": [
     {
       "name": "users",
@@ -356,9 +356,9 @@
       "name": "customers",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator')",
-        "view": "@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator')",
-        "create": "@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator')",
+        "list": "@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator' || @request.auth.role = 'reseller')",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator' || @request.auth.role = 'reseller')",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator' || @request.auth.role = 'reseller')",
         "update": "@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator')",
         "delete": "@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator')"
       },
@@ -1348,7 +1348,7 @@
         "view": "@request.auth.id != '' && ((@request.auth.role = 'superadmin' || @request.auth.role = 'admin') || @request.auth.role = 'operator' || reseller.user = @request.auth.id)",
         "create": "@request.auth.id != '' && ((@request.auth.role = 'superadmin' || @request.auth.role = 'admin') || @request.auth.role = 'operator' || reseller.user = @request.auth.id)",
         "update": "@request.auth.id != '' && ((@request.auth.role = 'superadmin' || @request.auth.role = 'admin') || @request.auth.role = 'operator' || reseller.user = @request.auth.id)",
-        "delete": "@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin')"
+        "delete": "@request.auth.id != '' && ((@request.auth.role = 'superadmin' || @request.auth.role = 'admin') || (reseller.user = @request.auth.id && status = 'pending'))"
       },
       "fields": [
         {
@@ -1381,7 +1381,7 @@
           "type": "select",
           "required": true,
           "system": false,
-          "selectValues": ["completed", "cancelled"]
+          "selectValues": ["completed", "cancelled", "pending"]
         },
         {
           "name": "items",
@@ -1457,6 +1457,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "customer",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "customers"
         }
       ],
       "indexes": [
