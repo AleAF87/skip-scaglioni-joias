@@ -13,6 +13,12 @@ import {
 } from '@/services/totalStockService'
 import { isExactCodeMatch, matchesProductQuery } from '@/lib/barcodeSearch'
 import { BarcodeScannerModal } from '@/components/pos/BarcodeScannerModal'
+import { useMemo } from 'react'
+import {
+  customerDigitsOnly,
+  filterCustomersLive,
+  getMaskedCustomerLabel,
+} from '@/lib/customerSearch'
 import {
   formatCurrency,
   formatDateTime,
@@ -132,6 +138,7 @@ export default function PosSale() {
   // Cliente: busca interativa ao vivo
   const [customerSearchQuery, setCustomerSearchQuery] = useState('')
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false)
+  const [isNoCustomerFound, setIsNoCustomerFound] = useState(false)
   const customerSearchContainerRef = useRef<HTMLDivElement>(null)
 
   // Single-screen Flip State: 'products' | 'payment'
@@ -340,6 +347,60 @@ export default function PosSale() {
   const handleCancelLeave = () => {
     setLeaveModalStep(0)
     pendingNavigationActionRef.current = null
+  }
+
+  // CLIENTE — campo único de texto livre com lista dropdown filtrada ao vivo.
+  // Digita qualquer coisa (nome completo, CPF, e-mail ou telefone/WhatsApp) e os
+  // resultados são triados conforme digita; o vínculo com a venda é sempre pelo
+  // ID do cliente, nunca por CPF. Campo vazio = Consumidor Final (Sem cadastro).
+  const customersReady = customers.length > 0
+
+  const filteredCustomers = useMemo(
+    () => filterCustomersLive(customers, customerSearchQuery),
+    [customers, customerSearchQuery],
+  )
+
+  useEffect(() => {
+    // Digitação sem nenhum resultado na lista = sugere cadastrar novo cliente
+    setIsNoCustomerFound(
+      Boolean(customerSearchQuery.trim()) && customersReady && filteredCustomers.length === 0,
+    )
+  }, [customerSearchQuery, customersReady, filteredCustomers.length])
+
+  const clearCustomerSelection = () => {
+    setCustomerSearchQuery('')
+    setSelectedCustomerId('')
+    setIsNoCustomerFound(false)
+    setIsCustomerDropdownOpen(false)
+  }
+
+  const selectCustomer = (customer: Customer) => {
+    setSelectedCustomerId(customer.id)
+    setCustomerSearchQuery(getMaskedCustomerLabel(customer))
+    setIsCustomerDropdownOpen(false)
+    setIsNoCustomerFound(false)
+    barcodeInputRef.current?.focus()
+  }
+
+  const handleCustomerInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      setIsCustomerDropdownOpen(false)
+      return
+    }
+    if (e.key !== 'Enter') return
+
+    e.preventDefault()
+    // Enter escolhe o primeiro resultado triado na lista dropdown
+    if (filteredCustomers.length > 0) {
+      selectCustomer(filteredCustomers[0])
+      return
+    }
+    // Nenhum resultado -> abre o cadastro de novo cliente preenchendo o que foi digitado
+    if (customerSearchQuery.trim()) {
+      setIsCustomerDropdownOpen(false)
+      setNewCustomerModalOpen(true)
+    }
   }
 
   const handleConfirmLeaveStep = () => {
@@ -832,6 +893,7 @@ export default function PosSale() {
         : JSON.parse((pSale.items as any) || '[]')
       setCart(items)
       setSelectedCustomerId(pSale.customer || '')
+      setCustomerSearchQuery('')
       setPaymentMethod(pSale.payment_method || 'pix')
       setInstallments(pSale.installments || 1)
       setDiscount(pSale.discount ? pSale.discount.toString() : '0')
@@ -913,6 +975,7 @@ export default function PosSale() {
   const resetSaleForm = () => {
     setCart([])
     setSelectedCustomerId('')
+    setIsNoCustomerFound(false)
     setCustomerSearchQuery('')
     setDiscount('0')
     setDiscountPercent('0')
@@ -1014,7 +1077,8 @@ export default function PosSale() {
       toast.success('Cliente cadastrado!')
       setCustomers((prev) => [...prev, cust])
       setSelectedCustomerId(cust.id)
-      setCustomerSearchQuery(`${cust.name}${cust.phone ? ` (${cust.phone})` : ''}`)
+      setCustomerSearchQuery(getMaskedCustomerLabel(cust))
+      setIsNoCustomerFound(false)
       setIsCustomerDropdownOpen(false)
       setNewCustomerModalOpen(false)
       setNewCustName('')
@@ -1558,34 +1622,26 @@ export default function PosSale() {
                       <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-[#8C8275]" />
                       <Input
                         type="text"
-                        placeholder="Buscar por nome, tel, CPF ou e-mail..."
-                        value={
-                          customerSearchQuery ||
-                          (selectedCustomerId
-                            ? (() => {
-                                const c = customers.find((cust) => cust.id === selectedCustomerId)
-                                return c ? `${c.name}${c.phone ? ` (${c.phone})` : ''}` : ''
-                              })()
-                            : '')
-                        }
+                        placeholder="Digite nome, CPF, e-mail ou telefone..."
+                        value={customerSearchQuery}
                         onChange={(e) => {
                           setCustomerSearchQuery(e.target.value)
                           setIsCustomerDropdownOpen(true)
-                          if (!e.target.value.trim()) {
+                          if (selectedCustomerId) {
                             setSelectedCustomerId('')
                           }
+                          if (!e.target.value.trim()) {
+                            setIsNoCustomerFound(false)
+                          }
                         }}
+                        onKeyDown={handleCustomerInputKeyDown}
                         onFocus={() => setIsCustomerDropdownOpen(true)}
                         className="pl-8 pr-7 h-9 text-xs border-[#E5DFD5] bg-white focus:ring-[#C6A664]"
                       />
                       {(customerSearchQuery || selectedCustomerId) && (
                         <button
                           type="button"
-                          onClick={() => {
-                            setCustomerSearchQuery('')
-                            setSelectedCustomerId('')
-                            setIsCustomerDropdownOpen(false)
-                          }}
+                          onClick={clearCustomerSelection}
                           className="absolute right-2 top-2.5 text-[#8C8275] hover:text-[#2D2A26]"
                           title="Limpar cliente"
                         >
@@ -1594,84 +1650,67 @@ export default function PosSale() {
                       )}
                     </div>
 
-                    {/* Lista suspensa rolável com ~5 itens visíveis */}
+                    {/* Lista suspensa filtrada ao vivo conforme digita (rolável) */}
                     {isCustomerDropdownOpen && (
-                      <div className="absolute left-0 right-0 top-full mt-1 z-50 rounded-lg border border-[#E5DFD5] bg-white shadow-lg max-h-48 overflow-y-auto divide-y divide-[#E5DFD5]">
+                      <div className="absolute left-0 right-0 top-full mt-1 z-50 rounded-lg border border-[#E5DFD5] bg-white shadow-lg divide-y divide-[#E5DFD5]">
                         <div
-                          onClick={() => {
-                            setSelectedCustomerId('')
-                            setCustomerSearchQuery('')
-                            setIsCustomerDropdownOpen(false)
-                          }}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={clearCustomerSelection}
                           className={`p-2 text-xs cursor-pointer hover:bg-[#F3EAD8] transition-colors ${
                             !selectedCustomerId
                               ? 'bg-[#F3EAD8]/60 font-semibold text-[#7A5C2E]'
                               : 'text-[#2D2A26]'
                           }`}
                         >
-                          Consumidor Final (Sem cadastro)
+                          Não informar cliente — Consumidor Final (Sem cadastro)
                         </div>
 
-                        {(() => {
-                          const q = customerSearchQuery.trim().toLowerCase()
-                          const matches = customers.filter((c) => {
-                            if (!q) return true
-                            const matchName = c.name?.toLowerCase().includes(q)
-                            const matchPhone = c.phone?.toLowerCase().includes(q)
-                            const matchEmail = c.email?.toLowerCase().includes(q)
-                            const matchCpf = c.cpf
-                              ?.toLowerCase()
-                              .replace(/\D/g, '')
-                              .includes(q.replace(/\D/g, ''))
-                            return matchName || matchPhone || matchEmail || matchCpf
-                          })
-
-                          if (matches.length === 0) {
-                            return (
-                              <div className="p-3 text-xs text-center text-[#8C8275]">
-                                Nenhum cliente encontrado.{' '}
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setIsCustomerDropdownOpen(false)
-                                    setNewCustomerModalOpen(true)
-                                  }}
-                                  className="text-[#7A5C2E] underline font-semibold ml-1"
-                                >
-                                  Cadastrar?
-                                </button>
-                              </div>
-                            )
-                          }
-
-                          return matches.map((c) => (
-                            <div
-                              key={c.id}
+                        {/* Clientes filtrados ao vivo: nome, CPF, e-mail ou telefone */}
+                        {filteredCustomers.length === 0 ? (
+                          <div className="p-3 text-xs text-center text-[#8C8275]">
+                            {isNoCustomerFound
+                              ? 'Nenhum cliente encontrado com o que foi digitado.'
+                              : 'Nenhum cliente cadastrado ainda.'}{' '}
+                            <button
+                              type="button"
+                              onMouseDown={(e) => e.preventDefault()}
                               onClick={() => {
-                                setSelectedCustomerId(c.id)
-                                setCustomerSearchQuery(`${c.name}${c.phone ? ` (${c.phone})` : ''}`)
                                 setIsCustomerDropdownOpen(false)
+                                setNewCustomerModalOpen(true)
                               }}
-                              className={`p-2 text-xs cursor-pointer hover:bg-[#F3EAD8] transition-colors flex items-center justify-between ${
-                                selectedCustomerId === c.id
-                                  ? 'bg-[#F3EAD8]/60 font-semibold text-[#7A5C2E]'
-                                  : 'text-[#2D2A26]'
-                              }`}
+                              className="text-[#7A5C2E] underline font-semibold ml-1"
                             >
-                              <div className="min-w-0 pr-2">
-                                <div className="font-medium truncate">{c.name}</div>
-                                <div className="text-[10px] text-[#6B655E] flex items-center gap-1.5 truncate">
-                                  {c.phone && <span>Tel: {c.phone}</span>}
-                                  {c.cpf && <span>CPF: {c.cpf}</span>}
-                                  {c.email && <span>{c.email}</span>}
+                              Cadastrar novo
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="max-h-48 overflow-y-auto">
+                            {filteredCustomers.map((c) => (
+                              <div
+                                key={c.id}
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => selectCustomer(c)}
+                                className={`p-2 text-xs cursor-pointer hover:bg-[#F3EAD8] transition-colors flex items-center justify-between ${
+                                  selectedCustomerId === c.id
+                                    ? 'bg-[#F3EAD8]/60 font-semibold text-[#7A5C2E]'
+                                    : 'text-[#2D2A26]'
+                                }`}
+                              >
+                                <div className="min-w-0 pr-2">
+                                  <div className="font-medium truncate">{c.name}</div>
+                                  <div className="text-[10px] text-[#6B655E] flex items-center gap-1.5 truncate">
+                                    {c.phone && <span>Tel: {c.phone}</span>}
+                                    {c.cpf && <span>CPF: {c.cpf}</span>}
+                                    {c.email && <span>{c.email}</span>}
+                                  </div>
                                 </div>
+                                {selectedCustomerId === c.id && (
+                                  <CheckCircle2 className="h-3.5 w-3.5 text-[#2E7D4F] shrink-0" />
+                                )}
                               </div>
-                              {selectedCustomerId === c.id && (
-                                <CheckCircle2 className="h-3.5 w-3.5 text-[#2E7D4F] shrink-0" />
-                              )}
-                            </div>
-                          ))
-                        })()}
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
