@@ -173,7 +173,7 @@ export function CustomerImportModal({ open, onOpenChange, onImported }: Customer
                       <th className="py-2 px-3 font-semibold">CPF</th>
                       <th className="py-2 px-3 font-semibold">Telefone</th>
                       <th className="py-2 px-3 font-semibold">E-mail (compras)</th>
-                      <th className="py-2 px-3 font-semibold">Status</th>
+                      <th className="py-2 px-3 font-semibold">Status (planilha)</th>
                       <th className="py-2 px-3 font-semibold">Situação</th>
                     </tr>
                   </thead>
@@ -191,7 +191,7 @@ export function CustomerImportModal({ open, onOpenChange, onImported }: Customer
                           </td>
                           <td className="py-1.5 px-3 text-[#2D2A26]">{row.data.phone || '—'}</td>
                           <td className="py-1.5 px-3 text-[#2D2A26]">
-                            {row.data.contact_purchases_email || '—'}
+                            {row.data.email_compras || '—'}
                           </td>
                           <td className="py-1.5 px-3 text-[#6B655E]">{row.data.status || '—'}</td>
                           <td className="py-1.5 px-3">

@@ -36,7 +36,6 @@ import { CUSTOMER_NO_EDIT_MSG, useCanEditCustomer } from '@/lib/customerPermissi
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { CustomerModal } from '@/components/customers/CustomerModal'
 import { CustomerImportModal } from '@/components/customers/CustomerImportModal'
-import { isExcludedStatus } from '@/services/customerImportService'
 
 export default function CustomersManagement() {
   const { canManageInternal, isReseller } = useAuth()
@@ -248,11 +247,6 @@ export default function CustomersManagement() {
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-1.5">
                         <span className="font-semibold text-[#2D2A26]">{c.name}</span>
-                        {isExcludedStatus(c.status) && (
-                          <span className="px-1.5 py-0.5 rounded-full bg-[#B3261E]/10 text-[#B3261E] border border-[#B3261E]/30 text-[9px] font-semibold uppercase tracking-wide">
-                            Excluído
-                          </span>
-                        )}
                       </div>
                       <div className="text-[10px] text-[#6B655E] font-mono mt-0.5">ID: {c.id}</div>
                     </td>

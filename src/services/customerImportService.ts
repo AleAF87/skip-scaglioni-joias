@@ -5,13 +5,15 @@
  *  - Ler .xlsx (via lib xlsx) ou .csv no navegador, normalizar cabeçalhos
  *    tolerantes (acentos, maiúsculas, espaços/underscores) e mapear para os
  *    campos da collection customers;
- *  - Pular linhas com STATUS "EXCLUÍDO";
+ *  - Pular linhas com STATUS "EXCLUÍDO" (o status não é gravado — a linha só
+ *    é pulada);
  *  - Pular duplicados: mesmo CPF normalizado (só dígitos) dentro do arquivo ou
  *    já existente na base; sem CPF, nome+telefone normalizados iguais;
- *  - EMAIL_COMPRAS grava em contact_purchases_email E no email principal
- *    (o que o PDV usa na busca);
- *  - COMPLEMENTO_ENDERECO_COBRANCA + "COMPLEMENTO...1" viram um único
- *    billing_complement concatenado;
+ *  - EMAIL_COMPRAS grava no email principal (o que o PDV usa na busca);
+ *  - Mapeamento reduzido (decisão v0.0.115): RG→rg, CNPJ→cnpj,
+ *    CLIENTE_DESDE→customer_since. Colunas de cobrança, contatos de
+ *    compras/financeiro, vendedor, site, tipo de pagamento e lembrar
+ *    aniversário são IGNORADAS (campos removidos da collection);
  *  - created_by fica vazio: o importador grava import_source='planilha' e o
  *    hook customers_created_by não preenche created_by nesse caso;
  *  - Dados gravados como vierem (CPF/CEP incompletos não são corrigidos).
@@ -34,15 +36,17 @@ export interface ImportSummary {
   failedNames: string[]
 }
 
-/** Cabeçalhos da planilha → campos da collection (normalizados, sem acentos). */
+/**
+ * Cabeçalhos da planilha → chaves internas (normalizados, sem acentos).
+ * Chaves que não correspondem a campo gravado (status, email_compras) são
+ * usadas só na lógica de pular/mapear.
+ */
 const COLUMN_MAP: Record<string, string> = {
   NOME: 'name',
   CPF: 'cpf',
   RG: 'rg',
   CNPJ: 'cnpj',
   DATA_NASCIMENTO_OU_FUNDACAO: 'birth_date',
-  LEMBRAR_ANIVERSARIO: 'remember_birthday',
-  NOME_VENDEDOR: 'seller_name',
   ENDERECO: 'address_street',
   NUMERO_ENDERECO: 'address_number',
   COMPLEMENTO_ENDERECO: 'address_complement',
@@ -51,24 +55,8 @@ const COLUMN_MAP: Record<string, string> = {
   UF: 'state',
   CEP: 'address_zip',
   PAIS: 'country',
-  ENDERECO_COBRANCA: 'billing_street',
-  NUMERO_ENDERECO_COBRANCA: 'billing_number',
-  COMPLEMENTO_ENDERECO_COBRANCA: 'billing_complement',
-  COMPLEMENTO_ENDERECO_COBRANCA1: 'billing_complement_extra',
-  BAIRRO_COBRANCA: 'billing_neighborhood',
-  CIDADE_COBRANCA: 'billing_city',
-  UF_COBRANCA: 'billing_state',
-  CEP_COBRANCA: 'billing_zip',
-  PAIS_COBRANCA: 'billing_country',
-  SITE: 'site',
-  TIPO_PAGAMENTO: 'payment_type',
   FONE_PRINCIPAL: 'phone',
-  NOME_COMPRAS: 'contact_purchases_name',
-  FONE_COMPRAS: 'contact_purchases_phone',
-  EMAIL_COMPRAS: 'contact_purchases_email',
-  NOME_FINANCEIRO: 'contact_finance_name',
-  FONE_FINANCEIRO: 'contact_finance_phone',
-  EMAIL_FINANCEIRO: 'contact_finance_email',
+  EMAIL_COMPRAS: 'email_compras',
   CLIENTE_DESDE: 'customer_since',
   OBSERVACOES: 'notes',
   STATUS: 'status',
@@ -103,12 +91,6 @@ export function normalizeName(value: string | undefined): string {
 export function isExcludedStatus(value: string | undefined): boolean {
   const s = normalizeName(value)
   return s.includes('excluido') || s.includes('excluida')
-}
-
-/** "1"/"sim"/"true"/"s" → true (coluna LEMBRAR_ANIVERSARIO vem 0/1). */
-function toBool(value: string | undefined): boolean {
-  const s = (value || '').trim().toLowerCase()
-  return s === '1' || s === 'sim' || s === 'true' || s === 's' || s === 'yes'
 }
 
 /**
@@ -176,15 +158,9 @@ export async function parseCustomerSpreadsheet(file: File): Promise<CustomerImpo
 export function buildCustomerPayload(row: CustomerImportRow): Record<string, unknown> {
   const d = row.data
 
-  // Cobrança: COMPLEMENTO_ENDERECO_COBRANCA + valor ao lado ("...1") → um só campo
-  const complementParts = [d.billing_complement, d.billing_complement_extra]
-    .map((s) => (s || '').trim())
-    .filter(Boolean)
-  const billingComplement = Array.from(new Set(complementParts)).join(' / ')
-
-  // EMAIL_COMPRAS grava também no e-mail principal (usado pelo PDV na busca)
-  const purchasesEmail = (d.contact_purchases_email || '').trim()
-  const email = purchasesEmail || (d.email || '').trim()
+  // EMAIL_COMPRAS grava no e-mail principal (usado pelo PDV na busca)
+  const purchasesEmail = (d.email_compras || '').trim()
+  const email = purchasesEmail
 
   const customerSince = parseSheetDate(d.customer_since)
   const birthDate = parseSheetDate(d.birth_date)
@@ -209,31 +185,12 @@ export function buildCustomerPayload(row: CustomerImportRow): Record<string, unk
     ['state', (d.state || '').toUpperCase()],
     ['address_zip', d.address_zip],
     ['country', d.country],
-    ['seller_name', d.seller_name],
-    ['site', d.site],
-    ['payment_type', d.payment_type],
-    ['billing_street', d.billing_street],
-    ['billing_number', d.billing_number],
-    ['billing_complement', billingComplement],
-    ['billing_neighborhood', d.billing_neighborhood],
-    ['billing_city', d.billing_city],
-    ['billing_state', (d.billing_state || '').toUpperCase()],
-    ['billing_zip', d.billing_zip],
-    ['billing_country', d.billing_country],
-    ['contact_purchases_name', d.contact_purchases_name],
-    ['contact_purchases_phone', d.contact_purchases_phone],
-    ['contact_purchases_email', purchasesEmail],
-    ['contact_finance_name', d.contact_finance_name],
-    ['contact_finance_phone', d.contact_finance_phone],
-    ['contact_finance_email', d.contact_finance_email],
     ['customer_since', customerSince],
     ['notes', d.notes],
-    ['status', (d.status || '').trim()],
   ]
   for (const [field, value] of optional) {
     if (value) payload[field] = value
   }
-  if (toBool(d.remember_birthday)) payload.remember_birthday = true
   return payload
 }
 

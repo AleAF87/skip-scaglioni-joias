@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-06T14:45:15.447Z",
+  "generatedAt": "2026-11-06T15:58:53.389Z",
   "collections": [
     {
       "name": "users",
@@ -475,122 +475,8 @@
           "system": false
         },
         {
-          "name": "seller_name",
-          "type": "text",
-          "required": false,
-          "system": false
-        },
-        {
           "name": "country",
           "type": "text",
-          "required": false,
-          "system": false
-        },
-        {
-          "name": "site",
-          "type": "text",
-          "required": false,
-          "system": false
-        },
-        {
-          "name": "payment_type",
-          "type": "text",
-          "required": false,
-          "system": false
-        },
-        {
-          "name": "billing_street",
-          "type": "text",
-          "required": false,
-          "system": false
-        },
-        {
-          "name": "billing_number",
-          "type": "text",
-          "required": false,
-          "system": false
-        },
-        {
-          "name": "billing_complement",
-          "type": "text",
-          "required": false,
-          "system": false
-        },
-        {
-          "name": "billing_neighborhood",
-          "type": "text",
-          "required": false,
-          "system": false
-        },
-        {
-          "name": "billing_city",
-          "type": "text",
-          "required": false,
-          "system": false
-        },
-        {
-          "name": "billing_state",
-          "type": "text",
-          "required": false,
-          "system": false
-        },
-        {
-          "name": "billing_zip",
-          "type": "text",
-          "required": false,
-          "system": false
-        },
-        {
-          "name": "billing_country",
-          "type": "text",
-          "required": false,
-          "system": false
-        },
-        {
-          "name": "contact_purchases_name",
-          "type": "text",
-          "required": false,
-          "system": false
-        },
-        {
-          "name": "contact_purchases_phone",
-          "type": "text",
-          "required": false,
-          "system": false
-        },
-        {
-          "name": "contact_purchases_email",
-          "type": "text",
-          "required": false,
-          "system": false
-        },
-        {
-          "name": "contact_finance_name",
-          "type": "text",
-          "required": false,
-          "system": false
-        },
-        {
-          "name": "contact_finance_phone",
-          "type": "text",
-          "required": false,
-          "system": false
-        },
-        {
-          "name": "contact_finance_email",
-          "type": "text",
-          "required": false,
-          "system": false
-        },
-        {
-          "name": "status",
-          "type": "text",
-          "required": false,
-          "system": false
-        },
-        {
-          "name": "remember_birthday",
-          "type": "bool",
           "required": false,
           "system": false
         },

@@ -17,27 +17,8 @@ export interface CustomerInput {
   notes?: string
   rg?: string
   cnpj?: string
-  remember_birthday?: boolean
-  seller_name?: string
   country?: string
-  site?: string
-  payment_type?: string
-  billing_street?: string
-  billing_number?: string
-  billing_complement?: string
-  billing_neighborhood?: string
-  billing_city?: string
-  billing_state?: string
-  billing_zip?: string
-  billing_country?: string
-  contact_purchases_name?: string
-  contact_purchases_phone?: string
-  contact_purchases_email?: string
-  contact_finance_name?: string
-  contact_finance_phone?: string
-  contact_finance_email?: string
   customer_since?: string
-  status?: string
 }
 
 export const customerService = {
