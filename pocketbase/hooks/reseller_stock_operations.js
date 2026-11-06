@@ -243,6 +243,7 @@ routerAdd(
       reseller_id,
       customer_name,
       customer_phone,
+      customer_id,
       items,
       discount = 0,
       payment_method,
@@ -368,6 +369,10 @@ routerAdd(
         const saleRec = new Record(salesCol)
         saleRec.set('code', saleCode)
         saleRec.set('reseller', actualResellerId)
+        // Vínculo do cliente SEMPRE pelo ID (nunca CPF); ausente = Consumidor Final
+        if (customer_id) {
+          saleRec.set('customer', customer_id)
+        }
         saleRec.set('customer_name', customer_name || '')
         saleRec.set('customer_phone', customer_phone || '')
         saleRec.set('status', 'completed')

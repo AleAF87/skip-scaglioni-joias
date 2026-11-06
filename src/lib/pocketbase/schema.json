@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-06T13:25:37.097Z",
+  "generatedAt": "2026-11-06T13:36:41.065Z",
   "collections": [
     {
       "name": "users",
@@ -356,9 +356,9 @@
       "name": "customers",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator' || @request.auth.role = 'reseller')",
-        "view": "@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator' || @request.auth.role = 'reseller')",
-        "create": "@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator' || @request.auth.role = 'reseller')",
+        "list": "(@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator') || (@request.auth.role = 'reseller' && created_by = @request.auth.id))",
+        "view": "(@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator') || (@request.auth.role = 'reseller' && created_by = @request.auth.id))",
+        "create": "(@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator') || (@request.auth.role = 'reseller' && (@request.body.created_by = @request.auth.id || @request.body.created_by:isset = false)))",
         "update": "@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator')",
         "delete": "@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator')"
       },
@@ -454,9 +454,19 @@
           "type": "text",
           "required": false,
           "system": false
+        },
+        {
+          "name": "created_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
         }
       ],
-      "indexes": ["CREATE INDEX idx_customers_name ON customers (name)"]
+      "indexes": [
+        "CREATE INDEX idx_customers_name ON customers (name)",
+        "CREATE INDEX `idx_customers_created_by` ON `customers` (created_by)"
+      ]
     },
     {
       "name": "products",

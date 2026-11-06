@@ -127,6 +127,8 @@ export const resellerStockService = {
   // Realizar venda atômica no PDV da revendedora
   async checkoutResellerSale(payload: {
     reseller_id?: string
+    // Vínculo do cliente SEMPRE pelo ID (nunca CPF); ausente = Consumidor Final
+    customer_id?: string
     customer_name?: string
     customer_phone?: string
     items: Array<{

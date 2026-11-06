@@ -340,6 +340,8 @@ export default function ResellerPosSale() {
     try {
       const payload = {
         reseller_id: selectedResellerId,
+        // Vínculo do cliente SEMPRE pelo ID (nunca CPF); ausente = Consumidor Final
+        customer_id: selectedCustomer?.id,
         customer_name: selectedCustomer?.name || '',
         customer_phone: selectedCustomer?.phone || '',
         items: cart.map((c) => ({
@@ -355,8 +357,9 @@ export default function ResellerPosSale() {
 
       const res = await resellerStockService.checkoutResellerSale(payload)
 
-      // Vínculo da venda com o cliente SEMPRE pelo ID (nunca CPF)
       if (res.sale_id && selectedCustomer) {
+        // O hook cria a venda já com o vínculo do cliente por ID; este update é só
+        // um reforço (idempotente, mesmo valor) para o caso de hook antigo no ar.
         pb.collection('reseller_sales')
           .update(res.sale_id, { customer: selectedCustomer.id })
           .catch((e) => console.error('Erro ao vincular cliente à venda:', e))
@@ -1200,6 +1203,9 @@ export default function ResellerPosSale() {
           onScan={handleScanCode}
           selectedOriginLabel="Estoque da Revendedora"
           originTitle="Estoque da Revendedora"
+          // viaCamera=true ativa a pergunta "Deseja incluir mais um produto já cadastrado?"
+          // (igual ao PDV admin: leitor físico/Enter nunca pergunta)
+          viaCamera
         />
       )}
 
