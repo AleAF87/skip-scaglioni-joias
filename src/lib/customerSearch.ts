@@ -39,8 +39,6 @@ export function filterCustomersLive(
   }
 
   const qDigits = customerDigitsOnly(q)
-  // CPF só é comparado quando a digitação parece um CPF completo (11 dígitos)
-  const qDigitsCpf = qDigits.length === 11 ? qDigits : ''
   const qTokens = q.split(/\s+/).filter(Boolean)
 
   return customers
@@ -59,11 +57,13 @@ export function filterCustomersLive(
       const email = normalizeCustomerSearchText(c.email)
       if (email && email.includes(q)) return true
 
-      // CPF e telefone/WhatsApp: comparação por dígitos, tolerante a máscara
+      // CPF e telefone/WhatsApp: comparação por dígitos, tolerante a máscara.
+      // CPF casa com consulta completa OU parcial (a partir de 3 dígitos, como
+      // prefixo ou trecho contido) — funciona com máscara ou sem pontuação.
       if (qDigits) {
-        if (qDigitsCpf) {
-          const cpf = customerDigitsOnly(c.cpf)
-          if (cpf && cpf.includes(qDigitsCpf)) return true
+        const cpf = customerDigitsOnly(c.cpf)
+        if (cpf && qDigits.length >= 3) {
+          if (cpf.startsWith(qDigits) || cpf.includes(qDigits)) return true
         }
         const phone = customerDigitsOnly(c.phone)
         if (phone && (phone.includes(qDigits) || qDigits.includes(phone))) return true

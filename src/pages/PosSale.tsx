@@ -16,8 +16,10 @@ import { BarcodeScannerModal } from '@/components/pos/BarcodeScannerModal'
 import { useMemo } from 'react'
 import { filterCustomersLive, getMaskedCustomerLabel } from '@/lib/customerSearch'
 import {
+  formatCpf,
   formatCurrency,
   formatDateTime,
+  formatPhone,
   getFileUrl,
   getProductDisplayPhoto,
   normalizeCurrencyValue,
@@ -1695,8 +1697,8 @@ export default function PosSale() {
                                 <div className="min-w-0 pr-2">
                                   <div className="font-medium truncate">{c.name}</div>
                                   <div className="text-[10px] text-[#6B655E] flex items-center gap-1.5 truncate">
-                                    {c.phone && <span>Tel: {c.phone}</span>}
-                                    {c.cpf && <span>CPF: {c.cpf}</span>}
+                                    {c.phone && <span>Tel: {formatPhone(c.phone)}</span>}
+                                    {c.cpf && <span>CPF: {formatCpf(c.cpf)}</span>}
                                     {c.email && <span>{c.email}</span>}
                                   </div>
                                 </div>

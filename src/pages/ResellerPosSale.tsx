@@ -29,7 +29,13 @@ import { BarcodeScannerModal } from '@/components/pos/BarcodeScannerModal'
 import { ImageLightbox } from '@/components/ImageLightbox'
 import { filterCustomersLive, getMaskedCustomerLabel } from '@/lib/customerSearch'
 import { matchesProductQuery, isExactCodeMatch } from '@/lib/barcodeSearch'
-import { formatCurrency, formatDateTime, getProductDisplayPhoto } from '@/lib/formatters'
+import {
+  formatCpf,
+  formatCurrency,
+  formatDateTime,
+  formatPhone,
+  getProductDisplayPhoto,
+} from '@/lib/formatters'
 import pb from '@/lib/pocketbase/client'
 import { Customer, Product, ResellerStockItem, Reseller, ResellerSale, SaleItem } from '@/types'
 import { Button } from '@/components/ui/button'
@@ -863,7 +869,9 @@ export default function ResellerPosSale() {
                       >
                         <span className="font-semibold">{getMaskedCustomerLabel(c)}</span>
                         {c.cpf ? (
-                          <span className="text-[#8C8275] ml-1">• CPF {c.cpf}</span>
+                          <span className="text-[#8C8275] ml-1">• CPF {formatCpf(c.cpf)}</span>
+                        ) : c.phone ? (
+                          <span className="text-[#8C8275] ml-1">• {formatPhone(c.phone)}</span>
                         ) : c.email ? (
                           <span className="text-[#8C8275] ml-1">• {c.email}</span>
                         ) : null}
