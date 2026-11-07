@@ -133,7 +133,8 @@ export const productService = {
     return pb.collection('products').getList<Product>(page, perPage, {
       filter: filterStr,
       sort: params?.sort || '-created',
-      expand: 'type,material,size,marca_id,product_category_links(product).category',
+      expand:
+        'type,material,size,marca_id,product_category_links(product).category,product_variations(product)',
     })
   },
 
