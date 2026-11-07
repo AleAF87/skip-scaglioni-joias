@@ -1,5 +1,5 @@
 import React from 'react'
-import { Search, Filter, CheckSquare, Square, RotateCcw, Eye } from 'lucide-react'
+import { Search, Filter, CheckSquare, Square, RotateCcw, Eye, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
@@ -22,6 +22,7 @@ interface BarcodeLabelsFilterBarProps {
   allFilteredSelected: boolean
   onSelectAllFiltered: () => void
   onClearSelection: () => void
+  onOpenBatchModal: () => void
 }
 
 export const BarcodeLabelsFilterBar: React.FC<BarcodeLabelsFilterBarProps> = ({
@@ -39,6 +40,7 @@ export const BarcodeLabelsFilterBar: React.FC<BarcodeLabelsFilterBarProps> = ({
   allFilteredSelected,
   onSelectAllFiltered,
   onClearSelection,
+  onOpenBatchModal,
 }) => {
   return (
     <Card className="border-[#E5DFD5] bg-white shadow-xs no-print">
@@ -118,7 +120,19 @@ export const BarcodeLabelsFilterBar: React.FC<BarcodeLabelsFilterBarProps> = ({
 
         {/* Barra de Seleção e Totais */}
         <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#E5DFD5] text-xs">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Botão de carregar lista de códigos */}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onOpenBatchModal}
+              className="h-8 border-[#7A5C2E] text-[#7A5C2E] bg-[#FDFBF7] hover:bg-[#F3EAD8] font-semibold shadow-xs"
+            >
+              <Upload className="h-3.5 w-3.5 mr-1.5 text-[#7A5C2E]" />
+              Carregar lista de códigos
+            </Button>
+
             <Button
               type="button"
               variant="outline"

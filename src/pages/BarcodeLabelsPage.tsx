@@ -10,6 +10,9 @@ import { getProductDisplayPhoto } from '@/lib/formatters'
 import { BarcodeLabelsHeader } from '@/components/labels/BarcodeLabelsHeader'
 import { BarcodeLabelsFilterBar, GridColumns } from '@/components/labels/BarcodeLabelsFilterBar'
 import { BarcodeLabelsSelectionTable } from '@/components/labels/BarcodeLabelsSelectionTable'
+import { BarcodeBatchUploadModal } from '@/components/labels/BarcodeBatchUploadModal'
+import { MatchResult } from '@/lib/barcodeBatchMatcher'
+import { CheckCircle2, X } from 'lucide-react'
 
 export default function BarcodeLabelsPage() {
   const [products, setProducts] = useState<Product[]>([])
@@ -22,6 +25,8 @@ export default function BarcodeLabelsPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [gridColumns, setGridColumns] = useState<GridColumns>(3)
   const [showPreviewOnly, setShowPreviewOnly] = useState(false)
+  const [isBatchModalOpen, setIsBatchModalOpen] = useState(false)
+  const [batchSummary, setBatchSummary] = useState<string | null>(null)
 
   // Carregar produtos direto do banco (apenas os que têm code preenchido)
   const loadProducts = useCallback(async () => {
@@ -103,6 +108,14 @@ export default function BarcodeLabelsPage() {
 
   const handleClearSelection = () => {
     setSelectedIds([])
+    setBatchSummary(null)
+  }
+
+  // Aplicação da seleção vinda da lista em lote (CSV/TXT ou texto colado)
+  const handleApplyBatchSelection = (matchedIds: string[], result: MatchResult) => {
+    setSelectedIds(matchedIds)
+    const summaryMsg = `${result.matchedCount} produto(s) selecionado(s) de ${result.totalInputCodes} códigos da lista; ${result.unmatchedCount} código(s) sem correspondência.`
+    setBatchSummary(summaryMsg)
   }
 
   // Disparo da impressão nativa do navegador (permite Salvar como PDF)
@@ -167,11 +180,30 @@ export default function BarcodeLabelsPage() {
             Cada etiqueta desenha exatamente o código alfanumérico armazenado no campo{' '}
             <strong className="font-mono text-[#2D2A26]">code</strong> do produto em formato{' '}
             <strong>Code 128</strong> (compatível com números, letras maiúsculas/minúsculas e
-            espaços). Use o botão <strong>Imprimir / Salvar PDF</strong> para imprimir em folha A4
-            ou salvar como arquivo PDF.
+            espaços). Use o botão <strong>Carregar lista de códigos</strong> para importar do seu
+            arquivo CSV ou colar os códigos de uma maleta/remessa específica, e{' '}
+            <strong>Imprimir / Salvar PDF</strong> para gerar o documento.
           </p>
         </div>
       </div>
+
+      {/* Banner de resumo da seleção em massa */}
+      {batchSummary && (
+        <div className="p-3.5 rounded-xl bg-[#2E7D4F]/10 border border-[#2E7D4F]/30 flex items-center justify-between gap-3 text-xs text-[#2E7D4F] no-print animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-[#2E7D4F] shrink-0" />
+            <span className="font-semibold">{batchSummary}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setBatchSummary(null)}
+            className="text-[#2E7D4F] hover:text-[#205737] p-1"
+            title="Fechar aviso"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       {/* Barra de Filtros e Busca */}
       <BarcodeLabelsFilterBar
@@ -189,6 +221,7 @@ export default function BarcodeLabelsPage() {
         allFilteredSelected={allFilteredSelected}
         onSelectAllFiltered={handleSelectAllFiltered}
         onClearSelection={handleClearSelection}
+        onOpenBatchModal={() => setIsBatchModalOpen(true)}
       />
 
       {/* Conteúdo Principal */}
@@ -311,6 +344,14 @@ export default function BarcodeLabelsPage() {
           </div>
         </div>
       )}
+
+      {/* Modal de seleção por lista de códigos (Upload CSV/TXT ou Colar) */}
+      <BarcodeBatchUploadModal
+        open={isBatchModalOpen}
+        onOpenChange={setIsBatchModalOpen}
+        products={products}
+        onApplySelection={handleApplyBatchSelection}
+      />
     </div>
   )
 }
