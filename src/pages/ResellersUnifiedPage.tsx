@@ -185,7 +185,8 @@ export default function ResellersUnifiedPage() {
     const urls: string[] = []
     if (p.photos && p.photos.length > 0) {
       urls.push(...p.photos.map((ph) => getFileUrl('products', p.id, ph)))
-    } else if (p.image_url) {
+    }
+    if (p.image_url && !urls.includes(p.image_url)) {
       urls.push(p.image_url)
     }
     if (urls.length === 0) return

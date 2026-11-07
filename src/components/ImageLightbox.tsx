@@ -70,8 +70,10 @@ export function ImageLightbox({
   return (
     <Dialog open={open} onOpenChange={(val) => !val && onClose()}>
       <DialogContent
-        className="max-w-4xl p-0 overflow-hidden bg-black/95 border-neutral-800 text-white focus:outline-none"
+        className="max-w-none w-[100vw] h-[100vh] max-h-none rounded-none border-0 bg-black/95 text-white focus:outline-none"
         aria-describedby={undefined}
+        onPointerDownOutside={(e) => e.preventDefault()}
+        onInteractOutside={(e) => e.preventDefault()}
       >
         <DialogTitle className="sr-only">
           {title || `Visualização de foto (${currentIndex + 1} de ${normalizedPhotos.length})`}
@@ -106,13 +108,13 @@ export function ImageLightbox({
 
         {/* Main image presentation */}
         <div
-          className="relative flex items-center justify-center min-h-[50vh] max-h-[82vh] p-4 pt-12 pb-14 bg-black/90 select-none cursor-pointer"
+          className="relative flex-1 flex items-center justify-center min-h-[50vh] py-16 select-none cursor-pointer"
           onClick={onClose}
         >
           <img
             src={currentPhoto.url}
             alt={currentPhoto.alt || title || 'Foto da joia'}
-            className="max-h-[76vh] max-w-full object-contain mx-auto rounded-md shadow-2xl transition-all duration-200 cursor-default"
+            className="max-h-full max-w-full object-contain mx-auto rounded-md shadow-2xl transition-all duration-200 cursor-default"
             onClick={(e) => e.stopPropagation()}
           />
 

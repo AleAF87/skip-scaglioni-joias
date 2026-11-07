@@ -171,9 +171,10 @@ export default function PosSale() {
 
   const handleOpenLightbox = (p: Product, initialIdx: number = 0) => {
     // Fotos podem vir de duas fontes: galeria local (photos) ou URL externa (image_url,
-    // usado pelos produtos importados que chegam com photos vazio).
+    // usado pelos produtos importados que chegam com photos vazio). A galeria entra sempre;
+    // a image_url é adicionada como extra (mesmo quando há galeria) para não perder nenhuma foto.
     const urls = (p.photos ?? []).map((ph) => getFileUrl('products', p.id, ph))
-    if (urls.length === 0 && p.image_url) urls.push(p.image_url)
+    if (p.image_url && !urls.includes(p.image_url)) urls.push(p.image_url)
     if (urls.length === 0) return
     setLightboxPhotos(urls)
     setLightboxTitle(`${p.code} — ${p.description}`)
