@@ -25,6 +25,7 @@ import { Label } from '@/components/ui/label'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { TouchSignaturePad } from '@/components/TouchSignaturePad'
+import { getBackendErrorMessage } from '@/lib/backendErrors'
 import { DeliveryReceiptModal } from '@/components/DeliveryReceiptModal'
 import { toast } from 'sonner'
 import { Link } from 'react-router-dom'
@@ -261,7 +262,10 @@ export default function ResellerDeliveriesAndStock() {
       setSigningDelivery(null)
       loadDeliveries()
     } catch (err: any) {
-      toast.error(err.message || 'Erro ao salvar assinatura.')
+      // Aviso claro em português (não silencioso): o hook responde { error: "..." }
+      // e o SDK exibiria "Something went wrong." sem o helper.
+      console.error('Erro ao salvar assinatura da entrega:', err)
+      toast.error(getBackendErrorMessage(err))
     }
   }
 

@@ -1040,7 +1040,10 @@ export default function ResellersUnifiedPage() {
       setSigningDelivery(null)
       loadDeliveries(currentReseller.id)
     } catch (err: any) {
-      toast.error(err.message || 'Erro ao salvar assinatura.')
+      // Aviso claro em português (não silencioso): o hook responde { error: "..." }
+      // e o SDK exibiria "Something went wrong." sem o helper.
+      console.error('Erro ao salvar assinatura da entrega:', err)
+      toast.error(getBackendErrorMessage(err))
     }
   }
 

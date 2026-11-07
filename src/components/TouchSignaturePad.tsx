@@ -100,11 +100,37 @@ export const TouchSignaturePad: React.FC<TouchSignaturePadProps> = ({
     setHasDrawn(false)
   }
 
+  // Exporta a assinatura comprimida (JPEG quality 0.7, largura máx ~600px)
+  // para o payload caber folgado no backend mesmo em telas grandes — data URLs
+  // base64 de PNG em resolução nativa do canvas passavam do limite do campo
+  // signature_data e a entrega ficava travada em "Aguardando recebimento".
   const handleConfirm = () => {
     const canvas = canvasRef.current
     if (!canvas || !hasDrawn) return
-    const dataUrl = canvas.toDataURL('image/png')
-    onConfirm(dataUrl)
+
+    const dpr = window.devicePixelRatio || 1
+    const rect = canvas.getBoundingClientRect()
+    const sourceW = Math.round(rect.width * dpr)
+    const sourceH = Math.round(rect.height * dpr)
+
+    const MAX_WIDTH = 600
+    const scale = Math.min(1, MAX_WIDTH / sourceW)
+    const targetW = Math.max(1, Math.round(sourceW * scale))
+    const targetH = Math.max(1, Math.round(sourceH * scale))
+
+    const out = document.createElement('canvas')
+    out.width = targetW
+    out.height = targetH
+    const outCtx = out.getContext('2d')
+    if (!outCtx) {
+      onConfirm(canvas.toDataURL('image/png'))
+      return
+    }
+    // Fundo branco: JPEG não tem canal alfa e pixels transparentes ficam pretos.
+    outCtx.fillStyle = '#FFFFFF'
+    outCtx.fillRect(0, 0, targetW, targetH)
+    outCtx.drawImage(canvas, 0, 0, targetW, targetH)
+    onConfirm(out.toDataURL('image/jpeg', 0.7))
   }
 
   return (
