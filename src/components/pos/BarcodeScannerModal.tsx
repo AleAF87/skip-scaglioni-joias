@@ -230,6 +230,9 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   const runFrameLoop = useCallback(
     (reader: BrowserMultiFormatReader) => {
       let stopped = false
+      // Canvas OFFSCREEN (nunca anexado ao DOM): só serve para decodificação.
+      // Reduzido para no máximo DECODE_MAX_WIDTH px para poupar memória/GPU no Safari iOS,
+      // que pode deixar o elemento <video> em branco quando a pressão de memória sobe.
       const canvas = document.createElement('canvas')
       const ctx2d = canvas.getContext('2d', { willReadFrequently: true })
 
@@ -247,10 +250,16 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
           Date.now() - lastProcessedTimeRef.current >= 3000
         ) {
           try {
-            // Desenha o frame atual do vídeo no canvas e decodifica
-            canvas.width = video.videoWidth
-            canvas.height = video.videoHeight
-            ctx2d.drawImage(video, 0, 0)
+            // Desenha o frame atual do vídeo no canvas oculto e decodifica
+            const scale = Math.min(1, DECODE_MAX_WIDTH / video.videoWidth)
+            const targetW = Math.round(video.videoWidth * scale)
+            const targetH = Math.round(video.videoHeight * scale)
+            // Só redimensiona o canvas quando a dimensão muda (redimensionar a cada frame é caro)
+            if (canvas.width !== targetW || canvas.height !== targetH) {
+              canvas.width = targetW
+              canvas.height = targetH
+            }
+            ctx2d.drawImage(video, 0, 0, targetW, targetH)
             const result = await (reader as any).decodeFromCanvas(canvas)
             if (result) {
               const text =
@@ -331,6 +340,9 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         if (video) {
           video.setAttribute('playsinline', 'true')
           video.setAttribute('webkit-playsinline', 'true')
+          // iOS exige o atributo muted (não só a propriedade) para reproduzir sem gesto
+          video.setAttribute('muted', '')
+          video.defaultMuted = true
           video.muted = true
           video.srcObject = stream
 
@@ -632,7 +644,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   return createPortal(
     <div className="fixed inset-0 z-[200] bg-black/90 flex flex-col justify-between select-none">
       {/* Top Bar com Controles */}
-      <div className="bg-black/60 backdrop-blur-md px-4 py-3 flex items-center justify-between z-20 text-white border-b border-white/10">
+      <div className="bg-black/85 px-4 py-3 flex items-center justify-between z-20 text-white border-b border-white/10">
         <div className="flex items-center gap-2">
           <Camera className="h-5 w-5 text-[#C6A664] animate-pulse" />
           <div>
@@ -774,13 +786,16 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
           </div>
         ) : (
           <>
+            {/* Vídeo em camada própria (translateZ) e sem sobreposição de backdrop-filter:
+                no Safari iOS, blur sobre o <video> faz a área ficar branca após o início. */}
             <video
               ref={videoRef}
               playsInline
               webkit-playsinline="true"
               muted
               autoPlay
-              className="absolute inset-0 w-full h-full object-cover"
+              style={{ transform: 'translateZ(0)', WebkitTransform: 'translateZ(0)' }}
+              className="absolute inset-0 w-full h-full object-cover bg-black"
             />
 
             {/* Escurecimento fora da mira */}
@@ -806,7 +821,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                 <div className="absolute bottom-2 left-2 w-4 h-4 border-b-2 border-l-2 border-white" />
                 <div className="absolute bottom-2 right-2 w-4 h-4 border-b-2 border-r-2 border-white" />
 
-                <span className="text-[11px] font-medium px-2.5 py-0.5 rounded-full backdrop-blur-xs tracking-wide text-white/90 bg-black/60">
+                <span className="text-[11px] font-medium px-2.5 py-0.5 rounded-full tracking-wide text-white/90 bg-black/70">
                   Aponte para o código da etiqueta
                 </span>
               </div>
@@ -814,10 +829,10 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
               {/* Feedback Instantâneo da Leitura */}
               {scannedFeedback && !duplicatePrompt && (
                 <div
-                  className={`mt-4 px-4 py-2 rounded-xl backdrop-blur-md shadow-lg flex items-center gap-2 max-w-[85vw] animate-in fade-in zoom-in-95 duration-150 ${
+                  className={`mt-4 px-4 py-2 rounded-xl shadow-lg flex items-center gap-2 max-w-[85vw] animate-in fade-in zoom-in-95 duration-150 ${
                     scannedFeedback.success
-                      ? 'bg-emerald-950/85 text-emerald-100 border border-emerald-500/50'
-                      : 'bg-red-950/85 text-red-100 border border-red-500/50'
+                      ? 'bg-emerald-950/95 text-emerald-100 border border-emerald-500/50'
+                      : 'bg-red-950/95 text-red-100 border border-red-500/50'
                   }`}
                 >
                   {scannedFeedback.success ? (
@@ -832,7 +847,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
             {/* Modal / Dialog de confirmação dentro do fluxo da câmera quando produto já listado */}
             {duplicatePrompt && (
-              <div className="absolute inset-0 bg-black/75 backdrop-blur-md z-30 flex items-center justify-center p-4 animate-in fade-in duration-200">
+              <div className="absolute inset-0 bg-black/85 z-30 flex items-center justify-center p-4 animate-in fade-in duration-200">
                 <div className="bg-[#2D2A26] border-2 border-[#C6A664] rounded-2xl p-5 max-w-sm w-full text-white shadow-2xl space-y-4">
                   <div className="flex items-start gap-3">
                     <div className="p-2 rounded-xl bg-amber-500/20 text-[#C6A664] shrink-0 border border-[#C6A664]/30">
@@ -883,7 +898,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       </div>
 
       {/* Bottom Bar: status do motor, contador, digitação manual e botão Concluir */}
-      <div className="bg-black/70 backdrop-blur-md px-4 py-3 z-20 border-t border-white/10 text-white space-y-2">
+      <div className="bg-black/85 px-4 py-3 z-20 border-t border-white/10 text-white space-y-2">
         {/* Status visível: câmera ativa, procurando código… */}
         <div className="flex items-center gap-2 text-xs">
           <span
@@ -953,6 +968,9 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     document.body,
   )
 }
+
+// Largura máxima do frame usado na decodificação (canvas oculto)
+const DECODE_MAX_WIDTH = 960
 
 // Hints do ZXing: prioriza Code 128 (etiquetas do sistema) e formatos de joalheria
 function hints(): Map<DecodeHintType, any> {
