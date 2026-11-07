@@ -29,6 +29,7 @@ import {
   Printer,
 } from 'lucide-react'
 import { isExactCodeMatch, matchesProductQuery } from '@/lib/barcodeSearch'
+import { getProductFullName } from '@/types/labelContent'
 import {
   Dialog,
   DialogContent,
@@ -527,15 +528,46 @@ export default function ResellersUnifiedPage() {
     const rawCode = (barcode || '').trim()
     if (!rawCode) return false
 
-    // Busca nas joias que estão EM PODER desta revendedora (stockItems)
-    let foundStockItem = stockItems.find((it) => {
-      const prod = it.expand?.product
-      return prod && isExactCodeMatch(prod, rawCode)
-    })
+    // 1. Tenta resolver via endpoint especializado resolveBarcode
+    let foundStockItem: ResellerStockItem | undefined = undefined
+    let foundProd: Product | null = null
 
-    let foundProd: Product | null = foundStockItem?.expand?.product || null
+    try {
+      const resolved = await productService.resolveBarcode(rawCode)
+      if (resolved && resolved.matched && resolved.product) {
+        foundProd = resolved.product as Product
+        foundStockItem = stockItems.find(
+          (it) =>
+            it.product === resolved.product!.id || it.expand?.product?.id === resolved.product!.id,
+        )
+      } else if (
+        resolved &&
+        resolved.ambiguous &&
+        resolved.variations &&
+        resolved.variations.length > 0
+      ) {
+        toast.info(
+          resolved.message ||
+            `O código possui variações (${resolved.variations.map((v) => v.variacao).join(', ')}). Especifique a variação.`,
+        )
+        return false
+      }
+    } catch {
+      /* fallback */
+    }
 
+    // 2. Busca nas joias que estão EM PODER desta revendedora (stockItems) por match local
     if (!foundStockItem) {
+      foundStockItem = stockItems.find((it) => {
+        const prod = it.expand?.product
+        return prod && isExactCodeMatch(prod, rawCode)
+      })
+      if (foundStockItem) {
+        foundProd = foundStockItem.expand?.product || null
+      }
+    }
+
+    if (!foundStockItem && !foundProd) {
       try {
         const res = await productService.getProducts({ search: rawCode, perPage: 10 })
         foundProd = res.items.find((p) => isExactCodeMatch(p, rawCode)) || null
@@ -617,6 +649,8 @@ export default function ResellersUnifiedPage() {
         availableProducts.find((p) => isExactCodeMatch(p, rawCode)) ||
         (await (async () => {
           try {
+            const resolved = await productService.resolveBarcode(rawCode)
+            if (resolved?.matched && resolved.product) return resolved.product as Product
             const res = await productService.getProducts({ search: rawCode, perPage: 10 })
             return res.items.find((p) => isExactCodeMatch(p, rawCode)) || null
           } catch {
@@ -629,10 +663,37 @@ export default function ResellersUnifiedPage() {
     lastScannedDeliveryCodeRef.current = rawCode
     setDeliveryScanAlert(null)
 
-    // 1. Primeiro tenta na lista em memória (disponíveis carregados)
-    let found: Product | undefined = availableProducts.find((p) => isExactCodeMatch(p, rawCode))
+    // 1. Tenta resolver via endpoint especializado resolveBarcode
+    let found: Product | undefined = undefined
 
-    // 2. Se não achar na página atual ou estoque local, busca no banco geral
+    try {
+      const resolved = await productService.resolveBarcode(rawCode)
+      if (resolved && resolved.matched && resolved.product) {
+        found =
+          availableProducts.find((p) => p.id === resolved.product!.id) ||
+          (resolved.product as Product)
+      } else if (
+        resolved &&
+        resolved.ambiguous &&
+        resolved.variations &&
+        resolved.variations.length > 0
+      ) {
+        setDeliveryScanAlert(
+          resolved.message ||
+            `Código "${rawCode}" possui múltiplas variações (${resolved.variations.map((v) => v.variacao).join(', ')}). Especifique a variação na etiqueta.`,
+        )
+        return false
+      }
+    } catch {
+      /* fallback */
+    }
+
+    // 2. Se não achou via endpoint, tenta na lista em memória (disponíveis carregados)
+    if (!found) {
+      found = availableProducts.find((p) => isExactCodeMatch(p, rawCode))
+    }
+
+    // 3. Se não achar na página atual ou estoque local, busca no banco geral
     if (!found) {
       const res = await productService.getProducts({ search: rawCode, perPage: 10 })
       found = res.items.find((p) => isExactCodeMatch(p, rawCode))
@@ -688,10 +749,39 @@ export default function ResellersUnifiedPage() {
       setIsSearchingDeliveryBarcode(true)
 
       try {
-        // 1. Primeiro tenta na lista em memória (disponíveis carregados)
-        let found = availableProducts.find((p) => isExactCodeMatch(p, rawCode))
+        // 1. Tenta resolver via endpoint especializado resolveBarcode (lida com "número variação" e código isolado)
+        let found: Product | undefined = undefined
 
-        // 2. Se não achar na página atual ou estoque local, busca no banco geral
+        try {
+          const resolved = await productService.resolveBarcode(rawCode)
+          if (resolved && resolved.matched && resolved.product) {
+            found =
+              availableProducts.find((p) => p.id === resolved.product!.id) ||
+              (resolved.product as Product)
+          } else if (
+            resolved &&
+            resolved.ambiguous &&
+            resolved.variations &&
+            resolved.variations.length > 0
+          ) {
+            setDeliveryScanAlert(
+              resolved.message ||
+                `Código possui variações (${resolved.variations.map((v) => v.variacao).join(', ')}). Especifique a variação na leitura.`,
+            )
+            toast.info('Código possui variações. Especifique a variação exata.')
+            setDeliveryBarcodeScan('')
+            return
+          }
+        } catch {
+          // Fallback para matching local
+        }
+
+        // 2. Se não achou via endpoint, tenta na lista em memória (disponíveis carregados)
+        if (!found) {
+          found = availableProducts.find((p) => isExactCodeMatch(p, rawCode))
+        }
+
+        // 3. Se não achar na página atual ou estoque local, busca no banco geral
         if (!found) {
           const res = await productService.getProducts({
             search: rawCode,
@@ -748,7 +838,7 @@ export default function ResellersUnifiedPage() {
   }
 
   // Handler de leitura de código de barras - Modal de Conferência & Devolução
-  const handleReturnBarcodeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleReturnBarcodeKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault()
       const rawCode = returnBarcodeScan.trim()
@@ -756,11 +846,42 @@ export default function ResellersUnifiedPage() {
 
       setReturnScanAlert(null)
 
-      // Busca nas joias que estão EM PODER desta revendedora (stockItems)
-      const foundStockItem = stockItems.find((it) => {
-        const prod = it.expand?.product
-        return prod && isExactCodeMatch(prod, rawCode)
-      })
+      // 1. Tenta resolver via endpoint especializado resolveBarcode
+      let foundStockItem: ResellerStockItem | undefined = undefined
+
+      try {
+        const resolved = await productService.resolveBarcode(rawCode)
+        if (resolved && resolved.matched && resolved.product) {
+          foundStockItem = stockItems.find(
+            (it) =>
+              it.product === resolved.product!.id ||
+              it.expand?.product?.id === resolved.product!.id,
+          )
+        } else if (
+          resolved &&
+          resolved.ambiguous &&
+          resolved.variations &&
+          resolved.variations.length > 0
+        ) {
+          setReturnScanAlert(
+            resolved.message ||
+              `Código possui variações (${resolved.variations.map((v) => v.variacao).join(', ')}). Especifique a variação.`,
+          )
+          toast.info('Código possui variações. Especifique a variação.')
+          setReturnBarcodeScan('')
+          return
+        }
+      } catch {
+        /* fallback */
+      }
+
+      // 2. Busca nas joias que estão EM PODER desta revendedora (stockItems)
+      if (!foundStockItem) {
+        foundStockItem = stockItems.find((it) => {
+          const prod = it.expand?.product
+          return prod && isExactCodeMatch(prod, rawCode)
+        })
+      }
 
       // Regra 4: Se o produto não estiver relacionado à revendedora, exibir alerta destacado
       if (!foundStockItem) {
@@ -2180,11 +2301,14 @@ export default function ResellersUnifiedPage() {
 
                               <div className="min-w-0 flex-1">
                                 <p className="font-semibold text-[#2D2A26] truncate">
-                                  {it.product.description || it.product.nome_produto}
+                                  {getProductFullName(it.product) ||
+                                    it.product.description ||
+                                    it.product.nome_produto}
                                 </p>
                                 <p className="text-[11px] text-[#6B655E] flex items-center gap-2">
                                   <span className="font-mono font-bold text-[#7A5C2E]">
                                     {it.product.code}
+                                    {it.product.variacao ? ` — ${it.product.variacao}` : ''}
                                   </span>
                                   <span>•</span>
                                   <span>{formatCurrency(it.selling_price)}/un</span>
@@ -2634,9 +2758,14 @@ export default function ResellersUnifiedPage() {
 
                               <td className="py-3 px-3 font-mono font-bold text-[#7A5C2E]">
                                 {prod?.code}
+                                {prod?.variacao ? ` — ${prod.variacao}` : ''}
                               </td>
                               <td className="py-3 px-3 font-semibold text-[#2D2A26] max-w-[200px] truncate">
-                                {prod?.description || prod?.nome_produto}
+                                {prod
+                                  ? getProductFullName(prod) ||
+                                    prod.description ||
+                                    prod.nome_produto
+                                  : 'Joia'}
                               </td>
                               <td className="py-3 px-3 text-right text-[#6B655E]">
                                 {formatCurrency(prod?.selling_price || it.selling_price || 0)}

@@ -539,6 +539,7 @@ export default function PosSale() {
         return [
           ...prev,
           {
+            cart_item_id: `${product.id}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
             product_id: product.id,
             code: product.code,
             description: fullName,
@@ -548,6 +549,7 @@ export default function PosSale() {
             stock_origin: defaultSource.origin,
             reseller_id: defaultSource.reseller_id,
             reseller_name: defaultSource.reseller_name,
+            photo: getProductDisplayPhoto(product),
           },
         ]
       }
@@ -630,21 +632,48 @@ export default function PosSale() {
   // Leitura de código de barras pela câmera (smartphone/webcam)
   // Caso o produto já esteja na lista desta venda e options?.forceDuplicate não seja true,
   // retorna { requiresDuplicateConfirmation: true, product } para que o modal da câmera pergunte ao usuário.
-  const handleBarcodeScan = (
+  const handleBarcodeScan = async (
     codigo: string,
     options?: { forceDuplicate?: boolean },
-  ): boolean | { requiresDuplicateConfirmation: boolean; product: Product } => {
+  ): Promise<boolean | { requiresDuplicateConfirmation: boolean; product: Product }> => {
     const raw = (codigo || '').trim()
     if (!raw) return false
 
-    // a) Buscar o produto pelo código de barras com casamento exato (mesma lógica das etiquetas)
-    const exactMatches = products.filter((p) => isExactCodeMatch(p, raw))
-    if (exactMatches.length === 0) {
-      toast.error(`Código de barras não cadastrado: "${raw}"`)
-      return false
+    // a) Buscar o produto:
+    // 1. Tenta resolver via endpoint especializado resolveBarcode (lida com número+variação e ambiguidade)
+    // 2. Se não resolver ou endpoint falhar, cai no match local exato em memória
+    let product: Product | undefined = undefined
+
+    try {
+      const resolved = await productService.resolveBarcode(raw)
+      if (resolved && resolved.matched && resolved.product) {
+        // Encontra o produto correspondente no array em memória para ter relations e estoque atualizados
+        product =
+          products.find((p) => p.id === resolved.product!.id) || (resolved.product as Product)
+      } else if (
+        resolved &&
+        resolved.ambiguous &&
+        resolved.variations &&
+        resolved.variations.length > 0
+      ) {
+        toast.info(
+          resolved.message ||
+            `O código "${raw}" possui variações (${resolved.variations.map((v) => v.variacao).join(', ')}). Especifique a variação ou selecione na lista.`,
+        )
+        return false
+      }
+    } catch {
+      // Fallback para casamento exato em memória
     }
 
-    const product = exactMatches[0]
+    if (!product) {
+      const exactMatches = products.filter((p) => isExactCodeMatch(p, raw))
+      if (exactMatches.length === 0) {
+        toast.error(`Código de barras não cadastrado: "${raw}"`)
+        return false
+      }
+      product = exactMatches[0]
+    }
 
     // b) Validar estoque na origem da venda selecionada
     // Origem atual vem do state selectedOrigin ('general' | 'ecommerce' | 'reseller')
@@ -781,13 +810,47 @@ export default function PosSale() {
   }, [subtotal])
 
   // Key press on Barcode input (Enter triggers exact match addition / scan jump)
-  const handleBarcodeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleBarcodeKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault()
       const q = barcodeOrSearch.trim()
       if (!q) return
 
-      // 1. Salto no scan exato: verifica se corresponde exatamente a um único código
+      // 1. Tenta resolver via endpoint resolveBarcode (lida com formato "número variação" e código isolado)
+      try {
+        const resolved = await productService.resolveBarcode(q)
+        if (resolved && resolved.matched && resolved.product) {
+          const resolvedProd =
+            products.find((p) => p.id === resolved.product!.id) || (resolved.product as Product)
+          if (getProductAvailableStock(resolvedProd) > 0) {
+            addToCart(resolvedProd)
+            toast.success(
+              `Joia adicionada: ${resolvedProd.code}${resolvedProd.variacao ? ' ' + resolvedProd.variacao : ''}`,
+            )
+            return
+          } else {
+            toast.error(
+              `Produto sem estoque disponível: ${resolvedProd.code}${resolvedProd.variacao ? ' ' + resolvedProd.variacao : ''}`,
+            )
+            return
+          }
+        } else if (
+          resolved &&
+          resolved.ambiguous &&
+          resolved.variations &&
+          resolved.variations.length > 0
+        ) {
+          toast.info(
+            resolved.message ||
+              `O código possui múltiplas variações (${resolved.variations.map((v) => v.variacao).join(', ')}). Selecione na lista ou informe a variação.`,
+          )
+          return
+        }
+      } catch {
+        // Fallback para matching local
+      }
+
+      // 2. Salto no scan exato local em memória: verifica se corresponde exatamente a um único código
       // (numérico ignorando zeros à esquerda, ou SKU do site normalizado Ç->C)
       const exactMatches = products.filter(
         (p) => isExactCodeMatch(p, q) && getProductAvailableStock(p) > 0,
@@ -800,7 +863,7 @@ export default function PosSale() {
         return
       }
 
-      // 2. Se houver exatamente 1 produto filtrado na lista
+      // 3. Se houver exatamente 1 produto filtrado na lista
       if (filteredProducts.length === 1) {
         addToCart(filteredProducts[0])
         toast.success(`Joia adicionada: ${filteredProducts[0].code}`)
@@ -1442,9 +1505,19 @@ export default function PosSale() {
                                           )}
                                         </button>
 
-                                        <span className="font-medium text-[#2D2A26] whitespace-normal break-words block leading-relaxed pt-0.5">
-                                          {item.description}
-                                        </span>
+                                        <div className="pt-0.5">
+                                          <span className="font-medium text-[#2D2A26] whitespace-normal break-words block leading-relaxed">
+                                            {item.description}
+                                          </span>
+                                          {prod?.variacao && (
+                                            <Badge
+                                              variant="outline"
+                                              className="mt-1 text-[10px] px-1.5 py-0 border-[#C6A664] text-[#7A5C2E] bg-[#FBF8F2] font-semibold"
+                                            >
+                                              Variação: {prod.variacao}
+                                            </Badge>
+                                          )}
+                                        </div>
                                       </div>
                                     )
                                   })()}

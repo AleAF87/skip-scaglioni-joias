@@ -25,6 +25,7 @@ import { usePdvGuard } from '@/contexts/PdvGuardContext'
 import { resellerService } from '@/services/resellerService'
 import { resellerStockService } from '@/services/resellerStockService'
 import { customerService } from '@/services/customerService'
+import { productService } from '@/services/productService'
 import { BarcodeScannerModal } from '@/components/pos/BarcodeScannerModal'
 import { ImageLightbox } from '@/components/ImageLightbox'
 import { filterCustomersLive, getMaskedCustomerLabel } from '@/lib/customerSearch'
@@ -273,24 +274,53 @@ export default function ResellerPosSale() {
   }
 
   // Leitura (câmera ou Enter no campo de busca): procura o produto NO ESTOQUE DA REVENDEDORA
-  const handleScanCode = (
+  const handleScanCode = async (
     barcode: string,
     options?: { forceDuplicate?: boolean; viaCamera?: boolean },
-  ): boolean | { requiresDuplicateConfirmation: boolean; product?: any } => {
+  ): Promise<boolean | { requiresDuplicateConfirmation: boolean; product?: any }> => {
     const code = (barcode || '').trim()
     if (!code) return false
 
-    const found = stockItems.find(
-      (it) => it.expand?.product && isExactCodeMatch(it.expand.product, code),
-    )
+    // 1. Tenta resolver via endpoint especializado resolveBarcode (suporte a 'número variação' e tolerâncias)
+    let foundStockItem: ResellerStockItem | undefined = undefined
 
-    if (!found) {
+    try {
+      const resolved = await productService.resolveBarcode(code)
+      if (resolved && resolved.matched && resolved.product) {
+        foundStockItem = stockItems.find(
+          (it) =>
+            it.product === resolved.product!.id || it.expand?.product?.id === resolved.product!.id,
+        )
+      } else if (
+        resolved &&
+        resolved.ambiguous &&
+        resolved.variations &&
+        resolved.variations.length > 0
+      ) {
+        toast.info(
+          resolved.message ||
+            `O código possui variações (${resolved.variations.map((v) => v.variacao).join(', ')}). Especifique a variação no leitor.`,
+        )
+        return false
+      }
+    } catch {
+      // Fallback para matching local em memória
+    }
+
+    // 2. Se não achou via endpoint, tenta match local exato no estoque da revendedora
+    if (!foundStockItem) {
+      foundStockItem = stockItems.find(
+        (it) => it.expand?.product && isExactCodeMatch(it.expand.product, code),
+      )
+    }
+
+    if (!foundStockItem) {
       toast.error('Produto não encontrado no seu estoque de revendedora.')
       return false
     }
 
-    const prod = found.expand?.product
-    const alreadyInCart = cart.some((c) => c.stockItem.product === found.product)
+    const prod = foundStockItem.expand?.product
+    const alreadyInCart = cart.some((c) => c.stockItem.product === foundStockItem!.product)
 
     // A pergunta de duplicado SÓ vale para leitura por câmera (scanner modal, viaCamera=true);
     // leitor físico/Enter no campo não pergunta e não tem delay.
@@ -298,7 +328,7 @@ export default function ResellerPosSale() {
       return { requiresDuplicateConfirmation: true, product: prod }
     }
 
-    const ok = addCartLine(found)
+    const ok = addCartLine(foundStockItem)
     return ok
   }
 

@@ -12,6 +12,7 @@ import { BarcodeLabelsFilterBar, GridColumns } from '@/components/labels/Barcode
 import { BarcodeLabelsSelectionTable } from '@/components/labels/BarcodeLabelsSelectionTable'
 import { BarcodeBatchUploadModal } from '@/components/labels/BarcodeBatchUploadModal'
 import { MatchResult } from '@/lib/barcodeBatchMatcher'
+import { getProductBarcodeValue } from '@/lib/barcodeSearch'
 import { CheckCircle2, X } from 'lucide-react'
 
 export default function BarcodeLabelsPage() {
