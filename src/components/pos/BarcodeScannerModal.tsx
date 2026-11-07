@@ -127,39 +127,66 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     }
   }
 
-  // Carrega ZXing fallback dinamicamente se necessário
+  // Carrega ZXing fallback dinamicamente se necessário (com URLs alternativas caso CDN falhe)
   const loadZxingLibrary = async (): Promise<any> => {
     if (window.ZXing?.BrowserMultiFormatReader) {
       return window.ZXing
     }
-    return new Promise((resolve, reject) => {
-      const existing = document.getElementById('zxing-script')
-      if (existing) {
-        let attempts = 0
-        const check = setInterval(() => {
-          attempts++
-          if (window.ZXing?.BrowserMultiFormatReader) {
-            clearInterval(check)
-            resolve(window.ZXing)
-          } else if (attempts > 30) {
-            clearInterval(check)
-            reject(new Error('Tempo esgotado carregando leitor de código'))
-          }
-        }, 100)
-        return
-      }
 
-      const script = document.createElement('script')
-      script.id = 'zxing-script'
-      script.src = 'https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js'
-      script.async = true
-      script.onload = () => {
-        if (window.ZXing) resolve(window.ZXing)
-        else reject(new Error('Biblioteca de código de barras não encontrada'))
+    const cdnUrls = [
+      'https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js',
+      'https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js',
+      'https://cdnjs.cloudflare.com/ajax/libs/zxing/0.21.3/index.min.js',
+    ]
+
+    const tryLoadScript = (src: string): Promise<any> => {
+      return new Promise((resolve, reject) => {
+        if (window.ZXing?.BrowserMultiFormatReader) {
+          resolve(window.ZXing)
+          return
+        }
+
+        const existing = document.querySelector(`script[src="${src}"]`) as HTMLScriptElement | null
+        if (existing) {
+          let attempts = 0
+          const check = setInterval(() => {
+            attempts++
+            if (window.ZXing?.BrowserMultiFormatReader) {
+              clearInterval(check)
+              resolve(window.ZXing)
+            } else if (attempts > 30) {
+              clearInterval(check)
+              reject(new Error('Tempo esgotado aguardando ZXing'))
+            }
+          }, 100)
+          return
+        }
+
+        const script = document.createElement('script')
+        script.src = src
+        script.async = true
+        script.crossOrigin = 'anonymous'
+        script.onload = () => {
+          if (window.ZXing?.BrowserMultiFormatReader) resolve(window.ZXing)
+          else reject(new Error('ZXing carregado sem BrowserMultiFormatReader'))
+        }
+        script.onerror = () => reject(new Error(`Falha ao baixar script ZXing de ${src}`))
+        document.head.appendChild(script)
+      })
+    }
+
+    for (const url of cdnUrls) {
+      try {
+        const lib = await tryLoadScript(url)
+        if (lib) return lib
+      } catch (err) {
+        console.warn(`Tentativa de carregar ZXing via ${url} falhou:`, err)
       }
-      script.onerror = () => reject(new Error('Falha ao carregar biblioteca ZXing'))
-      document.body.appendChild(script)
-    })
+    }
+
+    throw new Error(
+      'Não foi possível carregar a biblioteca de leitura de códigos. Verifique sua conexão à internet.',
+    )
   }
 
   // Inicia a câmera
@@ -186,7 +213,22 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
           },
         }
 
-        const stream = await navigator.mediaDevices.getUserMedia(constraints)
+        // No Safari iOS, constraints ideais estritas podem falhar.
+        // Tentamos primeiro com environment e se falhar tentamos constraints relaxadas.
+        let stream: MediaStream
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(constraints)
+        } catch (strictErr) {
+          console.warn(
+            'Falha com constraints de resolução no getUserMedia, tentando fallback flexível:',
+            strictErr,
+          )
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: { facingMode: 'environment' },
+          })
+        }
+
         if (!isMounted) {
           stream.getTracks().forEach((t) => t.stop())
           return
@@ -197,7 +239,18 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
         if (videoRef.current) {
           videoRef.current.srcObject = stream
-          await videoRef.current.play()
+          // Safari iOS exige atributos e pode disparar play assíncrono
+          videoRef.current.setAttribute('playsinline', 'true')
+          videoRef.current.setAttribute('webkit-playsinline', 'true')
+          videoRef.current.muted = true
+          try {
+            await videoRef.current.play()
+          } catch (playErr) {
+            console.warn(
+              'video.play() retornou aviso (normal em alguns navegadores se já em reprodução):',
+              playErr,
+            )
+          }
         }
 
         // Verifica suporte a Lanterna (Torch)
@@ -300,15 +353,12 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   const initDetector = async (stream: MediaStream) => {
     let nativeAvailable = false
 
+    // Safari iOS não suporta BarcodeDetector por padrão (a menos que flag experimental rara esteja ligada).
+    // Mesmo em navegadores com BarcodeDetector, devemos checar se 'code_128' é suportado.
     if ('BarcodeDetector' in window) {
       try {
         const supported = await (window as any).BarcodeDetector.getSupportedFormats()
-        if (
-          supported &&
-          (supported.includes('code_128') ||
-            supported.includes('ean_13') ||
-            supported.includes('qr_code'))
-        ) {
+        if (supported && Array.isArray(supported) && supported.includes('code_128')) {
           nativeAvailable = true
         }
       } catch (_) {
@@ -318,24 +368,35 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
     if (nativeAvailable) {
       setUsingEngine('native')
-      const detector = new (window as any).BarcodeDetector({
-        formats: ['code_128', 'ean_13', 'ean_8', 'code_39', 'qr_code'],
-      })
-      runNativeLoop(detector)
-    } else {
-      // Fallback para ZXing
-      setUsingEngine('zxing')
       try {
-        const ZXingLib = await loadZxingLibrary()
-        if (ZXingLib?.BrowserMultiFormatReader) {
-          runZxingReader(ZXingLib)
-        } else {
-          runCanvasFallback()
-        }
-      } catch (err) {
-        console.warn('Fallback ZXing falhou, tentando fallback com canvas:', err)
-        runCanvasFallback()
+        const detector = new (window as any).BarcodeDetector({
+          formats: ['code_128', 'ean_13', 'ean_8', 'code_39', 'qr_code'],
+        })
+        runNativeLoop(detector)
+        return
+      } catch (e) {
+        console.warn('Falha ao instanciar BarcodeDetector, recorrendo ao ZXing:', e)
       }
+    }
+
+    // Fallback para ZXing (Safari iOS, Firefox, aparelhos sem BarcodeDetector com code_128)
+    setUsingEngine('zxing')
+    try {
+      const ZXingLib = await loadZxingLibrary()
+      if (ZXingLib?.BrowserMultiFormatReader) {
+        runZxingReader(ZXingLib)
+      } else {
+        setErrorMessage(
+          'Seu navegador (Safari/iOS ou sem suporte nativo) não conseguiu carregar o leitor da câmera. ' +
+            'Você pode usar um leitor de código de barras físico conectado ou digitar o código diretamente.',
+        )
+      }
+    } catch (err: any) {
+      console.warn('Fallback ZXing falhou:', err)
+      setErrorMessage(
+        'Este navegador não suporta leitura de código de barras por câmera (ou não há conexão para carregar o decodificador). ' +
+          'Recomendamos utilizar o leitor físico de código de barras USB/Bluetooth ou digitar o código.',
+      )
     }
   }
 
@@ -516,33 +577,79 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   }
 
   // Leitura com ZXing BrowserMultiFormatReader
+  // Configura hints para priorizar CODE_128 (etiquetas da loja) e outros formatos de joias
   const runZxingReader = (ZXingLib: any) => {
     try {
-      const codeReader = new ZXingLib.BrowserMultiFormatReader()
+      const hints = new Map()
+      const formats: any[] = []
+
+      if (ZXingLib.BarcodeFormat) {
+        if (ZXingLib.BarcodeFormat.CODE_128) formats.push(ZXingLib.BarcodeFormat.CODE_128)
+        if (ZXingLib.BarcodeFormat.EAN_13) formats.push(ZXingLib.BarcodeFormat.EAN_13)
+        if (ZXingLib.BarcodeFormat.EAN_8) formats.push(ZXingLib.BarcodeFormat.EAN_8)
+        if (ZXingLib.BarcodeFormat.CODE_39) formats.push(ZXingLib.BarcodeFormat.CODE_39)
+        if (ZXingLib.BarcodeFormat.QR_CODE) formats.push(ZXingLib.BarcodeFormat.QR_CODE)
+      }
+
+      if (ZXingLib.DecodeHintType) {
+        if (formats.length > 0 && ZXingLib.DecodeHintType.POSSIBLE_FORMATS) {
+          hints.set(ZXingLib.DecodeHintType.POSSIBLE_FORMATS, formats)
+        }
+        if (ZXingLib.DecodeHintType.TRY_HARDER) {
+          hints.set(ZXingLib.DecodeHintType.TRY_HARDER, true)
+        }
+      }
+
+      // timeBetweenScansMillis = 200ms para alta sensibilidade na mira
+      const codeReader = new ZXingLib.BrowserMultiFormatReader(hints.size > 0 ? hints : null, 200)
       zxingReaderRef.current = codeReader
 
-      if (videoRef.current) {
-        codeReader.decodeFromVideoElement(videoRef.current, (result: any) => {
-          if (result && result.getText()) {
-            handleCodeDetected(result.getText())
+      const targetVideo = videoRef.current
+      if (!targetVideo) return
+
+      const onScanCallback = (result: any, err: any) => {
+        if (result && typeof result.getText === 'function') {
+          const text = result.getText()
+          if (text) {
+            handleCodeDetected(text)
           }
-        })
+        }
+      }
+
+      // No ZXing BrowserCodeReader:
+      // - decodeFromVideoElementContinuously(video, callback) é o método contínuo ideal
+      // - decodeFromVideoElement(video, callback) também existe e em versões mais recentes aceita callback contínuo
+      if (typeof codeReader.decodeFromVideoElementContinuously === 'function') {
+        codeReader.decodeFromVideoElementContinuously(targetVideo, onScanCallback)
+      } else if (typeof codeReader.decodeFromVideoElement === 'function') {
+        // Se decodeFromVideoElement retorna Promise (modo de 1 vez), implementamos loop recursivo
+        const scanOnceLoop = async () => {
+          if (!zxingReaderRef.current || !videoRef.current) return
+          try {
+            const res = await codeReader.decodeFromVideoElement(targetVideo)
+            if (res && res.getText()) {
+              handleCodeDetected(res.getText())
+            }
+          } catch (_) {
+            // NotFoundException normal entre frames
+          }
+          if (zxingReaderRef.current) {
+            setTimeout(scanOnceLoop, 150)
+          }
+        }
+        // Se aceita callback (2 argumentos), chama direto
+        if (codeReader.decodeFromVideoElement.length >= 2) {
+          codeReader.decodeFromVideoElement(targetVideo, onScanCallback)
+        } else {
+          scanOnceLoop()
+        }
       }
     } catch (e) {
       console.error('Erro no ZXing reader:', e)
+      setErrorMessage(
+        'Falha ao iniciar o decodificador da câmera. Você pode utilizar o leitor físico ou digitar o código.',
+      )
     }
-  }
-
-  // Fallback em canvas
-  const runCanvasFallback = () => {
-    const scanCanvas = () => {
-      if (!videoRef.current || !canvasRef.current || videoRef.current.readyState < 2) {
-        animFrameRef.current = requestAnimationFrame(scanCanvas)
-        return
-      }
-      animFrameRef.current = requestAnimationFrame(scanCanvas)
-    }
-    animFrameRef.current = requestAnimationFrame(scanCanvas)
   }
 
   if (!isOpen) return null
@@ -632,19 +739,42 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       {/* Área da Câmera com Overlay de Mira */}
       <div className="relative flex-1 flex items-center justify-center overflow-hidden bg-black">
         {errorMessage ? (
-          <div className="p-6 text-center text-white max-w-sm space-y-3">
-            <AlertCircle className="h-12 w-12 text-red-400 mx-auto" />
-            <h3 className="font-semibold text-base text-red-200">Não foi possível usar a câmera</h3>
-            <p className="text-xs text-zinc-300 leading-relaxed">{errorMessage}</p>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => window.location.reload()}
-              className="mt-2 text-xs bg-white/10 border-white/20 text-white hover:bg-white/20"
-            >
-              <RefreshCw className="h-3.5 w-3.5 mr-1" /> Tentar novamente
-            </Button>
+          <div className="p-6 text-center text-white max-w-md space-y-4 bg-zinc-950/90 border border-red-500/30 rounded-2xl mx-4 shadow-2xl">
+            <AlertCircle className="h-12 w-12 text-amber-400 mx-auto" />
+            <div className="space-y-1">
+              <h3 className="font-semibold text-base text-white">Aviso do Leitor da Câmera</h3>
+              <p className="text-xs text-zinc-300 leading-relaxed">{errorMessage}</p>
+            </div>
+
+            <div className="p-3 bg-white/5 border border-white/10 rounded-xl text-left text-xs text-zinc-300 space-y-1.5">
+              <p className="font-medium text-amber-300 flex items-center gap-1.5">
+                <span>💡</span> Alternativa recomendada:
+              </p>
+              <p className="text-[11px] leading-relaxed text-zinc-300">
+                Você pode utilizar um <strong>leitor físico de código de barras</strong> (USB ou
+                Bluetooth) direto no campo de busca do PDV, ou digitar o número do código da joia.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-center gap-2 pt-1">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => window.location.reload()}
+                className="text-xs bg-white/10 border-white/20 text-white hover:bg-white/20"
+              >
+                <RefreshCw className="h-3.5 w-3.5 mr-1" /> Tentar novamente
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={onClose}
+                className="text-xs bg-[#C6A664] hover:bg-[#B39353] text-[#2D2A26] font-semibold"
+              >
+                Voltar ao PDV
+              </Button>
+            </div>
           </div>
         ) : (
           <>
