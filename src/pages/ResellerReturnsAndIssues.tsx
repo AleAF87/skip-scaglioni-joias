@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import {
   RotateCcw,
   AlertTriangle,
@@ -15,6 +15,7 @@ import {
   Clock,
   Sparkles,
   RefreshCw,
+  ScanLine,
 } from 'lucide-react'
 import pb from '@/lib/pocketbase/client'
 import { useAuth } from '@/contexts/AuthContext'
@@ -23,6 +24,7 @@ import { resellerStockService } from '@/services/resellerStockService'
 import { ResellerStockItem, Reseller, ResellerReturn, ResellerIssue } from '@/types'
 import { formatCurrency, formatDateTime } from '@/lib/formatters'
 import { SettlementReceiptModal } from '@/components/SettlementReceiptModal'
+import { BarcodeScannerModal } from '@/components/pos/BarcodeScannerModal'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -70,6 +72,9 @@ export function ResellerReturnsIssuesContent({
   >({})
   const [returnNotes, setReturnNotes] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  // Leitor de código de barras por câmera (mesmo componente do PDV, compatível com iOS/Safari)
+  const [isScannerOpen, setIsScannerOpen] = useState(false)
 
   // Issues list
   const [issues, setIssues] = useState<ResellerIssue[]>([])
@@ -132,8 +137,12 @@ export function ResellerReturnsIssuesContent({
           })
           return updated
         })
-      } catch (err) {
+      } catch (err: any) {
         console.error('Erro ao carregar dados da revendedora:', err)
+        // Sessão expirada: avisa a usuária em vez de falhar em silêncio.
+        if (err?.status === 401 || !pb.authStore.isValid) {
+          toast.error('Sua sessão expirou. Faça login novamente para continuar conferindo.')
+        }
       } finally {
         if (isMounted) {
           if (!silent) {
@@ -412,6 +421,59 @@ export function ResellerReturnsIssuesContent({
       toast.error(err.message || 'Erro ao resolver pendência.')
     }
   }
+
+  // Localiza um item do estoque da revendedora a partir do código lido (câmera ou digitação)
+  const findStockItemByScannedCode = useCallback(
+    (rawCode: string) => {
+      const code = (rawCode || '').trim().toLowerCase()
+      const digits = code.replace(/\D/g, '')
+      if (!code) return undefined
+      return stockItems.find((it) => {
+        const prod: any = it.expand?.product
+        if (!prod) return false
+        const candidates = [prod.code, prod.sku]
+          .filter((v: any) => v !== undefined && v !== null && String(v).trim() !== '')
+          .map((v: any) => String(v).trim().toLowerCase())
+        return candidates.some(
+          (c: string) => c === code || (digits !== '' && c.replace(/\D/g, '') === digits),
+        )
+      })
+    },
+    [stockItems],
+  )
+
+  // Leitura por câmera: incrementa "Qtd Devolvida (Física)" da peça lida.
+  // Retorna false para o leitor tocar o bip de erro e mostrar feedback na tela.
+  const handleScannerScan = useCallback(
+    (barcode: string): boolean => {
+      const item = findStockItemByScannedCode(barcode)
+      if (!item) {
+        toast.error(
+          `Código ${barcode} não encontrado no estoque em poder de ${reseller?.name || 'revendedora'}.`,
+        )
+        return false
+      }
+      const prod: any = item.expand?.product
+      const conf = conferenceMap[item.product] || {
+        returned_qty: 0,
+        pending_qty: 0,
+        pending_reason: 'extraviada' as const,
+        pending_notes: '',
+      }
+      if ((conf.returned_qty || 0) + (conf.pending_qty || 0) >= item.quantity) {
+        toast.error(
+          `Peça ${prod?.code} já está totalmente conferida nesta devolução (saldo ${item.quantity} un).`,
+        )
+        return false
+      }
+      handleItemChange(item.product, 'returned_qty', (conf.returned_qty || 0) + 1)
+      toast.success(
+        `+1 devolvida: ${prod?.code} — ${prod?.description || prod?.nome_produto || 'Joia'}`,
+      )
+      return true
+    },
+    [findStockItemByScannedCode, conferenceMap, reseller?.name],
+  )
 
   // KPIs do topo (coerentes com Financeiro & Lucro da revendedora)
   const pendingIssuesList = useMemo(() => issues.filter((i) => i.status === 'pending'), [issues])
@@ -774,6 +836,18 @@ export function ResellerReturnsIssuesContent({
             </CardHeader>
 
             <CardContent className="p-4 space-y-4">
+              {/* Leitura por câmera (igual ao PDV) */}
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  onClick={() => setIsScannerOpen(true)}
+                  className="bg-[#7A5C2E] hover:bg-[#634923] text-white font-medium text-xs h-9 px-4 flex items-center gap-2 w-full sm:w-auto shadow-xs"
+                >
+                  <ScanLine className="h-4 w-4" />
+                  Ler código de barras (câmera)
+                </Button>
+              </div>
+
               {isLoadingStock ? (
                 <div className="py-12 text-center text-xs text-[#8C8275] flex flex-col items-center gap-2">
                   <RefreshCw className="h-6 w-6 text-[#C6A664] animate-spin" />
@@ -1457,6 +1531,16 @@ export function ResellerReturnsIssuesContent({
             </div>
           )}
         </div>
+      )}
+
+      {/* Leitor de código de barras por câmera (mesmo componente do PDV, camada z-200 via portal) */}
+      {isScannerOpen && (
+        <BarcodeScannerModal
+          isOpen
+          onClose={() => setIsScannerOpen(false)}
+          onScan={handleScannerScan}
+          originTitle={`Devolução — ${reseller?.name || 'Revendedora'}`}
+        />
       )}
 
       {/* Settlement Receipt Modal */}
