@@ -28,10 +28,15 @@ import {
   MapPin,
   ShieldAlert,
   ShieldCheck,
+  Plus,
 } from 'lucide-react'
+import { ResellerDirectCreateModal } from '@/components/resellers/ResellerDirectCreateModal'
+import { useAuth } from '@/contexts/AuthContext'
 import { toast } from 'sonner'
 
 export default function ResellersManagement() {
+  const { isAdmin } = useAuth()
+  const [directCreateModalOpen, setDirectCreateModalOpen] = useState(false)
   const [resellers, setResellers] = useState<Reseller[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -142,6 +147,16 @@ export default function ResellersManagement() {
             anexados.
           </p>
         </div>
+
+        {isAdmin && (
+          <Button
+            onClick={() => setDirectCreateModalOpen(true)}
+            className="bg-[#7A5C2E] hover:bg-[#634923] text-white text-xs gap-1.5 shadow-sm"
+          >
+            <Plus className="h-4 w-4" />
+            Cadastrar Revendedora
+          </Button>
+        )}
       </div>
 
       {/* Filter toolbar */}
@@ -373,6 +388,18 @@ export default function ResellersManagement() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Direct Create Modal */}
+      {isAdmin && (
+        <ResellerDirectCreateModal
+          open={directCreateModalOpen}
+          onOpenChange={setDirectCreateModalOpen}
+          onSuccess={() => {
+            loadResellers()
+            toast.success('Revendedora cadastrada com sucesso e pronta para uso!')
+          }}
+        />
+      )}
 
       {/* Details & Attachments Modal */}
       <Dialog open={detailsModalOpen} onOpenChange={setDetailsModalOpen}>

@@ -71,6 +71,7 @@ import { ImageLightbox } from '@/components/ImageLightbox'
 import { ResellerFinancialContent } from '@/pages/ResellerFinancial'
 import { ResellerReturnsIssuesContent } from '@/pages/ResellerReturnsAndIssues'
 import { BarcodeScannerModal } from '@/components/pos/BarcodeScannerModal'
+import { ResellerDirectCreateModal } from '@/components/resellers/ResellerDirectCreateModal'
 import pb from '@/lib/pocketbase/client'
 import { toast } from 'sonner'
 
@@ -97,6 +98,7 @@ export default function ResellersUnifiedPage() {
   const [isNewDeliveryModalOpen, setIsNewDeliveryModalOpen] = useState(false)
   const [isStockModalOpen, setIsStockModalOpen] = useState(false)
   const [isConferenceModalOpen, setIsConferenceModalOpen] = useState(false)
+  const [isDirectCreateModalOpen, setIsDirectCreateModalOpen] = useState(false)
 
   // Deliveries List
   const [deliveries, setDeliveries] = useState<ResellerDelivery[]>([])
@@ -1117,6 +1119,19 @@ export default function ResellersUnifiedPage() {
                   : 'Acompanhe suas peças recebidas, assine recebimentos pendentes, consulte seu estoque e realize vendas no seu PDV.'}
               </p>
             </div>
+
+            {/* Apenas admin e superadmin podem cadastrar revendedoras diretamente */}
+            {isAdmin && (
+              <div className="flex items-center gap-2 self-start sm:self-center">
+                <Button
+                  onClick={() => setIsDirectCreateModalOpen(true)}
+                  className="bg-[#7A5C2E] hover:bg-[#634923] text-white font-medium text-xs h-9 px-4 shadow-sm flex items-center gap-2"
+                >
+                  <Plus className="h-4 w-4" />
+                  Cadastrar Revendedora
+                </Button>
+              </div>
+            )}
           </div>
 
           {/* Cards de Resumos no topo */}
@@ -2742,6 +2757,28 @@ export default function ResellersUnifiedPage() {
             </div>
           </DialogContent>
         </Dialog>
+      )}
+
+      {/* Modal de Cadastro Direto de Revendedora (Admin e Superadmin) */}
+      {isAdmin && (
+        <ResellerDirectCreateModal
+          open={isDirectCreateModalOpen}
+          onOpenChange={setIsDirectCreateModalOpen}
+          onSuccess={async (newResellerId) => {
+            await loadInitial()
+            toast.success('Revendedora cadastrada com sucesso e pronta para uso!')
+            if (newResellerId) {
+              try {
+                const created = await resellerService.getResellerById(newResellerId)
+                if (created) {
+                  handleOpenResellerProfile(created)
+                }
+              } catch {
+                /* se falhar ao abrir direto, lista já estará atualizada */
+              }
+            }
+          }}
+        />
       )}
     </div>
   )

@@ -19,6 +19,12 @@ export const resellerService = {
     })
   },
 
+  async getResellerById(id: string) {
+    return pb.collection('resellers').getOne<Reseller>(id, {
+      expand: 'user',
+    })
+  },
+
   async getResellerByUserId(userId: string) {
     return pb.collection('resellers').getFirstListItem<Reseller>(`user = '${userId}'`, {
       expand: 'user',
@@ -119,6 +125,35 @@ export const resellerService = {
 
   async updateConsignmentStatus(id: string, status: 'accepted' | 'rejected' | 'in_progress') {
     return pb.collection('consignment_lists').update<ConsignmentList>(id, { status })
+  },
+
+  // Cadastro direto de revendedora pelo Admin/Superadmin (já ativa com conta de usuário criada)
+  async directCreateReseller(data: {
+    name: string
+    email: string
+    password: string
+    commission_rate: number
+    phone?: string
+    document?: string
+    birth_date?: string
+    city?: string
+    state?: string
+    address_street?: string
+    address_number?: string
+    address_complement?: string
+    address_neighborhood?: string
+    address_zip?: string
+    notes?: string
+  }) {
+    return pb.send<{
+      success: boolean
+      message: string
+      user_id: string
+      reseller_id: string
+    }>('/backend/v1/resellers/direct-create', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
   },
 
   // Atomic Closing with stock returns and sales registration
