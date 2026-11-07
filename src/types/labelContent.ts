@@ -26,5 +26,7 @@ export function getProductFullName(p: Product): string {
   const links = p.expand?.['product_category_links(product)'] || []
   const withCategory = links.find((l) => l.expand?.category?.name)
   const categoryName = withCategory?.expand?.category?.name?.trim()
-  return categoryName ? `${categoryName} — ${name}` : name
+  const base = categoryName ? `${categoryName} — ${name}` : name
+  const variacao = (p.variacao || '').trim()
+  return variacao ? `${base} — ${variacao}` : base
 }

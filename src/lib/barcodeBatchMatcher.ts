@@ -156,6 +156,14 @@ export function matchCodesWithProducts(inputCodes: string[], products: Product[]
       p.sku_scaglioni,
     ].filter(Boolean) as string[]
 
+    // Opção A Tecson: se tiver código e variação, inclui combinações número+variação
+    // ex: p.code="8112" e p.variacao="N14" -> indexa "8112 n14", "8112-n14"
+    const pCodeNum = (p.code || p.sku_novo || '').trim()
+    const pVar = (p.variacao || '').trim()
+    if (pCodeNum && pVar) {
+      candidates.push(`${pCodeNum} ${pVar}`)
+    }
+
     for (const c of candidates) {
       const norm = normalizeCodeForComparison(c)
       if (norm) {
@@ -164,7 +172,6 @@ export function matchCodesWithProducts(inputCodes: string[], products: Product[]
       }
 
       // Se for puramente numérico
-      const trimmedDigits = norm.replace(/\D/g, '')
       if (/^\d+$/.test(norm)) {
         const numVal = parseInt(norm, 10)
         if (!isNaN(numVal)) {
@@ -194,18 +201,31 @@ export function matchCodesWithProducts(inputCodes: string[], products: Product[]
       }
     }
 
-    // 3. Se o código da lista tiver formato composto (ex.: "776981 PRATA 19" ou "525176 Prata 26"),
-    // testa se a primeira parte numérica isolada bate com algum produto
+    // 2b. Se o código da lista tiver formato composto número + sufixo/variação
+    // (ex.: "008112 N14" ou "8112 N14"), tenta strippedLeadingZeros do número + resto
+    if (foundProducts.length === 0 && norm.includes(' ')) {
+      const spaceIdx = norm.indexOf(' ')
+      const prefix = norm.slice(0, spaceIdx).trim()
+      const suffix = norm.slice(spaceIdx + 1).trim()
+      if (/^\d+$/.test(prefix)) {
+        const strippedNum = prefix.replace(/^0+/, '') || '0'
+        const strippedCombined = `${strippedNum} ${suffix}`
+        if (codeIndex.has(strippedCombined)) {
+          foundProducts = codeIndex.get(strippedCombined)!
+        }
+      }
+    }
+
+    // 3. Se ainda não encontrou e o código da lista tiver formato composto (ex.: "776981 PRATA 19" ou "008112 N14"),
+    // testa se a primeira parte numérica isolada bate com algum produto (só se não houver variações específicas)
     if (foundProducts.length === 0) {
       const firstToken = norm.split(' ')[0]
-      if (firstToken && /^\d+$/.test(firstToken) && firstToken.length >= 4) {
-        if (codeIndex.has(firstToken)) {
+      if (firstToken && /^\d+$/.test(firstToken)) {
+        const numVal = parseInt(firstToken, 10)
+        if (!isNaN(numVal) && numericCodeIndex.has(numVal)) {
+          foundProducts = numericCodeIndex.get(numVal)!
+        } else if (codeIndex.has(firstToken)) {
           foundProducts = codeIndex.get(firstToken)!
-        } else {
-          const numVal = parseInt(firstToken, 10)
-          if (!isNaN(numVal) && numericCodeIndex.has(numVal)) {
-            foundProducts = numericCodeIndex.get(numVal)!
-          }
         }
       }
     }

@@ -330,7 +330,7 @@ export default function BarcodeLabelsPage() {
                   return (
                     <BarcodeLabelCard
                       key={p.id}
-                      code={p.code}
+                      code={getProductBarcodeValue(p)}
                       name={displayName}
                       price={p.selling_price}
                       subtitle={subtitle}

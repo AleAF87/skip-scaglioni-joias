@@ -67,7 +67,9 @@ function getProductDisplayLabel(prod?: Product | null): string {
       | undefined) ||
     []
   const cat = links.find((l) => l.expand?.category?.name)?.expand?.category?.name?.trim()
-  return cat ? `${cat} — ${name}` : name
+  const base = cat ? `${cat} — ${name}` : name
+  const variacao = (prod.variacao || (prod.expand as any)?.product?.variacao || '').trim()
+  return variacao ? `${base} — ${variacao}` : base
 }
 
 // Todas as URLs de foto do produto (galeria + fallback image_url dos importados)
