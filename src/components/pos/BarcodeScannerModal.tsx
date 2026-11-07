@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Camera,
   Flashlight,
@@ -546,8 +547,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
   if (!isOpen) return null
 
-  return (
-    <div className="fixed inset-0 z-50 bg-black/90 flex flex-col justify-between select-none">
+  return createPortal(
+    <div className="fixed inset-0 z-[200] bg-black/90 flex flex-col justify-between select-none">
       {/* Top Bar com Controles */}
       <div className="bg-black/60 backdrop-blur-md px-4 py-3 flex items-center justify-between z-20 text-white border-b border-white/10">
         <div className="flex items-center gap-2">
@@ -788,7 +789,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 export default BarcodeScannerModal
