@@ -1,19 +1,29 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
+  Keyboard,
   Camera,
+  RefreshCw,
   Flashlight,
   FlashlightOff,
   X,
   Volume2,
   VolumeX,
-  RefreshCw,
   CheckCircle2,
   AlertCircle,
   HelpCircle,
+  ScanLine,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+// Decodificador embutido no bundle (sem CDN): funciona offline e no Safari/iOS.
+import { BrowserMultiFormatReader } from '@zxing/browser'
+import {
+  BarcodeFormat,
+  DecodeHintType,
+  IllegalArgumentException,
+  NotFoundException,
+} from '@zxing/library'
 
 interface BarcodeScannerModalProps {
   isOpen?: boolean
@@ -38,7 +48,6 @@ interface BarcodeScannerModalProps {
 declare global {
   interface Window {
     BarcodeDetector?: any
-    ZXing?: any
   }
 }
 
@@ -53,10 +62,14 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 }) => {
   const currentOriginLabel = originTitle || selectedOriginLabel || 'Estoque Geral'
   const videoRef = useRef<HTMLVideoElement>(null)
-  const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
-  const animFrameRef = useRef<number | null>(null)
-  const zxingReaderRef = useRef<any>(null)
+  const readerRef = useRef<BrowserMultiFormatReader | null>(null)
+  const controlsRef = useRef<{ stop: () => void } | null>(null)
+  const mountedRef = useRef(true)
+  const onScanRef = useRef(onScan)
+  onScanRef.current = onScan
+  const viaCameraRef = useRef(viaCamera)
+  viaCameraRef.current = viaCamera
 
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -69,7 +82,10 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     message: string
   } | null>(null)
   const [scanCount, setScanCount] = useState<number>(0)
-  const [usingEngine, setUsingEngine] = useState<'native' | 'zxing' | 'detecting'>('detecting')
+  // 'detecting': ainda negociando; 'waiting': câmera ativa, decodificador rodando
+  const [engineStatus, setEngineStatus] = useState<'detecting' | 'native' | 'zxing' | 'error'>(
+    'detecting',
+  )
 
   // Timestamp do último processamento de código aceito ou tentativa (cooldown global de 3 segundos)
   const lastProcessedTimeRef = useRef<number>(0)
@@ -86,6 +102,9 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     code: string
     product: any
   } | null>(null)
+
+  // Digitação manual do código dentro do próprio leitor (fallback quando a câmera não lê)
+  const [manualCode, setManualCode] = useState<string>('')
 
   // Toca bip de áudio sintetizado pelo Web Audio API
   const playBeep = (success: boolean = true) => {
@@ -127,281 +146,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     }
   }
 
-  // Carrega ZXing fallback dinamicamente se necessário (com URLs alternativas caso CDN falhe)
-  const loadZxingLibrary = async (): Promise<any> => {
-    if (window.ZXing?.BrowserMultiFormatReader) {
-      return window.ZXing
-    }
-
-    const cdnUrls = [
-      'https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js',
-      'https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js',
-      'https://cdnjs.cloudflare.com/ajax/libs/zxing/0.21.3/index.min.js',
-    ]
-
-    const tryLoadScript = (src: string): Promise<any> => {
-      return new Promise((resolve, reject) => {
-        if (window.ZXing?.BrowserMultiFormatReader) {
-          resolve(window.ZXing)
-          return
-        }
-
-        const existing = document.querySelector(`script[src="${src}"]`) as HTMLScriptElement | null
-        if (existing) {
-          let attempts = 0
-          const check = setInterval(() => {
-            attempts++
-            if (window.ZXing?.BrowserMultiFormatReader) {
-              clearInterval(check)
-              resolve(window.ZXing)
-            } else if (attempts > 30) {
-              clearInterval(check)
-              reject(new Error('Tempo esgotado aguardando ZXing'))
-            }
-          }, 100)
-          return
-        }
-
-        const script = document.createElement('script')
-        script.src = src
-        script.async = true
-        script.crossOrigin = 'anonymous'
-        script.onload = () => {
-          if (window.ZXing?.BrowserMultiFormatReader) resolve(window.ZXing)
-          else reject(new Error('ZXing carregado sem BrowserMultiFormatReader'))
-        }
-        script.onerror = () => reject(new Error(`Falha ao baixar script ZXing de ${src}`))
-        document.head.appendChild(script)
-      })
-    }
-
-    for (const url of cdnUrls) {
-      try {
-        const lib = await tryLoadScript(url)
-        if (lib) return lib
-      } catch (err) {
-        console.warn(`Tentativa de carregar ZXing via ${url} falhou:`, err)
-      }
-    }
-
-    throw new Error(
-      'Não foi possível carregar a biblioteca de leitura de códigos. Verifique sua conexão à internet.',
-    )
-  }
-
-  // Inicia a câmera
-  useEffect(() => {
-    if (!isOpen) {
-      stopCamera()
-      return
-    }
-
-    let isMounted = true
-
-    const startCamera = async () => {
-      setErrorMessage(null)
-      setTorchOn(false)
-      setTorchAvailable(false)
-
-      try {
-        const constraints: MediaStreamConstraints = {
-          audio: false,
-          video: {
-            facingMode: { ideal: 'environment' },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
-        }
-
-        // No Safari iOS, constraints ideais estritas podem falhar.
-        // Tentamos primeiro com environment e se falhar tentamos constraints relaxadas.
-        let stream: MediaStream
-        try {
-          stream = await navigator.mediaDevices.getUserMedia(constraints)
-        } catch (strictErr) {
-          console.warn(
-            'Falha com constraints de resolução no getUserMedia, tentando fallback flexível:',
-            strictErr,
-          )
-          stream = await navigator.mediaDevices.getUserMedia({
-            audio: false,
-            video: { facingMode: 'environment' },
-          })
-        }
-
-        if (!isMounted) {
-          stream.getTracks().forEach((t) => t.stop())
-          return
-        }
-
-        streamRef.current = stream
-        setHasCameraPermission(true)
-
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream
-          // Safari iOS exige atributos e pode disparar play assíncrono
-          videoRef.current.setAttribute('playsinline', 'true')
-          videoRef.current.setAttribute('webkit-playsinline', 'true')
-          videoRef.current.muted = true
-          try {
-            await videoRef.current.play()
-          } catch (playErr) {
-            console.warn(
-              'video.play() retornou aviso (normal em alguns navegadores se já em reprodução):',
-              playErr,
-            )
-          }
-        }
-
-        // Verifica suporte a Lanterna (Torch)
-        const videoTrack = stream.getVideoTracks()[0]
-        if (videoTrack && typeof videoTrack.getCapabilities === 'function') {
-          try {
-            const capabilities: any = videoTrack.getCapabilities()
-            if (capabilities && capabilities.torch) {
-              setTorchAvailable(true)
-            }
-          } catch (e) {
-            console.debug('Capabilities torch check error:', e)
-          }
-        }
-
-        // Inicia detector
-        await initDetector(stream)
-      } catch (err: any) {
-        console.error('Erro ao acessar câmera:', err)
-        if (isMounted) {
-          setHasCameraPermission(false)
-          if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-            setErrorMessage('Permissão para uso da câmera foi negada no navegador.')
-          } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-            setErrorMessage('Nenhuma câmera traseira foi detectada neste aparelho.')
-          } else {
-            setErrorMessage(err.message || 'Não foi possível inicializar a câmera do aparelho.')
-          }
-        }
-      }
-    }
-
-    startCamera()
-
-    return () => {
-      isMounted = false
-      stopCamera()
-    }
-  }, [isOpen])
-
-  // Desliga câmera e animações
-  const stopCamera = () => {
-    if (animFrameRef.current) {
-      cancelAnimationFrame(animFrameRef.current)
-      animFrameRef.current = null
-    }
-    if (zxingReaderRef.current) {
-      try {
-        zxingReaderRef.current.reset()
-      } catch {
-        /* intentionally ignored */
-      }
-      zxingReaderRef.current = null
-    }
-    if (cooldownTimerRef.current) {
-      clearTimeout(cooldownTimerRef.current)
-      cooldownTimerRef.current = null
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => {
-        try {
-          // Desliga lanterna antes de parar track
-          if (track.readyState === 'live') {
-            const caps: any =
-              typeof track.getCapabilities === 'function' ? track.getCapabilities() : {}
-            if (caps && caps.torch) {
-              ;(track as any).applyConstraints({ advanced: [{ torch: false }] }).catch(() => {})
-            }
-          }
-          track.stop()
-        } catch {
-          /* intentionally ignored */
-        }
-      })
-      streamRef.current = null
-    }
-    setTorchOn(false)
-    setTorchAvailable(false)
-  }
-
-  // Alterna lanterna (Torch)
-  const toggleTorch = async () => {
-    if (!streamRef.current) return
-    const track = streamRef.current.getVideoTracks()[0]
-    if (!track) return
-
-    const newState = !torchOn
-    try {
-      await (track as any).applyConstraints({
-        advanced: [{ torch: newState }],
-      })
-      setTorchOn(newState)
-    } catch (e) {
-      console.warn('Falha ao alternar lanterna:', e)
-      setTorchAvailable(false)
-    }
-  }
-
-  // Inicializa o motor de leitura (Nativo BarcodeDetector ou fallback ZXing)
-  const initDetector = async (stream: MediaStream) => {
-    let nativeAvailable = false
-
-    // Safari iOS não suporta BarcodeDetector por padrão (a menos que flag experimental rara esteja ligada).
-    // Mesmo em navegadores com BarcodeDetector, devemos checar se 'code_128' é suportado.
-    if ('BarcodeDetector' in window) {
-      try {
-        const supported = await (window as any).BarcodeDetector.getSupportedFormats()
-        if (supported && Array.isArray(supported) && supported.includes('code_128')) {
-          nativeAvailable = true
-        }
-      } catch (_) {
-        nativeAvailable = false
-      }
-    }
-
-    if (nativeAvailable) {
-      setUsingEngine('native')
-      try {
-        const detector = new (window as any).BarcodeDetector({
-          formats: ['code_128', 'ean_13', 'ean_8', 'code_39', 'qr_code'],
-        })
-        runNativeLoop(detector)
-        return
-      } catch (e) {
-        console.warn('Falha ao instanciar BarcodeDetector, recorrendo ao ZXing:', e)
-      }
-    }
-
-    // Fallback para ZXing (Safari iOS, Firefox, aparelhos sem BarcodeDetector com code_128)
-    setUsingEngine('zxing')
-    try {
-      const ZXingLib = await loadZxingLibrary()
-      if (ZXingLib?.BrowserMultiFormatReader) {
-        runZxingReader(ZXingLib)
-      } else {
-        setErrorMessage(
-          'Seu navegador (Safari/iOS ou sem suporte nativo) não conseguiu carregar o leitor da câmera. ' +
-            'Você pode usar um leitor de código de barras físico conectado ou digitar o código diretamente.',
-        )
-      }
-    } catch (err: any) {
-      console.warn('Fallback ZXing falhou:', err)
-      setErrorMessage(
-        'Este navegador não suporta leitura de código de barras por câmera (ou não há conexão para carregar o decodificador). ' +
-          'Recomendamos utilizar o leitor físico de código de barras USB/Bluetooth ou digitar o código.',
-      )
-    }
-  }
-
   // Processa código lido de forma contínua ("sequencieira") — suporta callbacks síncronos e assíncronos
-  const handleCodeDetected = async (rawCode: string) => {
+  const handleCodeDetected = useCallback(async (rawCode: string) => {
     const code = (rawCode || '').trim()
     if (!code) return
 
@@ -429,7 +175,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     try {
       // Chama o callback do PDV (viaCamera indica que a leitura veio da câmera).
       // Pode devolver Promise (consulta ao banco no modal Nova Entrega) ou valor direto.
-      const scanResult: any = await onScan(code, { viaCamera })
+      const scanResult: any = await onScanRef.current(code, { viaCamera: viaCameraRef.current })
 
       // Caso o produto já esteja listado na venda atual, o callback solicita confirmação do usuário
       if (
@@ -475,6 +221,316 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     } finally {
       // Libera flag de concorrência imediatamente após a execução do callback
       isProcessingRef.current = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Loop de decodificação próprio: captura frames do vídeo via canvas e decodifica com o
+  // ZXing embutido no bundle. Independente de eventos do vídeo — roda enquanto readyState >= 2.
+  const runFrameLoop = useCallback(
+    (reader: BrowserMultiFormatReader) => {
+      let stopped = false
+      const canvas = document.createElement('canvas')
+      const ctx2d = canvas.getContext('2d', { willReadFrequently: true })
+
+      const tick = async () => {
+        if (stopped) return
+
+        const video = videoRef.current
+        if (
+          video &&
+          video.readyState >= 2 &&
+          video.videoWidth > 0 &&
+          ctx2d &&
+          !isProcessingRef.current &&
+          !isPausedRef.current &&
+          Date.now() - lastProcessedTimeRef.current >= 3000
+        ) {
+          try {
+            // Desenha o frame atual do vídeo no canvas e decodifica
+            canvas.width = video.videoWidth
+            canvas.height = video.videoHeight
+            ctx2d.drawImage(video, 0, 0)
+            const result = await (reader as any).decodeFromCanvas(canvas)
+            if (result) {
+              const text =
+                typeof result.getText === 'function' ? result.getText() : (result.text ?? '')
+              if (text) {
+                handleCodeDetected(text)
+              }
+            }
+          } catch (e) {
+            // NotFoundException é normal (nenhum código no frame) — ignora.
+            // IllegalArgumentException indica decoder não inicializado — também ignora silenciosamente.
+            if (
+              !(e instanceof NotFoundException) &&
+              !(e instanceof IllegalArgumentException) &&
+              !(e && (e as any).name === 'NotFoundException')
+            ) {
+              console.debug('Frame de decodificação falhou:', e)
+            }
+          }
+        }
+
+        if (!stopped) {
+          window.setTimeout(tick, 120)
+        }
+      }
+
+      tick()
+      return () => {
+        stopped = true
+      }
+    },
+    [handleCodeDetected],
+  )
+
+  // Inicia a câmera
+  useEffect(() => {
+    if (!isOpen) {
+      stopCamera()
+      return
+    }
+
+    mountedRef.current = true
+    let loopStop: (() => void) | null = null
+    let cancelled = false
+
+    const startCamera = async () => {
+      setErrorMessage(null)
+      setTorchOn(false)
+      setTorchAvailable(false)
+      setEngineStatus('detecting')
+
+      try {
+        // Câmera traseira preferencial; constraints flexíveis para não travar no Safari iOS
+        let stream: MediaStream
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: { facingMode: 'environment' },
+          })
+        } catch (strictErr) {
+          console.warn('Falha com facingMode environment, tentando qualquer câmera:', strictErr)
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: true,
+          })
+        }
+
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop())
+          return
+        }
+
+        streamRef.current = stream
+        setHasCameraPermission(true)
+
+        // Espera o vídeo realmente reproduzir (Safari iOS só decodifica frames após 'playing')
+        const video = videoRef.current
+        if (video) {
+          video.setAttribute('playsinline', 'true')
+          video.setAttribute('webkit-playsinline', 'true')
+          video.muted = true
+          video.srcObject = stream
+
+          try {
+            await video.play()
+          } catch (playErr) {
+            console.warn('video.play() advertiu (pode já estar em reprodução):', playErr)
+          }
+
+          // Aguarda o primeiro frame de vídeo estar disponível
+          await new Promise<void>((resolve) => {
+            if (video.readyState >= 2 && video.videoWidth > 0) {
+              resolve()
+              return
+            }
+            const onReady = () => {
+              video.removeEventListener('playing', onReady)
+              video.removeEventListener('loadeddata', onReady)
+              resolve()
+            }
+            video.addEventListener('playing', onReady)
+            video.addEventListener('loadeddata', onReady)
+            // Timeout de segurança de 6s para não travar a abertura da câmera
+            setTimeout(resolve, 6000)
+          })
+        }
+
+        if (cancelled) {
+          stopCamera()
+          return
+        }
+
+        // Verifica suporte a Lanterna (Torch)
+        const videoTrack = stream.getVideoTracks()[0]
+        if (videoTrack && typeof videoTrack.getCapabilities === 'function') {
+          try {
+            const capabilities: any = videoTrack.getCapabilities()
+            if (capabilities && capabilities.torch) {
+              setTorchAvailable(true)
+            }
+          } catch (e) {
+            console.debug('Capabilities torch check error:', e)
+          }
+        }
+
+        // Motor preferencial: BarcodeDetector nativo (Chrome/Android) quando suportar code_128.
+        let nativeAvailable = false
+        if ('BarcodeDetector' in window) {
+          try {
+            const supported = await (window as any).BarcodeDetector.getSupportedFormats()
+            if (supported && Array.isArray(supported) && supported.includes('code_128')) {
+              nativeAvailable = true
+            }
+          } catch (_) {
+            nativeAvailable = false
+          }
+        }
+
+        if (nativeAvailable) {
+          setEngineStatus('native')
+          try {
+            const detector = new (window as any).BarcodeDetector({
+              formats: ['code_128', 'ean_13', 'ean_8', 'code_39', 'qr_code'],
+            })
+            loopStop = runNativeLoop(detector)
+            return
+          } catch (e) {
+            console.warn('Falha ao instanciar BarcodeDetector, recorrendo ao ZXing:', e)
+          }
+        }
+
+        // Fallback: ZXing embutido no bundle (Safari/iOS, Firefox etc.) — sem CDN
+        setEngineStatus('zxing')
+        const reader = new BrowserMultiFormatReader(hints())
+        readerRef.current = reader
+        loopStop = runFrameLoop(reader)
+      } catch (err: any) {
+        console.error('Erro ao acessar câmera:', err)
+        if (!cancelled) {
+          setHasCameraPermission(false)
+          setEngineStatus('error')
+          if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+            setErrorMessage('Permissão para uso da câmera foi negada no navegador.')
+          } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+            setErrorMessage('Nenhuma câmera foi detectada neste aparelho.')
+          } else {
+            setErrorMessage(err.message || 'Não foi possível inicializar a câmera do aparelho.')
+          }
+        }
+      }
+    }
+
+    startCamera()
+
+    return () => {
+      cancelled = true
+      mountedRef.current = false
+      if (loopStop) loopStop()
+      stopCamera()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen])
+
+  // Desliga câmera e loop
+  const stopCamera = () => {
+    if (controlsRef.current) {
+      try {
+        controlsRef.current.stop()
+      } catch {
+        /* intentionally ignored */
+      }
+      controlsRef.current = null
+    }
+    if (cooldownTimerRef.current) {
+      clearTimeout(cooldownTimerRef.current)
+      cooldownTimerRef.current = null
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => {
+        try {
+          // Desliga lanterna antes de parar track
+          if (track.readyState === 'live') {
+            const caps: any =
+              typeof track.getCapabilities === 'function' ? track.getCapabilities() : {}
+            if (caps && caps.torch) {
+              ;(track as any).applyConstraints({ advanced: [{ torch: false }] }).catch(() => {})
+            }
+          }
+          track.stop()
+        } catch {
+          /* intentionally ignored */
+        }
+      })
+      streamRef.current = null
+    }
+    setTorchOn(false)
+    setTorchAvailable(false)
+  }
+
+  // Loop Nativo de leitura via BarcodeDetector (Chrome/Android)
+  const runNativeLoop = (detector: any) => {
+    let stopped = false
+
+    const scanFrame = async () => {
+      if (stopped) return
+
+      const video = videoRef.current
+      if (!video || video.readyState < 2) {
+        window.setTimeout(scanFrame, 120)
+        return
+      }
+
+      // Se estiver em cooldown ou pausado, não consome CPU chamando detector.detect desnecessariamente
+      if (
+        isProcessingRef.current ||
+        isPausedRef.current ||
+        Date.now() - lastProcessedTimeRef.current < 3000
+      ) {
+        window.setTimeout(scanFrame, 120)
+        return
+      }
+
+      try {
+        const barcodes = await detector.detect(video)
+        if (barcodes && barcodes.length > 0) {
+          const first = barcodes[0]
+          if (first?.rawValue) {
+            handleCodeDetected(first.rawValue)
+          }
+        }
+      } catch (_) {
+        // Quadro com ruído ou fora de foco
+      }
+
+      if (!stopped) {
+        window.setTimeout(scanFrame, 120)
+      }
+    }
+
+    scanFrame()
+    return () => {
+      stopped = true
+    }
+  }
+
+  // Alterna lanterna (Torch)
+  const toggleTorch = async () => {
+    if (!streamRef.current) return
+    const track = streamRef.current.getVideoTracks()[0]
+    if (!track) return
+
+    const newState = !torchOn
+    try {
+      await (track as any).applyConstraints({
+        advanced: [{ torch: newState }],
+      })
+      setTorchOn(newState)
+    } catch (e) {
+      console.warn('Falha ao alternar lanterna:', e)
+      setTorchAvailable(false)
     }
   }
 
@@ -537,119 +593,38 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     }, 2500)
   }
 
-  // Loop Nativo de leitura via BarcodeDetector
-  const runNativeLoop = (detector: any) => {
-    let active = true
+  // Digitação manual: envia o código pelo mesmo fluxo da câmera
+  const handleManualSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const code = manualCode.trim()
+    if (!code || isProcessingRef.current || isPausedRef.current) return
+    setManualCode('')
+    lastProcessedTimeRef.current = Date.now()
+    setInCooldown(true)
+    if (cooldownTimerRef.current) clearTimeout(cooldownTimerRef.current)
+    cooldownTimerRef.current = setTimeout(() => {
+      setInCooldown(false)
+    }, 3000)
 
-    const scanFrame = async () => {
-      if (!active || !videoRef.current || videoRef.current.readyState < 2) {
-        animFrameRef.current = requestAnimationFrame(scanFrame)
-        return
-      }
-
-      // Se estiver em cooldown ou pausado, não consome CPU chamando detector.detect desnecessariamente
-      const now = Date.now()
-      if (
-        isProcessingRef.current ||
-        isPausedRef.current ||
-        now - lastProcessedTimeRef.current < 3000
-      ) {
-        animFrameRef.current = requestAnimationFrame(scanFrame)
-        return
-      }
-
-      try {
-        const barcodes = await detector.detect(videoRef.current)
-        if (barcodes && barcodes.length > 0) {
-          const first = barcodes[0]
-          if (first?.rawValue) {
-            handleCodeDetected(first.rawValue)
-          }
-        }
-      } catch (_) {
-        // Quadro com ruído ou fora de foco
-      }
-
-      animFrameRef.current = requestAnimationFrame(scanFrame)
+    const result: any = await onScan(code, { viaCamera })
+    const isSuccess = result !== false
+    if (isSuccess) {
+      setScanCount((c) => c + 1)
+      playBeep(true)
+      triggerHaptic(true)
+      setScannedFeedback({ code, success: true, message: `Lido com sucesso: ${code}` })
+    } else {
+      playBeep(false)
+      triggerHaptic(false)
+      setScannedFeedback({
+        code,
+        success: false,
+        message: `Código ${code}: não adicionado (verifique aviso na tela)`,
+      })
     }
-
-    animFrameRef.current = requestAnimationFrame(scanFrame)
-  }
-
-  // Leitura com ZXing BrowserMultiFormatReader
-  // Configura hints para priorizar CODE_128 (etiquetas da loja) e outros formatos de joias
-  const runZxingReader = (ZXingLib: any) => {
-    try {
-      const hints = new Map()
-      const formats: any[] = []
-
-      if (ZXingLib.BarcodeFormat) {
-        if (ZXingLib.BarcodeFormat.CODE_128) formats.push(ZXingLib.BarcodeFormat.CODE_128)
-        if (ZXingLib.BarcodeFormat.EAN_13) formats.push(ZXingLib.BarcodeFormat.EAN_13)
-        if (ZXingLib.BarcodeFormat.EAN_8) formats.push(ZXingLib.BarcodeFormat.EAN_8)
-        if (ZXingLib.BarcodeFormat.CODE_39) formats.push(ZXingLib.BarcodeFormat.CODE_39)
-        if (ZXingLib.BarcodeFormat.QR_CODE) formats.push(ZXingLib.BarcodeFormat.QR_CODE)
-      }
-
-      if (ZXingLib.DecodeHintType) {
-        if (formats.length > 0 && ZXingLib.DecodeHintType.POSSIBLE_FORMATS) {
-          hints.set(ZXingLib.DecodeHintType.POSSIBLE_FORMATS, formats)
-        }
-        if (ZXingLib.DecodeHintType.TRY_HARDER) {
-          hints.set(ZXingLib.DecodeHintType.TRY_HARDER, true)
-        }
-      }
-
-      // timeBetweenScansMillis = 200ms para alta sensibilidade na mira
-      const codeReader = new ZXingLib.BrowserMultiFormatReader(hints.size > 0 ? hints : null, 200)
-      zxingReaderRef.current = codeReader
-
-      const targetVideo = videoRef.current
-      if (!targetVideo) return
-
-      const onScanCallback = (result: any, err: any) => {
-        if (result && typeof result.getText === 'function') {
-          const text = result.getText()
-          if (text) {
-            handleCodeDetected(text)
-          }
-        }
-      }
-
-      // No ZXing BrowserCodeReader:
-      // - decodeFromVideoElementContinuously(video, callback) é o método contínuo ideal
-      // - decodeFromVideoElement(video, callback) também existe e em versões mais recentes aceita callback contínuo
-      if (typeof codeReader.decodeFromVideoElementContinuously === 'function') {
-        codeReader.decodeFromVideoElementContinuously(targetVideo, onScanCallback)
-      } else if (typeof codeReader.decodeFromVideoElement === 'function') {
-        // Se decodeFromVideoElement retorna Promise (modo de 1 vez), implementamos loop recursivo
-        const scanOnceLoop = async () => {
-          if (!zxingReaderRef.current || !videoRef.current) return
-          try {
-            const res = await codeReader.decodeFromVideoElement(targetVideo)
-            if (res && res.getText()) {
-              handleCodeDetected(res.getText())
-            }
-          } catch (_) {
-            // NotFoundException normal entre frames
-          }
-          if (zxingReaderRef.current) {
-            setTimeout(scanOnceLoop, 150)
-          }
-        }
-        // Se aceita callback (2 argumentos), chama direto
-        if (codeReader.decodeFromVideoElement.length >= 2) {
-          codeReader.decodeFromVideoElement(targetVideo, onScanCallback)
-        } else {
-          scanOnceLoop()
-        }
-      }
-    } catch (e) {
-      console.error('Erro no ZXing reader:', e)
-      setErrorMessage(
-        'Falha ao iniciar o decodificador da câmera. Você pode utilizar o leitor físico ou digitar o código.',
-      )
-    }
+    setTimeout(() => {
+      setScannedFeedback((prev) => (prev?.code === code ? null : prev))
+    }, 2500)
   }
 
   if (!isOpen) return null
@@ -716,7 +691,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             className="h-9 w-9 p-0 rounded-full border bg-white/10 text-white border-white/20 hover:bg-white/20"
           >
             {soundEnabled ? (
-              <Volume2 className="h-4 w-4" />
+              <Volume2 className="h-4 w-4 text-white" />
             ) : (
               <VolumeX className="h-4 w-4 text-zinc-400" />
             )}
@@ -752,9 +727,29 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
               </p>
               <p className="text-[11px] leading-relaxed text-zinc-300">
                 Você pode utilizar um <strong>leitor físico de código de barras</strong> (USB ou
-                Bluetooth) direto no campo de busca do PDV, ou digitar o número do código da joia.
+                Bluetooth) direto no campo de busca do PDV, ou digitar o número do código da joia no
+                campo abaixo.
               </p>
             </div>
+
+            {/* Digitação manual também no estado de erro */}
+            <form onSubmit={handleManualSubmit} className="flex items-center gap-2">
+              <input
+                type="text"
+                inputMode="numeric"
+                value={manualCode}
+                onChange={(e) => setManualCode(e.target.value)}
+                placeholder="Digite o código da joia"
+                className="flex-1 h-10 px-3 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-[#C6A664]"
+              />
+              <Button
+                type="submit"
+                size="sm"
+                className="h-10 bg-[#C6A664] hover:bg-[#B39353] text-[#2D2A26] font-semibold"
+              >
+                Incluir
+              </Button>
+            </form>
 
             <div className="flex items-center justify-center gap-2 pt-1">
               <Button
@@ -764,7 +759,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                 onClick={() => window.location.reload()}
                 className="text-xs bg-white/10 border-white/20 text-white hover:bg-white/20"
               >
-                <RefreshCw className="h-3.5 w-3.5 mr-1" /> Tentar novamente
+                <RefreshCw />
+                Tentar novamente
               </Button>
               <Button
                 type="button"
@@ -772,7 +768,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                 onClick={onClose}
                 className="text-xs bg-[#C6A664] hover:bg-[#B39353] text-[#2D2A26] font-semibold"
               >
-                Voltar ao PDV
+                Voltar
               </Button>
             </div>
           </div>
@@ -781,11 +777,11 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             <video
               ref={videoRef}
               playsInline
+              webkit-playsinline="true"
               muted
               autoPlay
               className="absolute inset-0 w-full h-full object-cover"
             />
-            <canvas ref={canvasRef} className="hidden" />
 
             {/* Escurecimento fora da mira */}
             <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center">
@@ -886,29 +882,63 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         )}
       </div>
 
-      {/* Bottom Bar: Modo Sequencial, Contador e Botão Concluir */}
+      {/* Bottom Bar: status do motor, contador, digitação manual e botão Concluir */}
       <div className="bg-black/70 backdrop-blur-md px-4 py-3 z-20 border-t border-white/10 text-white space-y-2">
-        <div className="flex items-center justify-between text-xs">
-          <div className="flex items-center gap-2">
-            <span
-              className={`h-2 w-2 rounded-full ${inCooldown ? 'bg-amber-400' : 'bg-emerald-400 animate-ping'}`}
-            />
-            <span className="text-zinc-300">
-              Câmera aberta contínua • <strong className="text-emerald-400">{scanCount}</strong>{' '}
+        {/* Status visível: câmera ativa, procurando código… */}
+        <div className="flex items-center gap-2 text-xs">
+          <span
+            className={`h-2 w-2 rounded-full ${
+              engineStatus === 'error'
+                ? 'bg-red-500'
+                : inCooldown
+                  ? 'bg-amber-400'
+                  : 'bg-emerald-400 animate-ping'
+            }`}
+          />
+          <span className="text-zinc-300">
+            {engineStatus === 'detecting' && 'Iniciando câmera…'}
+            {engineStatus === 'native' && 'Câmera ativa, procurando código…'}
+            {engineStatus === 'zxing' && 'Câmera ativa, procurando código…'}
+            {engineStatus === 'error' && 'Câmera indisponível — use a digitação manual abaixo'}
+          </span>
+          {engineStatus !== 'error' && (
+            <span className="text-zinc-500">
+              • <strong className="text-emerald-400">{scanCount}</strong>{' '}
               {scanCount === 1 ? 'leitura' : 'leituras'}
-            </span>
-          </div>
-
-          {!torchAvailable && (
-            <span className="text-[10px] text-zinc-400 flex items-center gap-1">
-              <FlashlightOff className="h-3 w-3" /> Flash indisponível
             </span>
           )}
         </div>
 
+        {/* Digitação manual — sempre visível, mesmo com câmera funcionando */}
+        <form onSubmit={handleManualSubmit} className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Keyboard className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
+            <input
+              type="text"
+              inputMode="numeric"
+              enterKeyHint="send"
+              value={manualCode}
+              onChange={(e) => setManualCode(e.target.value)}
+              placeholder="Não leu? Digite o código da joia"
+              className="w-full h-11 pl-9 pr-3 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-[#C6A664]"
+            />
+          </div>
+          <Button
+            type="submit"
+            disabled={!manualCode.trim()}
+            className="h-11 px-4 rounded-xl bg-[#C6A664] hover:bg-[#B39353] text-[#2D2A26] font-semibold shrink-0"
+          >
+            <ScanLine className="h-4 w-4 mr-1" />
+            Incluir
+          </Button>
+        </form>
+
         <div className="flex items-center gap-3">
-          <div className="flex-1 text-[11px] text-zinc-400">
-            A cada código lido o produto entra na lista. Peças repetidas criam uma nova linha.
+          <div className="flex-1 text-[11px] text-zinc-400 flex items-center gap-1.5">
+            <ScanLine className="h-3.5 w-3.5 shrink-0" />
+            <span>
+              A cada código lido o produto entra na lista. Peças repetidas criam uma nova linha.
+            </span>
           </div>
           <Button
             type="button"
@@ -923,4 +953,19 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     document.body,
   )
 }
+
+// Hints do ZXing: prioriza Code 128 (etiquetas do sistema) e formatos de joalheria
+function hints(): Map<DecodeHintType, any> {
+  const map = new Map<DecodeHintType, any>()
+  map.set(DecodeHintType.POSSIBLE_FORMATS, [
+    BarcodeFormat.CODE_128,
+    BarcodeFormat.EAN_13,
+    BarcodeFormat.EAN_8,
+    BarcodeFormat.CODE_39,
+    BarcodeFormat.QR_CODE,
+  ])
+  map.set(DecodeHintType.TRY_HARDER, true)
+  return map
+}
+
 export default BarcodeScannerModal
