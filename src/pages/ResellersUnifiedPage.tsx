@@ -74,6 +74,7 @@ import { ResellerReturnsIssuesContent } from '@/pages/ResellerReturnsAndIssues'
 import { BarcodeScannerModal } from '@/components/pos/BarcodeScannerModal'
 import { ResellerDirectCreateModal } from '@/components/resellers/ResellerDirectCreateModal'
 import pb from '@/lib/pocketbase/client'
+import { getBackendErrorMessage } from '@/lib/backendErrors'
 import { toast } from 'sonner'
 
 export default function ResellersUnifiedPage() {
@@ -1169,7 +1170,7 @@ export default function ResellersUnifiedPage() {
       setIsSettlementReceiptOpen(true)
     } catch (err: any) {
       console.error('Erro na devolução:', err)
-      toast.error(err.message || 'Falha ao processar devolução.')
+      toast.error(getBackendErrorMessage(err), { duration: 8000 })
     } finally {
       setIsSubmittingReturn(false)
     }
