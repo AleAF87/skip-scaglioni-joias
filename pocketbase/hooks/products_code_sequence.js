@@ -110,8 +110,19 @@ onRecordCreateRequest((e) => {
     const incomingSkuNovo = (record.getString('sku_novo') || '').trim()
     const incomingCode = (record.getString('code') || '').trim()
 
-    // Se já veio com código numérico puro, mantém
+    // Se já veio com código numérico puro (seja no code ou sku_novo), mantém sem gerar novo sequencial
     const isPureNumeric = (s) => /^\d+$/.test(s)
+
+    if (incomingCode && isPureNumeric(incomingCode)) {
+      if (!incomingSkuNovo) {
+        record.set('sku_novo', incomingCode)
+      }
+      if (!record.getString('codigo_barras')) {
+        const varSuffix = (record.getString('variacao') || '').trim()
+        record.set('codigo_barras', varSuffix ? incomingCode + ' ' + varSuffix : incomingCode)
+      }
+      return e.next()
+    }
 
     if (incomingSkuNovo && isPureNumeric(incomingSkuNovo)) {
       // Já possui numérico no sku_novo
@@ -119,7 +130,8 @@ onRecordCreateRequest((e) => {
         record.set('code', incomingSkuNovo)
       }
       if (!record.getString('codigo_barras')) {
-        record.set('codigo_barras', incomingSkuNovo)
+        const varSuffix = (record.getString('variacao') || '').trim()
+        record.set('codigo_barras', varSuffix ? incomingSkuNovo + ' ' + varSuffix : incomingSkuNovo)
       }
       return e.next()
     }

@@ -192,25 +192,46 @@ routerAdd(
             : ''
           const nomeProduto = (item.nome_produto || nomeOriginal).trim()
 
-          // Remove zeros à esquerda se for numérico
-          const stripZeros = (s) => {
-            if (!s) return ''
-            const t = String(s).trim()
-            if (!/^\d+$/.test(t)) return t
-            const stripped = t.replace(/^0+/, '')
-            return stripped === '' ? '0' : stripped
-          }
-          const cleanCodBarrasTecson = stripZeros(codBarrasTecson)
+          // Opção A Tecson: separação estrita de número e variação
+          // O código do produto no sistema é SÓ O NÚMERO sem zeros à esquerda (ex.: '008112 N14' -> code '8112', variacao 'N14').
+          // Tolerante a espaços múltiplos, tabs e capitalização.
+          const parseTecsonCodeAndVariation = (raw) => {
+            if (!raw) return { code: '', variacao: '', fullBarcode: '' }
+            const normalized = String(raw).trim().replace(/\s+/g, ' ')
+            const firstSpace = normalized.indexOf(' ')
+            let numPart = normalized
+            let varPart = ''
 
-          // Validação estrita: codigo_barras é OBRIGATÓRIO (valores de 611 a 999984)
-          if (!codBarrasTecson) {
+            if (firstSpace !== -1) {
+              numPart = normalized.slice(0, firstSpace).trim()
+              varPart = normalized.slice(firstSpace + 1).trim()
+            }
+
+            const cleanCode = numPart.replace(/^0+/, '') || (numPart ? '0' : '')
+            const fullBarcode = varPart ? cleanCode + ' ' + varPart : cleanCode
+
+            return {
+              code: cleanCode,
+              variacao: varPart,
+              fullBarcode: fullBarcode,
+            }
+          }
+
+          const parsedCodeInfo = parseTecsonCodeAndVariation(codBarrasTecson)
+          const productCode = parsedCodeInfo.code
+          const productVariacao = parsedCodeInfo.variacao
+          const fullBarcodeValue = parsedCodeInfo.fullBarcode
+
+          // Validação estrita: codigo_barras é OBRIGATÓRIO
+          if (!codBarrasTecson || !productCode) {
             ignoredCount++
             lineReports.push({
               index: i,
               status: 'error',
               code: '—',
               name: nomeProduto || idTecson || 'Sem identificação',
-              reason: 'Código obrigatório ausente: a coluna codigo_barras está vazia nesta linha.',
+              reason:
+                'Código obrigatório ausente: a coluna codigo_barras está vazia ou sem parte numérica válida.',
             })
             continue
           }
@@ -239,27 +260,24 @@ routerAdd(
 
           try {
             let existing = null
-            if (idTecson) {
+            // Na Opção A Tecson, cada combinação de código + variação é um produto distinto.
+            // 1. Busca primeiro por combinação exata de code + variacao
+            if (productCode) {
+              try {
+                const escapedCode = productCode.replace(/'/g, "\\'")
+                const escapedVar = productVariacao.replace(/'/g, "\\'")
+                const filter = "code = '" + escapedCode + "' && variacao = '" + escapedVar + "'"
+                const matches = txApp.findRecordsByFilter('products', filter, '', 1, 0)
+                if (matches && matches.length > 0) {
+                  existing = matches[0]
+                }
+              } catch (_) {}
+            }
+
+            // 2. Se não encontrou por code+variacao, busca por id_tecson
+            if (!existing && idTecson) {
               try {
                 existing = txApp.findFirstRecordByData('products', 'id_tecson', idTecson)
-              } catch (_) {}
-            }
-            if (!existing && cleanCodBarrasTecson) {
-              try {
-                existing = txApp.findFirstRecordByData(
-                  'products',
-                  'codigo_barras_tecson',
-                  cleanCodBarrasTecson,
-                )
-              } catch (_) {}
-            }
-            if (!existing && codBarrasTecson && codBarrasTecson !== cleanCodBarrasTecson) {
-              try {
-                existing = txApp.findFirstRecordByData(
-                  'products',
-                  'codigo_barras_tecson',
-                  codBarrasTecson,
-                )
               } catch (_) {}
             }
 
@@ -283,12 +301,12 @@ routerAdd(
 
               if (!isDryRun) {
                 existing.set('id_tecson', idTecson)
-                existing.set('codigo_barras_tecson', cleanCodBarrasTecson)
-                existing.set('code', cleanCodBarrasTecson)
-                existing.set('codigo_barras', cleanCodBarrasTecson)
-                if (existing.getString('sku_interno')) {
-                  existing.set('sku_interno', stripZeros(existing.getString('sku_interno')))
-                }
+                existing.set('code', productCode)
+                existing.set('variacao', productVariacao)
+                existing.set('codigo_barras', fullBarcodeValue)
+                existing.set('codigo_barras_tecson', fullBarcodeValue)
+                existing.set('sku_interno', productCode)
+                existing.set('sku_novo', productCode)
                 existing.set(
                   'nome_original_tecson',
                   nomeOriginal || existing.getString('nome_original_tecson'),
@@ -383,14 +401,16 @@ routerAdd(
 
                 const newProd = new Record(productsCol)
                 newProd.set('produto_id', produtoId)
-                // sku_interno recebe o próprio código de barras Tecson para rastreabilidade coerente sem zeros à esquerda
-                newProd.set('sku_interno', cleanCodBarrasTecson)
-                newProd.set('nome_produto', nomeProduto)
-                newProd.set('description', nomeProduto || cleanCodBarrasTecson || 'Produto Tecson')
-                newProd.set('code', cleanCodBarrasTecson)
-                newProd.set('codigo_barras', cleanCodBarrasTecson)
+                // Opção A: code é só o número sem zeros; variacao é o sufixo; codigo_barras é a combinação completa
+                newProd.set('code', productCode)
+                newProd.set('variacao', productVariacao)
+                newProd.set('sku_novo', productCode)
+                newProd.set('sku_interno', productCode)
+                newProd.set('codigo_barras', fullBarcodeValue)
+                newProd.set('codigo_barras_tecson', fullBarcodeValue)
                 newProd.set('id_tecson', idTecson)
-                newProd.set('codigo_barras_tecson', cleanCodBarrasTecson)
+                newProd.set('nome_produto', nomeProduto)
+                newProd.set('description', nomeProduto || fullBarcodeValue || 'Produto Tecson')
                 newProd.set('nome_original_tecson', nomeOriginal)
                 newProd.set('data_inclusao_tecson', dataInclusao)
                 newProd.set('fornecedor', fornecedor)
@@ -403,6 +423,7 @@ routerAdd(
                     ? saldoInicialQty
                     : 0,
                 )
+                newProd.set('qtde_inicial', saldoInicialQty)
                 newProd.set(
                   'minimum_quantity',
                   saldoInicialQty > 0 ? Math.max(1, Math.round(saldoInicialQty * 0.3)) : 1,

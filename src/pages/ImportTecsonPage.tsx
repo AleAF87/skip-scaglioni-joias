@@ -237,17 +237,13 @@ export function ImportTecsonPage() {
           }
         })
 
-        const stripZeros = (s: string) => {
-          const t = (s || '').trim()
-          if (!/^\d+$/.test(t)) return t
-          const stripped = t.replace(/^0+/, '')
-          return stripped === '' ? '0' : stripped
-        }
+        // Opção A Tecson: preservar o valor bruto de codigo_barras_tecson (ex.: '008112 N14' ou '8112')
+        // O backend cuidará de separar número (sem zeros) e sufixo de variação.
         const idTecson = mapped['id_tecson'] ? String(mapped['id_tecson']).trim() : ''
         const rawCodBarras = mapped['codigo_barras_tecson']
           ? String(mapped['codigo_barras_tecson']).trim()
           : ''
-        const codBarras = stripZeros(rawCodBarras)
+        const codBarras = rawCodBarras
         const nomeOriginal = mapped['nome_produto'] ? String(mapped['nome_produto']).trim() : ''
         const nomeTrim = nomeOriginal
 

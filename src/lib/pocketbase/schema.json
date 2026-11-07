@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-07T17:45:35.618Z",
+  "generatedAt": "2026-11-07T18:34:01.707Z",
   "collections": [
     {
       "name": "users",
@@ -846,14 +846,22 @@
           "type": "number",
           "required": false,
           "system": false
+        },
+        {
+          "name": "variacao",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
-        "CREATE UNIQUE INDEX idx_products_code ON products (code)",
         "CREATE INDEX idx_products_type ON products (type)",
         "CREATE INDEX idx_products_material ON products (material)",
         "CREATE INDEX idx_products_status ON products (status)",
-        "CREATE INDEX idx_products_quantity ON products (quantity)"
+        "CREATE INDEX idx_products_quantity ON products (quantity)",
+        "CREATE UNIQUE INDEX idx_products_code_variacao ON products (code, variacao)",
+        "CREATE INDEX idx_products_code_search ON products (code)",
+        "CREATE INDEX idx_products_variacao ON products (variacao)"
       ]
     },
     {

@@ -848,4 +848,29 @@ export const productService = {
       return new Set<number>()
     }
   },
+
+  async resolveBarcode(query: string) {
+    return pb.send<{
+      matched: boolean
+      ambiguous?: boolean
+      resolution?: string
+      reason?: string
+      message?: string
+      code?: string
+      variations?: Array<{
+        id: string
+        code: string
+        variacao: string
+        description: string
+        selling_price: number
+        quantity: number
+        codigo_barras?: string
+      }>
+      product?: Product
+      product_count?: number
+    }>('/backend/v1/products/resolve-barcode', {
+      method: 'POST',
+      body: JSON.stringify({ query }),
+    })
+  },
 }

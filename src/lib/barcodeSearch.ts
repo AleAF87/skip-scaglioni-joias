@@ -54,6 +54,12 @@ export function formatCodeForLabelDisplay(code?: string | null): string {
  * - Se for Tecson, mantém o código de barras tecson original intacto (codigo_barras_tecson || codigo_barras || code)
  */
 export function getProductBarcodeValue(p: Partial<Product>): string {
+  // Opção A Tecson: se tiver código numérico e variação, o código de barras completo codifica "número + espaço + variação"
+  const codeNum = stripLeadingZeros(p.code || p.sku_novo || '')
+  const variacao = (p.variacao || '').trim()
+  if (codeNum && variacao) {
+    return `${codeNum} ${variacao}`
+  }
   const rawCode = (p.codigo_barras || p.codigo_barras_tecson || p.sku_novo || p.code || '').trim()
   return stripLeadingZeros(rawCode)
 }
@@ -141,6 +147,14 @@ export function isExactCodeMatch(p: Partial<Product>, query: string): boolean {
     codes.idTecson,
     codes.idScaglioni,
   ]
+
+  // Opção A: se o produto tiver código e variação, testar combinação completa "code variacao"
+  const pCode = stripLeadingZeros(p.code || '')
+  const pVar = (p.variacao || '').trim()
+  if (pCode && pVar) {
+    const fullCombined = normalizeSkuForSearch(`${pCode} ${pVar}`)
+    if (fullCombined === normQ) return true
+  }
 
   for (const f of textFields) {
     if (f && normalizeSkuForSearch(f) === normQ) {
