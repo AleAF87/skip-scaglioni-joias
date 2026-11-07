@@ -5,7 +5,11 @@ import { useAuth } from '@/contexts/AuthContext'
 import { usePdvGuard } from '@/contexts/PdvGuardContext'
 import { useNavigate } from 'react-router-dom'
 import { Product, Customer, Sale, SaleItem } from '@/types'
-import { getProductFullName } from '@/types/labelContent'
+import {
+  getProductFullName,
+  getProductVariationBadge,
+  formatVariationAttributeLabel,
+} from '@/types/labelContent'
 import {
   fetchResellerStockDetailsMap,
   getProductStockBreakdown,
@@ -656,9 +660,15 @@ export default function PosSale() {
         resolved.variations &&
         resolved.variations.length > 0
       ) {
+        const readableVariations = resolved.variations
+          .map((v) => {
+            const rawAttrs = (v as any).attributes
+            const attrLabel = rawAttrs ? formatVariationAttributeLabel(rawAttrs) : ''
+            return attrLabel || v.variacao || '(sem variação)'
+          })
+          .join(', ')
         toast.info(
-          resolved.message ||
-            `O código "${raw}" possui variações (${resolved.variations.map((v) => v.variacao).join(', ')}). Especifique a variação ou selecione na lista.`,
+          `O código "${raw}" possui variações (${readableVariations}). Especifique a variação ou selecione na lista.`,
         )
         return false
       }
@@ -822,16 +832,14 @@ export default function PosSale() {
         if (resolved && resolved.matched && resolved.product) {
           const resolvedProd =
             products.find((p) => p.id === resolved.product!.id) || (resolved.product as Product)
+          const varBadge = getProductVariationBadge(resolvedProd)
+          const varSuffix = varBadge ? ' ' + varBadge : ''
           if (getProductAvailableStock(resolvedProd) > 0) {
             addToCart(resolvedProd)
-            toast.success(
-              `Joia adicionada: ${resolvedProd.code}${resolvedProd.variacao ? ' ' + resolvedProd.variacao : ''}`,
-            )
+            toast.success(`Joia adicionada: ${resolvedProd.code}${varSuffix}`)
             return
           } else {
-            toast.error(
-              `Produto sem estoque disponível: ${resolvedProd.code}${resolvedProd.variacao ? ' ' + resolvedProd.variacao : ''}`,
-            )
+            toast.error(`Produto sem estoque disponível: ${resolvedProd.code}${varSuffix}`)
             return
           }
         } else if (
@@ -840,9 +848,15 @@ export default function PosSale() {
           resolved.variations &&
           resolved.variations.length > 0
         ) {
+          const readableVariations = resolved.variations
+            .map((v) => {
+              const rawAttrs = (v as any).attributes
+              const attrLabel = rawAttrs ? formatVariationAttributeLabel(rawAttrs) : ''
+              return attrLabel || v.variacao || '(sem variação)'
+            })
+            .join(', ')
           toast.info(
-            resolved.message ||
-              `O código possui múltiplas variações (${resolved.variations.map((v) => v.variacao).join(', ')}). Selecione na lista ou informe a variação.`,
+            `O código possui múltiplas variações (${readableVariations}). Selecione na lista ou informe a variação.`,
           )
           return
         }
@@ -1509,14 +1523,20 @@ export default function PosSale() {
                                           <span className="font-medium text-[#2D2A26] whitespace-normal break-words block leading-relaxed">
                                             {item.description}
                                           </span>
-                                          {prod?.variacao && (
-                                            <Badge
-                                              variant="outline"
-                                              className="mt-1 text-[10px] px-1.5 py-0 border-[#C6A664] text-[#7A5C2E] bg-[#FBF8F2] font-semibold"
-                                            >
-                                              Variação: {prod.variacao}
-                                            </Badge>
-                                          )}
+                                          {(() => {
+                                            const varBadge = prod
+                                              ? getProductVariationBadge(prod)
+                                              : null
+                                            if (!varBadge) return null
+                                            return (
+                                              <Badge
+                                                variant="outline"
+                                                className="mt-1 text-[10px] px-1.5 py-0 border-[#C6A664] text-[#7A5C2E] bg-[#FBF8F2] font-semibold"
+                                              >
+                                                Variação: {varBadge}
+                                              </Badge>
+                                            )
+                                          })()}
                                         </div>
                                       </div>
                                     )

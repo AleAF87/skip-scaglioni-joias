@@ -39,6 +39,7 @@ import {
 } from '@/lib/formatters'
 import pb from '@/lib/pocketbase/client'
 import { Customer, Product, ResellerStockItem, Reseller, ResellerSale, SaleItem } from '@/types'
+import { getProductVariationBadge, formatVariationAttributeLabel } from '@/types/labelContent'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -60,17 +61,13 @@ const round2 = (v: number) => Math.round((v || 0) * 100) / 100
 // (inclui o caso de expand aninhado via product, usado no estoque da revendedora).
 function getProductDisplayLabel(prod?: Product | null): string {
   if (!prod) return 'Produto'
-  const name = prod.nome_produto || prod.description || 'Produto Scaglioni'
-  const links =
-    (prod.expand?.['product_category_links(product)'] as any[] | undefined) ||
-    ((prod.expand as any)?.product?.expand?.['product_category_links(product)'] as
-      | any[]
-      | undefined) ||
-    []
+  const targetProd = ((prod.expand as any)?.product as Product | undefined) || prod
+  const name = targetProd.nome_produto || targetProd.description || 'Produto Scaglioni'
+  const links = (targetProd.expand?.['product_category_links(product)'] as any[] | undefined) || []
   const cat = links.find((l) => l.expand?.category?.name)?.expand?.category?.name?.trim()
   const base = cat ? `${cat} — ${name}` : name
-  const variacao = (prod.variacao || (prod.expand as any)?.product?.variacao || '').trim()
-  return variacao ? `${base} — ${variacao}` : base
+  const varBadge = getProductVariationBadge(targetProd)
+  return varBadge ? `${base} — ${varBadge}` : base
 }
 
 // Todas as URLs de foto do produto (galeria + fallback image_url dos importados)
@@ -297,9 +294,15 @@ export default function ResellerPosSale() {
         resolved.variations &&
         resolved.variations.length > 0
       ) {
+        const readableVariations = resolved.variations
+          .map((v) => {
+            const rawAttrs = (v as any).attributes
+            const attrLabel = rawAttrs ? formatVariationAttributeLabel(rawAttrs) : ''
+            return attrLabel || v.variacao || '(sem variação)'
+          })
+          .join(', ')
         toast.info(
-          resolved.message ||
-            `O código possui variações (${resolved.variations.map((v) => v.variacao).join(', ')}). Especifique a variação no leitor.`,
+          `O código possui variações (${readableVariations}). Especifique a variação no leitor.`,
         )
         return false
       }
@@ -799,6 +802,18 @@ export default function ResellerPosSale() {
                             <h4 className="font-medium text-xs text-[#2D2A26] line-clamp-2 leading-tight">
                               {label}
                             </h4>
+                            {(() => {
+                              const varBadge = getProductVariationBadge(prod)
+                              if (!varBadge) return null
+                              return (
+                                <Badge
+                                  variant="outline"
+                                  className="mt-1 text-[10px] px-1.5 py-0 border-[#C6A664] text-[#7A5C2E] bg-[#FBF8F2] font-semibold"
+                                >
+                                  Variação: {varBadge}
+                                </Badge>
+                              )
+                            })()}
                           </div>
 
                           <div className="mt-2 pt-2 border-t border-[#E5DFD5]/60 flex items-center justify-between">
@@ -948,7 +963,19 @@ export default function ResellerPosSale() {
                         {renderThumb(prod, 'h-10 w-10', label)}
                         <div className="min-w-0 flex-1">
                           <p className="font-semibold text-xs text-[#2D2A26] truncate">{label}</p>
-                          <p className="text-[10px] text-[#6B655E]">
+                          {(() => {
+                            const varBadge = prod ? getProductVariationBadge(prod) : null
+                            if (!varBadge) return null
+                            return (
+                              <Badge
+                                variant="outline"
+                                className="mt-0.5 text-[9px] px-1 py-0 border-[#C6A664] text-[#7A5C2E] bg-[#FBF8F2] font-semibold inline-block"
+                              >
+                                Variação: {varBadge}
+                              </Badge>
+                            )
+                          })()}
+                          <p className="text-[10px] text-[#6B655E] mt-0.5">
                             {formatCurrency(c.unit_price)} un • Sub:{' '}
                             {formatCurrency(c.unit_price * c.quantity)}
                           </p>
