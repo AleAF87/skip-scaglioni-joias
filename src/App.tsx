@@ -29,6 +29,7 @@ import { ImportScaglioniPage } from '@/pages/ImportScaglioniPage'
 import CompanySettingsPage from '@/pages/CompanySettingsPage'
 import AutomationPage from '@/pages/AutomationPage'
 import LabelGenerationPage from '@/pages/LabelGenerationPage'
+import BarcodeLabelsPage from '@/pages/BarcodeLabelsPage'
 import NotFound from '@/pages/NotFound'
 
 // New Pages - Módulo de Revendedora com Estoque Próprio
@@ -146,6 +147,15 @@ export default function App() {
                 element={
                   <ProtectedRoute allowedRoles={['admin', 'operator']}>
                     <LabelGenerationPage />
+                  </ProtectedRoute>
+                }
+              />
+              {/* Nova Tela: Etiquetas com Código de Barras (impressão / salvar PDF) */}
+              <Route
+                path="etiquetas-barcode"
+                element={
+                  <ProtectedRoute allowedRoles={['admin', 'operator']}>
+                    <BarcodeLabelsPage />
                   </ProtectedRoute>
                 }
               />

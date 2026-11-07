@@ -29,6 +29,7 @@ import {
   FileSpreadsheet,
   Tag,
   Bot,
+  QrCode,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -195,6 +196,12 @@ export default function Layout() {
         { to: '/', label: 'Painel Geral', icon: LayoutDashboard },
         { to: '/produtos', label: 'Cadastrar Produtos', icon: Boxes },
         { to: '/estoque', label: 'Estoque', icon: Boxes },
+        {
+          to: '/etiquetas-barcode',
+          label: 'Etiquetas de Código de Barras',
+          icon: QrCode,
+          badgeText: 'PDF',
+        },
         { to: '/etiquetas', label: 'Gerar Etiquetas', icon: Tag },
         {
           to: '/revendedoras',
@@ -260,6 +267,16 @@ export default function Layout() {
           ? [{ to: '/produtos', label: 'Cadastrar Produtos', icon: Boxes }]
           : []),
         ...(canManageInternal ? [{ to: '/estoque', label: 'Estoque', icon: Boxes }] : []),
+        ...(canManageInternal && !isReseller
+          ? [
+              {
+                to: '/etiquetas-barcode',
+                label: 'Etiquetas de Código de Barras',
+                icon: QrCode,
+                badgeText: 'PDF',
+              },
+            ]
+          : []),
         ...(canManageInternal && !isReseller
           ? [{ to: '/etiquetas', label: 'Gerar Etiquetas', icon: Tag }]
           : []),

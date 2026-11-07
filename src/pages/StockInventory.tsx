@@ -54,6 +54,7 @@ import {
   TrendingUp,
   Eye,
   EyeOff,
+  Barcode,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Link } from 'react-router-dom'
@@ -705,8 +706,8 @@ export default function StockInventory() {
                 onClick={() => setBulkModalOpen(true)}
                 className="border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8]"
               >
-                <Layers className="h-4 w-4 mr-1.5" />
-                Alterar em Massa ({selectedIds.length})
+                <Edit className="h-4 w-4 mr-1.5" />
+                Alterar Selecionados ({selectedIds.length})
               </Button>
 
               <Button
@@ -716,11 +717,23 @@ export default function StockInventory() {
                 className="border-[#2D2A26] text-[#2D2A26] hover:bg-[#F3EAD8]"
               >
                 <Printer className="h-4 w-4 mr-1.5" />
-                Etiquetas ({selectedIds.length})
+                Etiquetas Rápidas ({selectedIds.length})
               </Button>
             </>
           )}
 
+          <Link to="/etiquetas-codigo-barras">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="border-[#7A5C2E] text-[#7A5C2E] bg-white hover:bg-[#F3EAD8] font-semibold shadow-2xs"
+              title="Gerar e imprimir etiquetas completas com código de barras Code128 em PDF"
+            >
+              <Barcode className="h-4 w-4 mr-1.5 text-[#C6A664]" />
+              Etiquetas de Código de Barras
+            </Button>
+          </Link>
           <div className="flex items-center gap-1">
             <a
               href="/modelo-importacao-produtos.csv"
