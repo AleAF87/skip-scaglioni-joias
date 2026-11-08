@@ -42,6 +42,12 @@ export const SettlementReceiptModal: React.FC<SettlementReceiptModalProps> = ({
   const resellerPhone = settlement.expand?.reseller?.phone
   const closedBy = settlement.expand?.operator?.name || closedByName || '—'
   const totalPieces = settlement.total_returned_qty + settlement.total_pending_qty
+  // Fechamento sem vendas e sem pendências: nada a acertar com a revendedora.
+  const hasNothingDue =
+    settlement.total_pending_value_due <= 0 &&
+    settlement.total_pending_qty <= 0 &&
+    (settlement.commission_rate ?? 0) >= 0
+  const commissionRate = settlement.commission_rate
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-[#2D2A26]/60 backdrop-blur-xs overflow-y-auto print:p-0 print:bg-white print:fixed print:inset-0">
@@ -246,6 +252,22 @@ export const SettlementReceiptModal: React.FC<SettlementReceiptModalProps> = ({
                   </tfoot>
                 </table>
               </div>
+            </div>
+          )}
+
+          {/* Nada a acertar — fechamento sem vendas e sem pendências */}
+          {hasNothingDue && (
+            <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-xs">
+              <p className="font-bold text-emerald-800 uppercase tracking-wider text-[11px] mb-1">
+                Nada a acertar
+              </p>
+              <p className="text-emerald-800 leading-relaxed">
+                Nenhuma venda foi realizada e todas as peças foram devolvidas ao estoque geral da
+                loja. Não há valores a pagar ou a receber — o acerto é encerrado sem saldo.
+                {typeof commissionRate === 'number' && totalPieces > 0
+                  ? ` Comissão considerada neste fechamento: ${commissionRate}%.`
+                  : ''}
+              </p>
             </div>
           )}
 

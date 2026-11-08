@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import {
   Users2,
   PackagePlus,
+  Percent,
   Boxes,
   RotateCcw,
   Search,
@@ -153,6 +154,8 @@ export default function ResellersUnifiedPage() {
     >
   >({})
   const [returnNotes, setReturnNotes] = useState('')
+  // Comissão escolhida pelo admin/superadmin na hora do fechamento (padrão: a da revendedora).
+  const [settlementCommission, setSettlementCommission] = useState<number | null>(null)
   const [isSubmittingReturn, setIsSubmittingReturn] = useState(false)
   const [returnsHistory, setReturnsHistory] = useState<ResellerReturn[]>([])
   const [issues, setIssues] = useState<ResellerIssue[]>([])
@@ -1112,18 +1115,39 @@ export default function ResellersUnifiedPage() {
       return
     }
 
+    // Comissão usada neste fechamento: a escolhida pelo admin/superadmin nos botões
+    // (30% / 35% / 40%) ou, se não escolhida, a taxa cadastrada da revendedora.
+    const effectiveCommission = settlementCommission ?? (currentReseller.commission_rate || 40)
+
+    // Fechamento sem vendas e sem pendências: devolução total — nada a acertar.
+    const isFullReturnClosing = itemsToProcess.every((it) => it.pending_qty === 0)
+
     setIsSubmittingReturn(true)
     try {
       const res = await resellerStockService.processReturn({
         reseller_id: currentReseller.id,
         items: itemsToProcess,
         notes: returnNotes,
+        commission_rate: effectiveCommission,
       })
 
-      toast.success(
-        `Conferência ${res.code} processada com sucesso! ${res.total_returned_qty} peças retornaram ao estoque geral da loja e ${res.total_pending_qty} pendências foram geradas.`,
-      )
+      if (isFullReturnClosing) {
+        const updatedReseller = await resellerService.getResellerById(currentReseller.id)
+        if (updatedReseller) setCurrentReseller(updatedReseller)
+      }
+
+      if (res.total_pending_value_due > 0) {
+        toast.success(
+          `Conferência ${res.code} processada com sucesso! ${res.total_returned_qty} peças retornaram ao estoque geral da loja e ${res.total_pending_qty} pendências foram geradas.`,
+        )
+      } else {
+        toast.success(
+          `Fechamento ${res.code} concluído: ${res.total_returned_qty} peça(s) devolvida(s) voltaram integralmente ao estoque geral da loja. Nada a acertar com ${currentReseller.name} — nenhuma venda registada e nenhum valor devido.`,
+          { duration: 8000 },
+        )
+      }
       setReturnNotes('')
+      setSettlementCommission(null)
       setIsConferenceModalOpen(false)
       await loadStock(currentReseller.id)
       await loadIssues(currentReseller.id)
@@ -1160,11 +1184,15 @@ export default function ResellersUnifiedPage() {
         total_returned_qty: res.total_returned_qty,
         total_pending_qty: res.total_pending_qty,
         total_pending_value_due: res.total_pending_value_due,
+        commission_rate: res.commission_rate ?? effectiveCommission,
         notes: returnNotes,
         created: new Date().toISOString(),
         updated: new Date().toISOString(),
         expand: {
-          reseller: currentReseller,
+          reseller: {
+            ...currentReseller,
+            commission_rate: effectiveCommission,
+          },
           operator: user as any,
         },
       }
@@ -2867,6 +2895,44 @@ export default function ResellersUnifiedPage() {
                   className="text-xs mt-1"
                 />
               </div>
+
+              {/* Comissão aplicada neste fechamento — somente Admin/Superadmin podem alterar */}
+              {isAdmin && (
+                <div className="p-3 rounded-xl bg-[#F3EAD8]/50 border border-[#C6A664]/60">
+                  <Label className="text-xs font-bold text-[#7A5C2E] flex items-center gap-1.5">
+                    <Percent className="h-4 w-4 text-[#7A5C2E]" />
+                    Comissão aplicada neste fechamento
+                  </Label>
+                  <p className="text-[10px] text-[#6B655E] mt-0.5 mb-2">
+                    Escolha o percentual a ser usado no cálculo deste acerto. Se não escolher, usa a
+                    comissão cadastrada da revendedora
+                    {typeof currentReseller.commission_rate === 'number'
+                      ? ` (${currentReseller.commission_rate}%)`
+                      : ''}
+                    . A escolha também atualiza a comissão cadastrada dela.
+                  </p>
+                  <div className="flex gap-2">
+                    {[30, 35, 40].map((pct) => {
+                      const active =
+                        (settlementCommission ?? currentReseller.commission_rate ?? 40) === pct
+                      return (
+                        <button
+                          key={pct}
+                          type="button"
+                          onClick={() => setSettlementCommission(pct)}
+                          className={`h-9 flex-1 rounded-lg text-xs font-bold border transition-colors ${
+                            active
+                              ? 'bg-[#7A5C2E] text-white border-[#7A5C2E] shadow-xs'
+                              : 'bg-white text-[#7A5C2E] border-[#C6A664] hover:bg-[#7A5C2E]/10'
+                          }`}
+                        >
+                          {pct}%
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
 
               <div className="flex justify-end gap-2 pt-2 border-t border-[#E5DFD5]">
                 <Button

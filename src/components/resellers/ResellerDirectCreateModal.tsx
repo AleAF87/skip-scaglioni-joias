@@ -44,7 +44,8 @@ export function ResellerDirectCreateModal({
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [commissionRate, setCommissionRate] = useState('40')
+  // Comissão inicial padrão da revendedora: 30% (v0.0.140)
+  const [commissionRate, setCommissionRate] = useState('30')
   const [showPassword, setShowPassword] = useState(false)
 
   // Campos opcionais (sanfona/detalhes extras)
@@ -70,7 +71,7 @@ export function ResellerDirectCreateModal({
     setName('')
     setEmail('')
     setPassword('')
-    setCommissionRate('40')
+    setCommissionRate('30')
     setShowPassword(false)
     setShowExtraFields(false)
     setPhone('')

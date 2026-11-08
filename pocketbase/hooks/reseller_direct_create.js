@@ -19,12 +19,13 @@ routerAdd('POST', '/backend/v1/resellers/direct-create', (e) => {
   const name = (body.name || '').trim()
   const email = (body.email || '').trim().toLowerCase()
   const password = (body.password || '').trim()
+  // Comissão inicial padrão da revendedora: 30% (v0.0.140)
   const commissionRate =
     body.commission_rate !== undefined &&
     body.commission_rate !== null &&
     body.commission_rate !== ''
       ? parseFloat(body.commission_rate)
-      : 40
+      : 30
 
   if (!name || name.length < 2) {
     return e.json(400, { error: 'O nome da revendedora é obrigatório (mínimo 2 caracteres).' })

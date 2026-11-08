@@ -429,6 +429,19 @@ routerAdd(
 
     const body = e.requestInfo().body || {}
     const { reseller_id, items, notes } = body
+    // Comissão escolhida pelo admin/superadmin na hora do fechamento (30% / 35% / 40%).
+    // Quando informada, é usada no cálculo deste fechamento e passa a ser a comissão cadastrada da revendedora.
+    let overrideCommissionRate = null
+    if (
+      body.commission_rate !== undefined &&
+      body.commission_rate !== null &&
+      body.commission_rate !== ''
+    ) {
+      const parsed = parseFloat(body.commission_rate)
+      if (!isNaN(parsed) && parsed > 0 && parsed <= 100) {
+        overrideCommissionRate = parsed
+      }
+    }
 
     if (!reseller_id) {
       return e.json(400, { error: 'Selecione a revendedora.' })
@@ -443,7 +456,15 @@ routerAdd(
     try {
       $app.runInTransaction((txApp) => {
         const reseller = txApp.findRecordById('resellers', reseller_id)
-        const commissionRate = reseller.getFloat('commission_rate') || 40
+        // Comissão deste fechamento: a enviada pelo admin/superadmin (override) ou a cadastrada
+        const commissionRate = overrideCommissionRate || reseller.getFloat('commission_rate') || 40
+        if (
+          overrideCommissionRate &&
+          reseller.getFloat('commission_rate') !== overrideCommissionRate
+        ) {
+          reseller.set('commission_rate', overrideCommissionRate)
+          txApp.save(reseller)
+        }
 
         const returnsCol = txApp.findCollectionByNameOrId('reseller_returns')
         const issuesCol = txApp.findCollectionByNameOrId('reseller_issues')
@@ -571,6 +592,7 @@ routerAdd(
         returnRec.set('total_returned_qty', totalReturnedQty)
         returnRec.set('total_pending_qty', totalPendingQty)
         returnRec.set('total_pending_value_due', totalPendingValueDue)
+        returnRec.set('commission_rate', commissionRate)
 
         txApp.save(returnRec)
         finalReturnRec = returnRec
@@ -583,6 +605,8 @@ routerAdd(
         total_returned_qty: finalReturnRec.getInt('total_returned_qty'),
         total_pending_qty: finalReturnRec.getInt('total_pending_qty'),
         total_pending_value_due: finalReturnRec.getFloat('total_pending_value_due'),
+        commission_rate: finalReturnRec.getFloat('commission_rate'),
+        nothing_due: finalReturnRec.getFloat('total_pending_value_due') === 0,
       })
     } catch (err) {
       console.log('Erro ao processar devolução/conferência:', err.message)

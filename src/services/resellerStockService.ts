@@ -179,6 +179,8 @@ export const resellerStockService = {
       pending_notes?: string
     }>
     notes?: string
+    // Comissão escolhida pelo admin/superadmin na hora do fechamento (30% / 35% / 40%)
+    commission_rate?: number
   }) {
     return pb.send<{
       success: boolean
@@ -187,6 +189,8 @@ export const resellerStockService = {
       total_returned_qty: number
       total_pending_qty: number
       total_pending_value_due: number
+      commission_rate: number
+      nothing_due: boolean
     }>('/backend/v1/reseller-stock/return', {
       method: 'POST',
       body: JSON.stringify(data),
