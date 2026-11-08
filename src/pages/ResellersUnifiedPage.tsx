@@ -1142,7 +1142,7 @@ export default function ResellersUnifiedPage() {
         )
       } else {
         toast.success(
-          `Fechamento ${res.code} concluído: ${res.total_returned_qty} peça(s) devolvida(s) voltaram integralmente ao estoque geral da loja. Nada a acertar com ${currentReseller.name} — nenhuma venda registada e nenhum valor devido.`,
+          `Fechamento ${res.code} concluído: ${res.total_returned_qty} peça(s) devolvida(s) voltaram integralmente ao estoque geral da loja. Nada a acertar com ${currentReseller.name} — nenhuma venda registrada e nenhum valor devido.`,
           { duration: 8000 },
         )
       }
