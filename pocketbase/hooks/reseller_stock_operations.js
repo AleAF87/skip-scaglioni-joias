@@ -202,6 +202,10 @@ routerAdd(
 )
 
 // 2. ASSINATURA DE ENTREGA (TOUCH/CANVAS)
+//    Regra: a assinatura de recebimento é sempre aceita, inclusive em entrega
+//    cujas peças já foram totalmente devolvidas (status derivado "Devolvida /
+//    Finalizada") — nesse caso é apenas um registro histórico e a UI não exibe
+//    mais o botão Assinar. Nunca responde 400 sem mensagem legível em português.
 routerAdd(
   'POST',
   '/backend/v1/reseller-stock/sign-delivery',
@@ -237,6 +241,16 @@ routerAdd(
           throw new Error('Você não tem permissão para assinar esta entrega.')
         }
 
+        // Entrega já assinada: assinatura é inócua — responde OK sem repetir o fluxo.
+        if (delivery.getString('status') === 'accepted') {
+          return e.json(200, {
+            success: true,
+            delivery_id: delivery.id,
+            code: delivery.getString('code'),
+            status: 'accepted',
+          })
+        }
+
         delivery.set('status', 'accepted')
         delivery.set('signature_data', signature_data)
         delivery.set('signed_at', new Date().toISOString())
@@ -252,8 +266,20 @@ routerAdd(
         status: 'accepted',
       })
     } catch (err) {
-      console.log('Erro ao assinar entrega:', err.message)
-      return e.json(400, { error: err.message || 'Falha ao salvar assinatura da entrega.' })
+      // Sempre devolve erro com mensagem legível em português (nunca erro cru de validação).
+      let msg = err && err.message ? String(err.message) : ''
+      if (!msg) {
+        msg = 'Falha ao salvar assinatura da entrega.'
+      }
+      if (
+        msg.indexOf('sql:') !== -1 ||
+        msg.toLowerCase().indexOf('something went wrong') !== -1 ||
+        msg.toLowerCase().indexOf('failed to authenticate') !== -1
+      ) {
+        msg = 'Não foi possível salvar a assinatura. Verifique os dados e tente novamente.'
+      }
+      console.log('Erro ao assinar entrega:', msg)
+      return e.json(400, { error: msg })
     }
   },
   $apis.requireAuth(),

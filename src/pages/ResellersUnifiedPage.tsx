@@ -1080,7 +1080,13 @@ export default function ResellersUnifiedPage() {
     }
   }
 
-  // Handle standalone sign on pending delivery
+  // Handle standalone sign on pending delivery.
+  // A assinatura de recebimento é aceita mesmo em entrega cujas peças já foram
+  // totalmente devolvidas (status derivado "Devolvida / Finalizada") — é apenas
+  // um registro histórico. Em caso de falha do backend, o erro é capturado aqui
+  // e vira um aviso claro em português; NUNCA é relançado — relançar cairia no
+  // handler global de erro do app, que mostra "Something went wrong" e desloga
+  // o usuário (bug corrigido na 0.0.147).
   const handleSaveSignature = async (dataUrl: string) => {
     if (!signingDelivery || !currentReseller) return
     try {
@@ -1092,11 +1098,16 @@ export default function ResellersUnifiedPage() {
       toast.success('Assinatura da entrega confirmada com sucesso!')
       setSigningDelivery(null)
       loadDeliveries(currentReseller.id)
-    } catch (err: any) {
+    } catch (err) {
       // Aviso claro em português (não silencioso): o hook responde { error: "..." }
       // e o SDK exibiria "Something went wrong." sem o helper.
       console.error('Erro ao salvar assinatura da entrega:', err)
-      toast.error(getBackendErrorMessage(err))
+      toast.error('Não foi possível salvar a assinatura: ' + getBackendErrorMessage(err), {
+        duration: 8000,
+      })
+      // Fecha o pad de assinatura para a tela continuar utilizável; os dados
+      // da entrega e o card permanecem como estavam.
+      setSigningDelivery(null)
     }
   }
 
