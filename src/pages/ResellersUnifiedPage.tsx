@@ -236,6 +236,15 @@ export default function ResellersUnifiedPage() {
 
       if (canManage) {
         loadedResellers = await resellerService.getResellers({ status: 'active' })
+        // Dedup: garante que a mesma revendedora não apareça duas vezes na lista
+        // (ex.: registro duplicado ou resposta repetida), evitando keys duplicadas na renderização.
+        const seenIds = new Set<string>()
+        loadedResellers = loadedResellers.filter((r) => {
+          const k = r.id || r.name
+          if (seenIds.has(k)) return false
+          seenIds.add(k)
+          return true
+        })
         setResellers(loadedResellers)
 
         // Load all stock items for the overview
@@ -1292,7 +1301,7 @@ export default function ResellersUnifiedPage() {
         r.phone?.toLowerCase().includes(term)
       )
     })
-    .map((r) => {
+    .map((r, idx) => {
       const itemsForR = allStockItems.filter((it) => it.reseller === r.id && it.quantity > 0)
       const piecesCount = itemsForR.reduce((acc, it) => acc + (it.quantity || 0), 0)
       const totalValue = itemsForR.reduce(
@@ -1302,6 +1311,9 @@ export default function ResellersUnifiedPage() {
       )
       return {
         reseller: r,
+        // Key única e estável: id do registro, reforçado com o índice da lista
+        // (proteção extra caso dois registros cheguem com o mesmo id na resposta)
+        key: `${r.id || 'sem-id'}-${idx}`,
         piecesCount,
         distinctProducts: itemsForR.length,
         totalValue,
@@ -1433,9 +1445,9 @@ export default function ResellersUnifiedPage() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {resellerOverviewList.map(
-                ({ reseller, piecesCount, distinctProducts, totalValue }) => (
+                ({ reseller, piecesCount, distinctProducts, totalValue, key }) => (
                   <Card
-                    key={reseller.id}
+                    key={key}
                     onClick={() => handleOpenResellerProfile(reseller)}
                     className="border border-[#E5DFD5] hover:border-[#7A5C2E] hover:shadow-md transition-all bg-white flex flex-col justify-between cursor-pointer group"
                   >
