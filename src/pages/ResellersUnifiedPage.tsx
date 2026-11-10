@@ -1130,7 +1130,7 @@ export default function ResellersUnifiedPage() {
         items: itemsToProcess,
         notes: returnNotes,
         commission_rate: effectiveCommission,
-        // Rastreio (v0.0.144): devolução fica ligada à entrega em conferência (mais recente em aberto)
+        // Rastreio (v0.0.145): devolução fica ligada à entrega em conferência (mais recente em aberto)
         delivery_id: deliveries[0]?.id,
         delivery_code: deliveries[0]?.code,
       })
@@ -1189,6 +1189,8 @@ export default function ResellersUnifiedPage() {
         total_pending_qty: res.total_pending_qty,
         total_pending_value_due: res.total_pending_value_due,
         commission_rate: res.commission_rate ?? effectiveCommission,
+        // Rastreio: código real da entrega de origem (ENT-XXXX) vindo do backend
+        delivery_code: res.delivery_code || deliveries[0]?.code,
         notes: returnNotes,
         created: new Date().toISOString(),
         updated: new Date().toISOString(),

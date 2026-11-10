@@ -21,7 +21,13 @@ import pb from '@/lib/pocketbase/client'
 import { useAuth } from '@/contexts/AuthContext'
 import { resellerService } from '@/services/resellerService'
 import { resellerStockService } from '@/services/resellerStockService'
-import { ResellerStockItem, Reseller, ResellerReturn, ResellerIssue } from '@/types'
+import {
+  ResellerStockItem,
+  Reseller,
+  ResellerReturn,
+  ResellerIssue,
+  ResellerDelivery,
+} from '@/types'
 import { formatCurrency, formatDateTime } from '@/lib/formatters'
 import { SettlementReceiptModal } from '@/components/SettlementReceiptModal'
 import { BarcodeScannerModal } from '@/components/pos/BarcodeScannerModal'
@@ -73,6 +79,9 @@ export function ResellerReturnsIssuesContent({
   const [returnNotes, setReturnNotes] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
+  // Entregas da revendedora (a mais recente em aberto é a origem do rastreio da devolução)
+  const [deliveries, setDeliveries] = useState<ResellerDelivery[]>([])
+
   // Leitor de código de barras por câmera (mesmo componente do PDV, compatível com iOS/Safari)
   const [isScannerOpen, setIsScannerOpen] = useState(false)
 
@@ -112,16 +121,18 @@ export function ResellerReturnsIssuesContent({
         setIsLoadingHistory(true)
       }
       try {
-        const [items, issuesList, returnsList] = await Promise.all([
+        const [items, issuesList, returnsList, dels] = await Promise.all([
           resellerStockService.getResellerStock(reseller.id),
           resellerStockService.getIssues({ resellerId: reseller.id }),
           resellerStockService.getReturns({ resellerId: reseller.id }),
+          resellerStockService.getDeliveries({ resellerId: reseller.id }),
         ])
         if (!isMounted) return
 
         setStockItems(items)
         setIssues(issuesList)
         setReturnsHistory(returnsList)
+        setDeliveries(dels)
         setLastSyncTime(new Date())
 
         // Atualiza o conferenceMap preservando digitação em andamento do usuário se houver
@@ -225,8 +236,12 @@ export function ResellerReturnsIssuesContent({
   const loadStock = async (resellerId: string) => {
     setIsLoadingStock(true)
     try {
-      const items = await resellerStockService.getResellerStock(resellerId)
+      const [items, dels] = await Promise.all([
+        resellerStockService.getResellerStock(resellerId),
+        resellerStockService.getDeliveries({ resellerId }),
+      ])
       setStockItems(items)
+      setDeliveries(dels)
       setConferenceMap((prev) => {
         const initialMap: Record<string, any> = {}
         items.forEach((it) => {
@@ -346,6 +361,9 @@ export function ResellerReturnsIssuesContent({
         reseller_id: reseller.id,
         items: itemsToProcess,
         notes: returnNotes,
+        // Rastreio (v0.0.145): devolução fica ligada à entrega mais recente em aberto da revendedora
+        delivery_id: deliveries[0]?.id,
+        delivery_code: deliveries[0]?.code,
       })
 
       toast.success(

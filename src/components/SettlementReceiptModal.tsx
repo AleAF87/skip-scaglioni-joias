@@ -112,6 +112,11 @@ export const SettlementReceiptModal: React.FC<SettlementReceiptModalProps> = ({
               <span className="inline-block px-2.5 py-1 rounded-md bg-[#F3EAD8] text-[#7A5C2E] font-mono font-bold text-xs">
                 {settlement.code}
               </span>
+              {settlement.delivery_code && (
+                <p className="text-[11px] text-[#6B655E] mt-1 font-mono">
+                  Devolução {settlement.code} · Entrega {settlement.delivery_code}
+                </p>
+              )}
               <p className="text-[11px] text-[#6B655E] mt-1">
                 Data: {formatDateTime(settlement.created)}
               </p>

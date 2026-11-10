@@ -674,6 +674,8 @@ routerAdd(
         success: true,
         return_id: finalReturnRec.id,
         code: finalReturnRec.getString('code'),
+        // Código real da entrega de origem gravado no registro (ex. ENT-0001) p/ o comprovante
+        delivery_code: finalReturnRec.getString('delivery_code') || undefined,
         total_returned_qty: finalReturnRec.getInt('total_returned_qty'),
         total_pending_qty: finalReturnRec.getInt('total_pending_qty'),
         total_pending_value_due: finalReturnRec.getFloat('total_pending_value_due'),

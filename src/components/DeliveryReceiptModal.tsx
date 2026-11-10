@@ -87,6 +87,7 @@ export const DeliveryReceiptModal: React.FC<DeliveryReceiptModalProps> = ({
               <span className="inline-block px-2.5 py-1 rounded-md bg-[#F3EAD8] text-[#7A5C2E] font-mono font-bold text-xs">
                 {delivery.code}
               </span>
+              <p className="text-[11px] text-[#6B655E] mt-1 font-mono">Entrega {delivery.code}</p>
               <p className="text-[11px] text-[#6B655E] mt-1">
                 Data: {formatDateTime(delivery.created)}
               </p>
