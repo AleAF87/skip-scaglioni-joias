@@ -1656,13 +1656,13 @@ export default function ResellersUnifiedPage() {
                 </Card>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {deliveries.map((del) => {
+                  {deliveries.map((del, idxDel) => {
                     const isAccepted = del.status === 'accepted'
                     const delDisplay = getDeliveryDisplayStatus(del, returnsHistory)
                     const isFullyReturned = delDisplay.isFullyReturned
                     return (
                       <Card
-                        key={del.id}
+                        key={`${del.id}-${del.code}-${idxDel}`}
                         onClick={() => setIsStockModalOpen(true)}
                         className={`border-[#E5DFD5] hover:border-[#7A5C2E] hover:shadow-md transition-all bg-white flex flex-col justify-between cursor-pointer group ${
                           isFullyReturned ? 'opacity-80' : ''
@@ -2007,8 +2007,11 @@ export default function ResellersUnifiedPage() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-[#E5DFD5]">
-                          {returnsHistory.map((ret) => (
-                            <tr key={ret.id} className="hover:bg-[#FDFBF7]">
+                          {returnsHistory.map((ret, idxRet) => (
+                            <tr
+                              key={`${ret.id || 'sem-id'}-${ret.code || 'sem-cod'}-${idxRet}`}
+                              className="hover:bg-[#FDFBF7]"
+                            >
                               <td className="py-2.5 px-4 font-mono font-bold text-[#7A5C2E]">
                                 {ret.code}
                                 {ret.delivery_code && (
@@ -2090,8 +2093,11 @@ export default function ResellersUnifiedPage() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-[#E5DFD5]">
-                          {legacyLists.map((l) => (
-                            <tr key={l.id} className="hover:bg-[#FDFBF7]">
+                          {legacyLists.map((l, idxList) => (
+                            <tr
+                              key={`${l.id || 'sem-id'}-${l.code || 'sem-cod'}-${idxList}`}
+                              className="hover:bg-[#FDFBF7]"
+                            >
                               <td className="py-2.5 px-4 font-mono font-bold text-[#7A5C2E]">
                                 {l.code}
                               </td>
@@ -2347,13 +2353,13 @@ export default function ResellersUnifiedPage() {
                         Nenhum produto disponível no estoque geral da loja no momento.
                       </p>
                     ) : (
-                      availableProducts.map((prod) => {
+                      availableProducts.map((prod, idxProd) => {
                         const photo = getProductDisplayPhoto(prod)
                         const hasPhoto = Boolean(photo)
 
                         return (
                           <div
-                            key={prod.id}
+                            key={`${prod.id || 'sem-id'}-${idxProd}`}
                             className="flex items-center justify-between p-2.5 rounded-xl border border-[#E5DFD5] hover:border-[#C6A664] hover:bg-[#FDFBF7] transition-all gap-3"
                           >
                             <div className="flex items-center gap-2.5 min-w-0 flex-1">
@@ -2448,14 +2454,14 @@ export default function ResellersUnifiedPage() {
                       </div>
                     ) : (
                       <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                        {deliveryItems.map((it) => {
+                        {deliveryItems.map((it, idxItem) => {
                           const photo = getProductDisplayPhoto(it.product)
                           const hasPhoto = Boolean(photo)
                           const itemSubtotal = it.quantity * it.selling_price
 
                           return (
                             <div
-                              key={it.product.id}
+                              key={`${it.product?.id || 'sem-id'}-${idxItem}`}
                               className="flex items-center justify-between gap-2.5 p-2 rounded-lg bg-[#FDFBF7] border border-[#E5DFD5]/80 text-xs"
                             >
                               {/* Foto do produto */}
@@ -2706,14 +2712,17 @@ export default function ResellersUnifiedPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#E5DFD5]">
-                        {stockItems.map((item) => {
+                        {stockItems.map((item, idxStock) => {
                           const prod = item.expand?.product
                           const photo = prod ? getProductDisplayPhoto(prod) : null
                           const hasPhoto = Boolean(photo)
                           const price = item.selling_price || prod?.selling_price || 0
                           const subtotal = price * item.quantity
                           return (
-                            <tr key={item.id} className="hover:bg-[#FDFBF7]">
+                            <tr
+                              key={`${item.id || 'sem-id'}-${item.product || 'sem-prod'}-${idxStock}`}
+                              className="hover:bg-[#FDFBF7]"
+                            >
                               <td className="py-2.5 px-3 text-center">
                                 <button
                                   type="button"
@@ -2895,7 +2904,7 @@ export default function ResellersUnifiedPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#E5DFD5]">
-                        {stockItems.map((it) => {
+                        {stockItems.map((it, idxConf) => {
                           const prod = it.expand?.product
                           const photo = prod ? getProductDisplayPhoto(prod) : null
                           const hasPhoto = Boolean(photo)
@@ -2908,7 +2917,7 @@ export default function ResellersUnifiedPage() {
 
                           return (
                             <tr
-                              key={it.id}
+                              key={`${it.id || 'sem-id'}-${it.product || 'sem-prod'}-${idxConf}`}
                               className={`hover:bg-[#FDFBF7] transition-colors ${
                                 (conf.returned_qty || 0) > 0 ? 'bg-emerald-50/30' : ''
                               }`}

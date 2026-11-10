@@ -919,7 +919,7 @@ export function ResellerReturnsIssuesContent({
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-[#E5DFD5]">
-                          {filteredStockItems.map((it) => {
+                          {filteredStockItems.map((it, idxConf) => {
                             const prod = it.expand?.product
                             const conf = conferenceMap[it.product] || {
                               returned_qty: 0,
@@ -929,7 +929,10 @@ export function ResellerReturnsIssuesContent({
                             }
 
                             return (
-                              <tr key={it.id} className="hover:bg-[#FDFBF7]">
+                              <tr
+                                key={`${it.id || 'sem-id'}-${it.product || 'sem-prod'}-${idxConf}`}
+                                className="hover:bg-[#FDFBF7]"
+                              >
                                 <td className="py-3 px-3 font-mono font-bold text-[#7A5C2E]">
                                   {prod?.code}
                                 </td>
@@ -1021,7 +1024,7 @@ export function ResellerReturnsIssuesContent({
 
                   {/* Visualização Mobile: Cards empilhados amigáveis */}
                   <div className="md:hidden space-y-3">
-                    {filteredStockItems.map((it) => {
+                    {filteredStockItems.map((it, idxConfM) => {
                       const prod = it.expand?.product
                       const conf = conferenceMap[it.product] || {
                         returned_qty: 0,
@@ -1031,7 +1034,10 @@ export function ResellerReturnsIssuesContent({
                       }
 
                       return (
-                        <Card key={it.id} className="border-[#E5DFD5] bg-white p-3 space-y-2.5">
+                        <Card
+                          key={`${it.id || 'sem-id'}-${it.product || 'sem-prod'}-${idxConfM}`}
+                          className="border-[#E5DFD5] bg-white p-3 space-y-2.5"
+                        >
                           <div className="flex items-start justify-between gap-2 border-b border-[#E5DFD5]/60 pb-2">
                             <div>
                               <span className="font-mono font-bold text-xs text-[#7A5C2E] px-1.5 py-0.5 rounded bg-[#F3EAD8]">
@@ -1231,7 +1237,7 @@ export function ResellerReturnsIssuesContent({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#E5DFD5]">
-                      {filteredIssues.map((iss) => {
+                      {filteredIssues.map((iss, idxIss) => {
                         const isPending = iss.status === 'pending'
                         const isPaid = iss.status === 'paid'
 
@@ -1243,7 +1249,10 @@ export function ResellerReturnsIssuesContent({
                               : 'Outros Motivos'
 
                         return (
-                          <tr key={iss.id} className="hover:bg-[#FDFBF7]">
+                          <tr
+                            key={`${iss.id || 'sem-id'}-${(iss as any).code || 'sem-cod'}-${idxIss}`}
+                            className="hover:bg-[#FDFBF7]"
+                          >
                             <td className="py-3 px-3 text-[#6B655E] whitespace-nowrap">
                               {formatDateTime(iss.created)}
                             </td>
@@ -1329,7 +1338,7 @@ export function ResellerReturnsIssuesContent({
 
               {/* Cards Mobile empilhados */}
               <div className="md:hidden space-y-3">
-                {filteredIssues.map((iss) => {
+                {filteredIssues.map((iss, idxIssM) => {
                   const isPending = iss.status === 'pending'
                   const isPaid = iss.status === 'paid'
                   const reasonLabel =
@@ -1341,7 +1350,7 @@ export function ResellerReturnsIssuesContent({
 
                   return (
                     <Card
-                      key={iss.id}
+                      key={`${iss.id || 'sem-id'}-${(iss as any).code || 'sem-cod'}-${idxIssM}`}
                       className="border-[#E5DFD5] bg-white p-3.5 space-y-2.5 shadow-xs"
                     >
                       <div className="flex items-start justify-between gap-2 border-b border-[#E5DFD5]/60 pb-2">
@@ -1487,9 +1496,9 @@ export function ResellerReturnsIssuesContent({
             </Card>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredReturns.map((ret) => (
+              {filteredReturns.map((ret, idxRetM) => (
                 <Card
-                  key={ret.id}
+                  key={`${ret.id || 'sem-id'}-${ret.code || 'sem-cod'}-${idxRetM}`}
                   className="border-[#E5DFD5] bg-white shadow-xs hover:border-[#C6A664] transition-colors"
                 >
                   <CardHeader className="p-4 border-b border-[#E5DFD5]/60 pb-3">

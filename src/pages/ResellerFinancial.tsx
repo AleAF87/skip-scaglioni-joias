@@ -365,8 +365,8 @@ export function ResellerFinancialContent({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#E5DFD5]">
-                    {summary.pendingIssuesList.map((iss) => (
-                      <tr key={iss.id}>
+                    {summary.pendingIssuesList.map((iss, idxIss) => (
+                      <tr key={`${iss.id || 'sem-id'}-${idxIss}`}>
                         <td className="py-2.5 px-3 text-[#6B655E]">
                           {formatDateTime(iss.created)}
                         </td>
@@ -418,8 +418,11 @@ export function ResellerFinancialContent({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#E5DFD5]">
-                    {summary.recentSales.map((sale) => (
-                      <tr key={sale.id} className="hover:bg-[#FDFBF7]">
+                    {summary.recentSales.map((sale, idxSale) => (
+                      <tr
+                        key={`${sale.id || 'sem-id'}-${sale.code || 'sem-cod'}-${idxSale}`}
+                        className="hover:bg-[#FDFBF7]"
+                      >
                         <td className="py-2.5 px-3 font-mono font-bold text-[#7A5C2E]">
                           {sale.code}
                         </td>
