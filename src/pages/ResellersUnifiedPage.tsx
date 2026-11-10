@@ -1458,90 +1458,95 @@ export default function ResellersUnifiedPage() {
       {currentReseller && (
         <div className="space-y-6">
           {/* Header do Perfil da Revendedora com botão de Voltar */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#E5DFD5] pb-5">
-            <div className="space-y-1">
-              {canManage && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleBackToOverview}
-                  className="text-xs text-[#7A5C2E] hover:text-[#634923] hover:bg-[#F3EAD8] p-0 h-auto font-medium mb-1.5 flex items-center gap-1.5"
-                >
-                  <ArrowLeft className="h-4 w-4" />
-                  Voltar para a visão geral
-                </Button>
-              )}
+          {/* Abas internas em botões compactos (sem barra de rolagem); nada acima delas */}
+          <div className="flex flex-wrap items-center gap-2">
+            {canManage && (
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={handleBackToOverview}
+                aria-label="Voltar para a visão geral"
+                className="h-9 w-9 rounded-full border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8]"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+            )}
 
-              <div className="flex items-center gap-2 text-[#7A5C2E]">
-                <Users2 className="h-6 w-6" />
-                <h2 className="font-serif text-2xl md:text-3xl font-bold tracking-tight text-[#2D2A26]">
-                  {currentReseller.name}
-                </h2>
-                <Badge
-                  variant="outline"
-                  className="border-[#2E7D4F] text-[#2E7D4F] bg-[#2E7D4F]/10 text-xs ml-1"
-                >
-                  Revendedora
-                </Badge>
-              </div>
+            <button
+              onClick={() => setProfileTab('deliveries')}
+              className={`h-9 px-3.5 rounded-full border text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap transition-colors ${
+                profileTab === 'deliveries'
+                  ? 'bg-[#7A5C2E] border-[#7A5C2E] text-white shadow-xs'
+                  : 'bg-white border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8]'
+              }`}
+            >
+              <FileText className="h-3.5 w-3.5" />
+              Entregas Realizadas
+            </button>
 
-              <p className="text-xs text-[#6B655E] flex items-center gap-2 flex-wrap">
-                <span>
-                  Comissão:{' '}
-                  <strong className="text-[#2D2A26] font-semibold">
-                    {currentReseller.commission_rate || 40}%
-                  </strong>
-                </span>
-                <span>•</span>
-                <span>
-                  Contato:{' '}
-                  <strong className="text-[#2D2A26] font-semibold">
-                    {currentReseller.phone || currentReseller.email || 'Não informado'}
-                  </strong>
-                </span>
-                {currentReseller.city && (
-                  <>
-                    <span>•</span>
-                    <span>
-                      Local:{' '}
-                      <strong className="text-[#2D2A26] font-semibold">
-                        {currentReseller.city}
-                        {currentReseller.state ? `/${currentReseller.state}` : ''}
-                      </strong>
-                    </span>
-                  </>
-                )}
-              </p>
-            </div>
+            <button
+              onClick={() => setProfileTab('history_closing')}
+              className={`h-9 px-3.5 rounded-full border text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap transition-colors ${
+                profileTab === 'history_closing'
+                  ? 'bg-[#7A5C2E] border-[#7A5C2E] text-white shadow-xs'
+                  : 'bg-white border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8]'
+              }`}
+            >
+              <FileCheck2 className="h-3.5 w-3.5" />
+              Histórico & Fechamentos
+              <span
+                className={`rounded-full px-1.5 py-0.5 text-[10px] leading-none font-bold ${
+                  profileTab === 'history_closing'
+                    ? 'bg-white text-[#7A5C2E]'
+                    : 'bg-[#C6A664] text-black'
+                }`}
+              >
+                {legacyLists.length + returnsHistory.length}
+              </span>
+            </button>
 
-            {/* Quick Actions do Perfil */}
-            <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => setProfileTab('financial')}
+              className={`h-9 px-3.5 rounded-full border text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap transition-colors ${
+                profileTab === 'financial'
+                  ? 'bg-[#7A5C2E] border-[#7A5C2E] text-white shadow-xs'
+                  : 'bg-white border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8]'
+              }`}
+            >
+              <DollarSign className="h-3.5 w-3.5" />
+              Financeiro &amp; Lucro
+            </button>
+
+            <button
+              onClick={() => setProfileTab('returns')}
+              className={`h-9 px-3.5 rounded-full border text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap transition-colors ${
+                profileTab === 'returns'
+                  ? 'bg-[#7A5C2E] border-[#7A5C2E] text-white shadow-xs'
+                  : 'bg-white border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8]'
+              }`}
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              Devolução &amp; Pendências
+            </button>
+
+            {/* Ações rápidas do perfil, à direita das abas */}
+            <div className="ml-auto flex items-center gap-2 flex-wrap">
               <Link to={`/loja/${currentReseller.id}`} target="_blank">
                 <Button
                   variant="outline"
                   size="sm"
-                  className="border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] text-xs flex items-center gap-1.5"
+                  className="h-9 rounded-full border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] text-xs flex items-center gap-1.5"
                 >
                   <Store className="h-3.5 w-3.5" />
                   Loja Virtual
                 </Button>
               </Link>
 
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setProfileTab('financial')}
-                className="border-[#E5DFD5] text-[#2D2A26] hover:bg-[#FDFBF7] text-xs flex items-center gap-1.5"
-              >
-                <DollarSign className="h-3.5 w-3.5 text-[#2E7D4F]" />
-                Financeiro
-              </Button>
-
               {canManage && (
                 <Button
                   size="sm"
                   onClick={() => setIsNewDeliveryModalOpen(true)}
-                  className="bg-[#7A5C2E] hover:bg-[#634923] text-white text-xs flex items-center gap-1.5 shadow-xs"
+                  className="h-9 rounded-full bg-[#7A5C2E] hover:bg-[#634923] text-white text-xs flex items-center gap-1.5 shadow-xs"
                 >
                   <PackagePlus className="h-4 w-4" />
                   Nova Entrega
@@ -1550,70 +1555,11 @@ export default function ResellersUnifiedPage() {
             </div>
           </div>
 
-          {/* Abas Internas DENTRO do perfil da revendedora */}
-          <div className="flex border-b border-[#E5DFD5] gap-2 overflow-x-auto pb-1">
-            <button
-              onClick={() => setProfileTab('deliveries')}
-              className={`pb-2.5 px-3 font-serif text-xs md:text-sm font-semibold flex items-center gap-1.5 border-b-2 whitespace-nowrap transition-colors ${
-                profileTab === 'deliveries'
-                  ? 'border-[#7A5C2E] text-[#7A5C2E]'
-                  : 'border-transparent text-[#6B655E] hover:text-[#2D2A26]'
-              }`}
-            >
-              <FileText className="h-4 w-4" />
-              Entregas Realizadas
-            </button>
-
-            <button
-              onClick={() => setProfileTab('history_closing')}
-              className={`pb-2.5 px-3 font-serif text-xs md:text-sm font-semibold flex items-center gap-1.5 border-b-2 whitespace-nowrap transition-colors ${
-                profileTab === 'history_closing'
-                  ? 'border-[#7A5C2E] text-[#7A5C2E]'
-                  : 'border-transparent text-[#6B655E] hover:text-[#2D2A26]'
-              }`}
-            >
-              <FileCheck2 className="h-4 w-4" />
-              Histórico & Fechamentos ({legacyLists.length + returnsHistory.length})
-            </button>
-
-            <button
-              onClick={() => setProfileTab('financial')}
-              className={`pb-2.5 px-3 font-serif text-xs md:text-sm font-semibold flex items-center gap-1.5 border-b-2 whitespace-nowrap transition-colors ${
-                profileTab === 'financial'
-                  ? 'border-[#7A5C2E] text-[#7A5C2E]'
-                  : 'border-transparent text-[#6B655E] hover:text-[#2D2A26]'
-              }`}
-            >
-              <DollarSign className="h-4 w-4" />
-              Financeiro &amp; Lucro
-            </button>
-
-            <button
-              onClick={() => setProfileTab('returns')}
-              className={`pb-2.5 px-3 font-serif text-xs md:text-sm font-semibold flex items-center gap-1.5 border-b-2 whitespace-nowrap transition-colors ${
-                profileTab === 'returns'
-                  ? 'border-[#7A5C2E] text-[#7A5C2E]'
-                  : 'border-transparent text-[#6B655E] hover:text-[#2D2A26]'
-              }`}
-            >
-              <RotateCcw className="h-4 w-4" />
-              Devolução &amp; Pendências
-            </button>
-          </div>
-
           {/* CONTEÚDO DAS ABAS DO PERFIL */}
 
           {/* ABA 1: HISTÓRICO DE ENTREGAS */}
           {profileTab === 'deliveries' && (
             <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-[#FDFBF7] p-3.5 rounded-xl border border-[#E5DFD5]">
-                <p className="text-xs text-[#6B655E]">
-                  Exibindo entregas realizadas para <strong>{currentReseller.name}</strong>. Clique
-                  em uma entrega ativa/aberta para consultar as joias em poder e realizar a
-                  conferência/devolução.
-                </p>
-              </div>
-
               {isLoadingDeliveries ? (
                 <div className="p-12 text-center text-[#8C8275] text-xs">
                   Carregando entregas...
@@ -1686,6 +1632,29 @@ export default function ResellersUnifiedPage() {
                               {formatCurrency(del.total_value)}
                             </strong>
                           </div>
+
+                          {del.items && del.items.length > 0 && (
+                            <div className="pt-2 border-t border-[#E5DFD5]/40 space-y-1.5">
+                              <p className="text-[10px] uppercase tracking-wide text-[#8C8275]">
+                                Itens da entrega
+                              </p>
+                              {del.items.map((it, idx) => (
+                                <div
+                                  key={`${it.product_id}-${idx}`}
+                                  className="flex justify-between items-start gap-2 text-[11px]"
+                                >
+                                  <span className="min-w-0 text-[#2D2A26]">
+                                    <span className="font-mono text-[#7A5C2E]">{it.code}</span>{' '}
+                                    {it.description}
+                                    {it.quantity > 1 ? ` × ${it.quantity}` : ''}
+                                  </span>
+                                  <strong className="shrink-0 text-[#2D2A26] font-semibold">
+                                    {formatCurrency(it.subtotal)}
+                                  </strong>
+                                </div>
+                              ))}
+                            </div>
+                          )}
 
                           {del.notes && (
                             <p className="text-[11px] text-[#8C8275] bg-[#FDFBF7] p-2 rounded border border-[#E5DFD5]/60 italic truncate">

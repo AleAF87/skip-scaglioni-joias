@@ -710,19 +710,12 @@ export default function Layout() {
             </NavLink>
 
             <div className="flex items-center gap-1.5">
-              <NavLink
-                to={posItem.to}
-                onClick={(e) => handleNavClick(e, posItem.to)}
-                className={cn(
-                  'px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs',
-                  isPosActive
-                    ? 'bg-[#C6A664] text-black'
-                    : 'bg-[#7A5C2E] text-white hover:bg-[#C6A664]',
-                )}
+              <span
+                title={user.name}
+                className="max-w-[160px] truncate text-xs font-bold text-[#C6A664]"
               >
-                <ShoppingCart className="h-3.5 w-3.5" />
-                <span>PDV</span>
-              </NavLink>
+                {user.name}
+              </span>
 
               <Button
                 variant="ghost"
