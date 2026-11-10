@@ -127,10 +127,41 @@ routerAdd(
           })
         }
 
-        // Código sequencial da entrega
-        const timestamp = new Date().getTime().toString().slice(-6)
-        const rand = Math.floor(1000 + Math.random() * 9000).toString()
-        const deliveryCode = 'ENT-' + timestamp + '-' + rand
+        // Código sequencial curto da entrega (ENT-0001, ENT-0002…) via app_sequences (atômico).
+        // Entregas antigas (formato ENT-NNNNNN-NNNN) não são alteradas.
+        let deliveryCode = ''
+        try {
+          const pad4 = (n) => {
+            let s = String(n)
+            while (s.length < 4) s = '0' + s
+            return s
+          }
+          let seqRec = null
+          try {
+            seqRec = txApp.findFirstRecordByFilter(
+              'app_sequences',
+              "name = 'reseller_delivery_seq'",
+            )
+          } catch (_) {}
+          let nextVal = 1
+          if (seqRec) {
+            nextVal = (seqRec.getInt('current_value') || 0) + 1
+            seqRec.set('current_value', nextVal)
+            txApp.save(seqRec)
+          } else {
+            const seqCol = txApp.findCollectionByNameOrId('app_sequences')
+            const newSeqRec = new Record(seqCol)
+            newSeqRec.set('name', 'reseller_delivery_seq')
+            newSeqRec.set('current_value', nextVal)
+            txApp.save(newSeqRec)
+          }
+          deliveryCode = 'ENT-' + pad4(nextVal)
+        } catch (seqErr) {
+          console.log('Erro na sequência ENT, usando fallback por timestamp:', seqErr.message)
+          const tsFallback = new Date().getTime().toString().slice(-6)
+          const randFallback = Math.floor(1000 + Math.random() * 9000).toString()
+          deliveryCode = 'ENT-' + tsFallback + '-' + randFallback
+        }
 
         const deliveryRec = new Record(deliveryCol)
         deliveryRec.set('code', deliveryCode)
@@ -469,9 +500,47 @@ routerAdd(
         const returnsCol = txApp.findCollectionByNameOrId('reseller_returns')
         const issuesCol = txApp.findCollectionByNameOrId('reseller_issues')
 
-        const timestamp = new Date().getTime().toString().slice(-6)
-        const rand = Math.floor(1000 + Math.random() * 9000).toString()
-        const returnCode = 'DEV-' + timestamp + '-' + rand
+        // Código sequencial curto da devolução (DEV-0001, DEV-0002…) via app_sequences (atômico).
+        // Devoluções antigas (formato DEV-NNNNNN-NNNN) não são alteradas.
+        let returnCode = ''
+        try {
+          const pad4 = (n) => {
+            let s = String(n)
+            while (s.length < 4) s = '0' + s
+            return s
+          }
+          let seqRec = null
+          try {
+            seqRec = txApp.findFirstRecordByFilter('app_sequences', "name = 'reseller_return_seq'")
+          } catch (_) {}
+          let nextVal = 1
+          if (seqRec) {
+            nextVal = (seqRec.getInt('current_value') || 0) + 1
+            seqRec.set('current_value', nextVal)
+            txApp.save(seqRec)
+          } else {
+            const seqCol = txApp.findCollectionByNameOrId('app_sequences')
+            const newSeqRec = new Record(seqCol)
+            newSeqRec.set('name', 'reseller_return_seq')
+            newSeqRec.set('current_value', nextVal)
+            txApp.save(newSeqRec)
+          }
+          returnCode = 'DEV-' + pad4(nextVal)
+        } catch (seqErr) {
+          console.log('Erro na sequência DEV, usando fallback por timestamp:', seqErr.message)
+          const tsFallback = new Date().getTime().toString().slice(-6)
+          const randFallback = Math.floor(1000 + Math.random() * 9000).toString()
+          returnCode = 'DEV-' + tsFallback + '-' + randFallback
+        }
+
+        // Referência à entrega de origem (código dela, ex. ENT-0001), enviada pelo fluxo de devolução
+        let originDeliveryCode = (body.delivery_code || '').toString().trim()
+        if (body.delivery_id) {
+          try {
+            const originDelivery = txApp.findRecordById('reseller_deliveries', body.delivery_id)
+            originDeliveryCode = originDelivery.getString('code')
+          } catch (_) {}
+        }
 
         let totalReturnedQty = 0
         let totalPendingQty = 0
@@ -485,6 +554,9 @@ routerAdd(
         returnRec.set('operator', authUser.id)
         returnRec.set('status', 'completed')
         returnRec.set('notes', notes || '')
+        if (originDeliveryCode) {
+          returnRec.set('delivery_code', originDeliveryCode)
+        }
 
         for (let i = 0; i < items.length; i++) {
           const it = items[i]

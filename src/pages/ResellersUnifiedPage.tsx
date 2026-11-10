@@ -76,6 +76,7 @@ import { BarcodeScannerModal } from '@/components/pos/BarcodeScannerModal'
 import { ResellerDirectCreateModal } from '@/components/resellers/ResellerDirectCreateModal'
 import pb from '@/lib/pocketbase/client'
 import { getBackendErrorMessage } from '@/lib/backendErrors'
+import { getDeliveryDisplayStatus } from '@/lib/deliveryStatus'
 import { toast } from 'sonner'
 
 export default function ResellersUnifiedPage() {
@@ -1129,6 +1130,9 @@ export default function ResellersUnifiedPage() {
         items: itemsToProcess,
         notes: returnNotes,
         commission_rate: effectiveCommission,
+        // Rastreio (v0.0.144): devolução fica ligada à entrega em conferência (mais recente em aberto)
+        delivery_id: deliveries[0]?.id,
+        delivery_code: deliveries[0]?.code,
       })
 
       if (isFullReturnClosing) {
@@ -1580,11 +1584,15 @@ export default function ResellersUnifiedPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {deliveries.map((del) => {
                     const isAccepted = del.status === 'accepted'
+                    const delDisplay = getDeliveryDisplayStatus(del, returnsHistory)
+                    const isFullyReturned = delDisplay.isFullyReturned
                     return (
                       <Card
                         key={del.id}
                         onClick={() => setIsStockModalOpen(true)}
-                        className="border-[#E5DFD5] hover:border-[#7A5C2E] hover:shadow-md transition-all bg-white flex flex-col justify-between cursor-pointer group"
+                        className={`border-[#E5DFD5] hover:border-[#7A5C2E] hover:shadow-md transition-all bg-white flex flex-col justify-between cursor-pointer group ${
+                          isFullyReturned ? 'opacity-80' : ''
+                        }`}
                       >
                         <CardHeader className="pb-3 border-b border-[#E5DFD5]/60 group-hover:bg-[#FDFBF7] transition-colors">
                           <div className="flex items-center justify-between">
@@ -1592,14 +1600,20 @@ export default function ResellersUnifiedPage() {
                               {del.code}
                             </span>
                             <Badge
-                              variant={isAccepted ? 'default' : 'secondary'}
+                              variant={isFullyReturned || isAccepted ? 'default' : 'secondary'}
                               className={`text-[10px] ${
-                                isAccepted
-                                  ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100'
-                                  : 'bg-amber-100 text-amber-800 hover:bg-amber-100'
+                                isFullyReturned
+                                  ? 'bg-slate-200 text-slate-800 hover:bg-slate-200'
+                                  : isAccepted
+                                    ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100'
+                                    : 'bg-amber-100 text-amber-800 hover:bg-amber-100'
                               }`}
                             >
-                              {isAccepted ? (
+                              {isFullyReturned ? (
+                                <span className="flex items-center gap-1">
+                                  <CheckCircle2 className="h-3 w-3" /> {delDisplay.label}
+                                </span>
+                              ) : isAccepted ? (
                                 <span className="flex items-center gap-1">
                                   <CheckCircle2 className="h-3 w-3" /> Recebida / Assinada
                                 </span>
@@ -1672,14 +1686,29 @@ export default function ResellersUnifiedPage() {
                           )}
 
                           {/* Dica de clique para abrir joias em poder */}
-                          <div className="pt-2 border-t border-[#E5DFD5]/40 flex items-center justify-between text-[11px] text-[#7A5C2E]">
-                            <span className="flex items-center gap-1 font-medium">
-                              <Boxes className="h-3.5 w-3.5" />
-                              Ver joias em poder (
-                              {stockItems.reduce((acc, it) => acc + it.quantity, 0)} un)
-                            </span>
-                            <span className="text-[10px] text-[#6B655E]">Clique para detalhes</span>
-                          </div>
+                          {!isFullyReturned && (
+                            <div className="pt-2 border-t border-[#E5DFD5]/40 flex items-center justify-between text-[11px] text-[#7A5C2E]">
+                              <span className="flex items-center gap-1 font-medium">
+                                <Boxes className="h-3.5 w-3.5" />
+                                Ver joias em poder (
+                                {stockItems.reduce((acc, it) => acc + it.quantity, 0)} un)
+                              </span>
+                              <span className="text-[10px] text-[#6B655E]">
+                                Clique para detalhes
+                              </span>
+                            </div>
+                          )}
+                          {isFullyReturned && (
+                            <div className="pt-2 border-t border-[#E5DFD5]/40 flex items-center justify-between text-[11px] text-slate-500">
+                              <span className="flex items-center gap-1 font-medium">
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                                Todas as peças desta entrega já foram devolvidas
+                              </span>
+                              <span className="text-[10px] text-[#6B655E]">
+                                Clique para detalhes
+                              </span>
+                            </div>
+                          )}
                         </CardContent>
 
                         <div
@@ -1699,7 +1728,7 @@ export default function ResellersUnifiedPage() {
                             </Button>
                           )}
 
-                          {!isAccepted && (
+                          {!isAccepted && !isFullyReturned && (
                             <Button
                               variant="outline"
                               size="sm"
@@ -1836,6 +1865,11 @@ export default function ResellersUnifiedPage() {
                             <tr key={ret.id} className="hover:bg-[#FDFBF7]">
                               <td className="py-2.5 px-4 font-mono font-bold text-[#7A5C2E]">
                                 {ret.code}
+                                {ret.delivery_code && (
+                                  <p className="font-sans font-normal text-[10px] text-[#6B655E] mt-0.5">
+                                    Entrega {ret.delivery_code}
+                                  </p>
+                                )}
                               </td>
                               <td className="py-2.5 px-4 text-[#6B655E]">
                                 {formatDateTime(ret.created)}
