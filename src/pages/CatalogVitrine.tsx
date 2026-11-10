@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react'
+import { useAuth } from '@/contexts/AuthContext'
+import { toast } from 'sonner'
 import pb from '@/lib/pocketbase/client'
 import { productService } from '@/services/productService'
 import { productCreationService } from '@/services/productCreationService'
@@ -9,13 +11,13 @@ import { fetchResellerStockQuantityMap, getProductTotalStock } from '@/services/
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ImageLightbox } from '@/components/ImageLightbox'
-import { Search, Gem, Eye, Sparkles, ZoomIn } from 'lucide-react'
+import { Search, Gem, Eye, ZoomIn, Store, Share2 } from 'lucide-react'
 import { LOGO_ICON_URL } from '@/constants/branding'
 
 export default function CatalogVitrine() {
+  const { isReseller } = useAuth()
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   // Categorias de cada produto: vínculos product_category_links → product_categories,
@@ -28,6 +30,41 @@ export default function CatalogVitrine() {
   // Filtros Metal e Tipo vêm da página de Categorias (product_categories.group)
   const [metalCategories, setMetalCategories] = useState<ProductCategory[]>([])
   const [tipoCategories, setTipoCategories] = useState<ProductCategory[]>([])
+
+  // Loja Virtual: própria para revendedora logada; para admin/equipe, a mais recente com loja pública.
+  const [storeUrl, setStoreUrl] = useState('')
+  useEffect(() => {
+    if (isReseller && pb.authStore.record) {
+      setStoreUrl(`/loja/${pb.authStore.record.id}`)
+      return
+    }
+    pb.collection('resellers')
+      .getList(1, 1, { sort: '-created', filter: "status = 'active'" })
+      .then((res) => {
+        if (res.items.length > 0) setStoreUrl(`/loja/${res.items[0].id}`)
+      })
+      .catch(() => {})
+  }, [isReseller])
+
+  const handleShareStore = () => {
+    if (!storeUrl) {
+      toast.info('Nenhuma loja virtual disponível para compartilhar.')
+      return
+    }
+    const link = window.location.origin + storeUrl
+    if (navigator.share) {
+      navigator
+        .share({
+          title: 'Scaglioni Joias',
+          text: 'Confira nossa Loja Virtual Scaglioni Joias',
+          url: link,
+        })
+        .catch(() => {})
+    } else {
+      navigator.clipboard?.writeText(link).catch(() => {})
+      toast.success('Link copiado')
+    }
+  }
 
   // Filters
   const [search, setSearch] = useState('')
@@ -155,20 +192,21 @@ export default function CatalogVitrine() {
     <div className="space-y-6">
       {/* Vitrine Hero Header */}
       <div className="rounded-2xl p-6 md:p-8 bg-gradient-to-r from-[#F3EAD8] via-[#FDFBF7] to-[#F3EAD8] border border-[#E5DFD5] shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div>
-          <Badge
+        <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+          <a href={storeUrl} target="_blank" rel="noopener noreferrer">
+            <Button className="w-full sm:w-auto bg-[#7A5C2E] hover:bg-[#5E441D]">
+              <Store className="h-4 w-4 mr-2" />
+              Loja Virtual
+            </Button>
+          </a>
+          <Button
             variant="outline"
-            className="border-[#C6A664] text-[#7A5C2E] bg-white/60 mb-2 font-medium"
+            className="w-full sm:w-auto border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8]"
+            onClick={handleShareStore}
           >
-            <Sparkles className="h-3 w-3 mr-1" /> Catálogo & Vitrine Exclusiva
-          </Badge>
-          <h1 className="font-serif text-3xl md:text-4xl font-bold text-[#2D2A26]">
-            Coleção Scaglioni Joias
-          </h1>
-          <p className="text-sm text-[#6B655E] mt-1 max-w-xl">
-            Apresentação refinada para clientes e revendedores com fotos em alta definição, detalhes
-            técnicos e valores de venda.
-          </p>
+            <Share2 className="h-4 w-4 mr-2" />
+            Compartilhar
+          </Button>
         </div>
 
         <div className="h-16 w-16 rounded-2xl bg-black border border-[#C6A664]/50 p-2 flex items-center justify-center shrink-0 shadow-md">
@@ -240,7 +278,7 @@ export default function CatalogVitrine() {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6">
           {products.map((p) => {
             const photoUrl = getProductDisplayPhoto(p)
 

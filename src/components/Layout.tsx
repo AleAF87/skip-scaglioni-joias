@@ -30,9 +30,13 @@ import {
   Tag,
   Bot,
   QrCode,
+  Share2,
+  PackagePlus,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { useSearchParams } from 'react-router-dom'
+import { toast } from 'sonner'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { APP_VERSION } from '@/version'
 import { LOGO_FULL_URL, LOGO_ICON_URL } from '@/constants/branding'
@@ -46,6 +50,12 @@ interface NavItemDef {
   highlight?: boolean
   badgeText?: string
   isRestricted?: boolean
+  /** Abre em nova aba (ex.: Loja Virtual da revendedora) */
+  targetBlank?: boolean
+  /** Ação de compartilhar/copiar o link da Loja Virtual da revendedora em contexto */
+  shareAction?: boolean
+  /** Abre o modal Nova Entrega na página de Revendedoras (contexto da revendedora) */
+  openDeliveryModal?: boolean
 }
 
 export default function Layout() {
@@ -141,6 +151,30 @@ export default function Layout() {
   const navigate = useNavigate()
   const location = useLocation()
   const { isCartDirty, requestLeave } = usePdvGuard()
+  const [searchParams] = useSearchParams()
+
+  // Contexto da revendedora selecionada: /revendedoras?reseller=<id> (ResellersUnifiedPage)
+  // Quando há revendedora em contexto, os botões de ação da tela "Revendedora" aparecem no menu.
+  const resellerId = canManageInternal ? searchParams.get('reseller') || '' : ''
+  const hasResellerContext = Boolean(resellerId)
+
+  const handleShareStore = useCallback(() => {
+    const link = window.location.origin + '/loja/' + (resellerId || '')
+    if (!resellerId) return
+    if (navigator.share) {
+      navigator
+        .share({ title: 'Scaglioni Joias', text: 'Loja Virtual Scaglioni Joias', url: link })
+        .catch(() => {})
+    } else {
+      navigator.clipboard?.writeText(link).catch(() => {})
+      toast.success('Link copiado')
+    }
+  }, [resellerId])
+
+  const handleOpenDeliveryModal = useCallback(() => {
+    if (!resellerId) return
+    window.dispatchEvent(new CustomEvent('scaglioni:open-new-delivery', { detail: { resellerId } }))
+  }, [resellerId])
 
   // Interceptar cliques em links ou navegações quando estiver no PDV e houver itens
   const handleNavClick = useCallback(
@@ -208,6 +242,29 @@ export default function Layout() {
           label: 'Revendedoras',
           icon: Users2,
         },
+        // Ações da tela "Revendedora" (contexto de revendedora selecionada via ?reseller=)
+        ...(hasResellerContext
+          ? [
+              {
+                to: '/revendedoras',
+                label: 'Loja Virtual',
+                icon: Store,
+                targetBlank: true,
+              },
+              {
+                to: '/revendedoras',
+                label: 'Compartilhar Loja',
+                icon: Share2,
+                shareAction: true,
+              },
+              {
+                to: '/revendedoras',
+                label: 'Nova Entrega',
+                icon: PackagePlus,
+                openDeliveryModal: true,
+              },
+            ]
+          : []),
         { to: '/clientes', label: 'Clientes', icon: Users },
         { to: '/vitrine', label: 'Vitrine de Joias', icon: Store },
         // Páginas restritas a nível superior exibidas em vermelho
@@ -301,6 +358,29 @@ export default function Layout() {
             ]
           : []),
 
+        // Ações da tela "Revendedora" (contexto de revendedora selecionada via ?reseller=)
+        ...(hasResellerContext
+          ? [
+              {
+                to: '/revendedoras',
+                label: 'Loja Virtual',
+                icon: Store,
+                targetBlank: true,
+              },
+              {
+                to: '/revendedoras',
+                label: 'Compartilhar Loja',
+                icon: Share2,
+                shareAction: true,
+              },
+              {
+                to: '/revendedoras',
+                label: 'Nova Entrega',
+                icon: PackagePlus,
+                openDeliveryModal: true,
+              },
+            ]
+          : []),
         { to: '/clientes', label: 'Clientes', icon: Users },
         { to: '/vitrine', label: 'Vitrine de Joias', icon: Store },
         ...(isAdmin || (canManageInternal && !isReseller)
@@ -557,6 +637,21 @@ export default function Layout() {
             {navItems.map((item) => {
               const Icon = item.icon
               const isActive = location.pathname.startsWith(item.to)
+              const clickHandlers = {
+                onClick: (e: React.MouseEvent<HTMLAnchorElement>) => {
+                  if (item.shareAction) {
+                    e.preventDefault()
+                    handleShareStore()
+                    return
+                  }
+                  if (item.openDeliveryModal) {
+                    e.preventDefault()
+                    handleOpenDeliveryModal()
+                    return
+                  }
+                  handleNavClick(e, item.to)
+                },
+              }
 
               if (sidebarCollapsed) {
                 return (
@@ -564,7 +659,9 @@ export default function Layout() {
                     <TooltipTrigger asChild>
                       <NavLink
                         to={item.to}
-                        onClick={(e) => handleNavClick(e, item.to)}
+                        {...clickHandlers}
+                        target={item.targetBlank ? '_blank' : undefined}
+                        rel={item.targetBlank ? 'noopener noreferrer' : undefined}
                         className={cn(
                           'flex items-center justify-center h-10 w-full rounded-xl transition-all duration-150',
                           item.isRestricted
@@ -614,7 +711,9 @@ export default function Layout() {
                 <NavLink
                   key={item.to}
                   to={item.to}
-                  onClick={(e) => handleNavClick(e, item.to)}
+                  {...clickHandlers}
+                  target={item.targetBlank ? '_blank' : undefined}
+                  rel={item.targetBlank ? 'noopener noreferrer' : undefined}
                   className={cn(
                     'flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150',
                     item.isRestricted
@@ -835,9 +934,21 @@ export default function Layout() {
                         to={item.to}
                         ref={isActive ? activeMobileItemRef : undefined}
                         onClick={(e) => {
+                          if (item.shareAction) {
+                            e.preventDefault()
+                            handleShareStore()
+                            return
+                          }
+                          if (item.openDeliveryModal) {
+                            e.preventDefault()
+                            handleOpenDeliveryModal()
+                            return
+                          }
                           handleNavClick(e, item.to)
                           if (!isCartDirty) closeMobileMenu()
                         }}
+                        target={item.targetBlank ? '_blank' : undefined}
+                        rel={item.targetBlank ? 'noopener noreferrer' : undefined}
                         className={cn(
                           'flex items-center justify-between px-3 py-2.5 min-h-[46px] rounded-xl text-sm font-medium transition-colors select-none active:scale-[0.99]',
                           item.isRestricted

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
   Users2,
@@ -100,6 +100,29 @@ export default function ResellersUnifiedPage() {
 
   // Modais do Perfil
   const [isNewDeliveryModalOpen, setIsNewDeliveryModalOpen] = useState(false)
+
+  // Listener do menu lateral (Layout): item "Nova Entrega" dispara este evento
+  // para abrir o modal de nova entrega na revendedora em contexto.
+  const openNewDeliveryModal = useCallback(() => {
+    if (!currentReseller) return
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      next.set('reseller', currentReseller.id)
+      return next
+    })
+    setIsNewDeliveryModalOpen(true)
+  }, [currentReseller, setSearchParams])
+
+  useEffect(() => {
+    const handler = (evt: Event) => {
+      const detail = (evt as CustomEvent<{ resellerId?: string }>).detail
+      if (detail?.resellerId && detail.resellerId !== currentReseller?.id) return
+      openNewDeliveryModal()
+    }
+    window.addEventListener('scaglioni:open-new-delivery', handler)
+    return () => window.removeEventListener('scaglioni:open-new-delivery', handler)
+  }, [openNewDeliveryModal, currentReseller?.id])
+
   const [isStockModalOpen, setIsStockModalOpen] = useState(false)
   const [isConferenceModalOpen, setIsConferenceModalOpen] = useState(false)
   const [isDirectCreateModalOpen, setIsDirectCreateModalOpen] = useState(false)
@@ -483,6 +506,32 @@ export default function ResellersUnifiedPage() {
       console.error('Erro ao carregar histórico legado:', err)
     }
   }
+
+  // Mapas derivados para o card de entrega (v0.0.146):
+  // - produto por id (para imagem clicável na tabela de itens)
+  // - qtde devolvida por produto (somando devoluções completed vinculadas à entrega)
+  const productById = useMemo(() => {
+    const map = new Map<string, Product>()
+    availableProducts.forEach((p) => {
+      if (!map.has(p.id)) map.set(p.id, p)
+    })
+    stockItems.forEach((it) => {
+      const prod = it.expand?.product
+      if (prod && !map.has(prod.id)) map.set(prod.id, prod)
+    })
+    return map
+  }, [availableProducts, stockItems])
+
+  const deliveryReturnedQtyByProduct = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const ret of returnsHistory) {
+      if (ret.status !== 'completed') continue
+      for (const item of ret.items || []) {
+        map.set(item.product_id, (map.get(item.product_id) || 0) + (item.returned_qty || 0))
+      }
+    }
+    return map
+  }, [returnsHistory])
 
   // Load available products for delivery creation
   const loadAvailableProducts = async (term = '') => {
@@ -1626,13 +1675,10 @@ export default function ResellersUnifiedPage() {
                               )}
                             </Badge>
                           </div>
-                          <CardTitle className="font-serif text-base font-bold text-[#2D2A26] mt-2 truncate flex items-center justify-between">
-                            <span>{currentReseller.name}</span>
+                          <CardTitle className="font-serif text-base font-bold text-[#2D2A26] mt-2 flex items-center justify-between">
+                            <span>{formatDateTime(del.created)}</span>
                             <ChevronRight className="h-4 w-4 text-[#C6A664] opacity-0 group-hover:opacity-100 transition-opacity" />
                           </CardTitle>
-                          <p className="text-[11px] text-[#6B655E]">
-                            {formatDateTime(del.created)}
-                          </p>
                         </CardHeader>
 
                         <CardContent className="py-3 text-xs space-y-2 flex-1">
@@ -1648,27 +1694,102 @@ export default function ResellersUnifiedPage() {
                               {formatCurrency(del.total_value)}
                             </strong>
                           </div>
+                          {/* Lucro estimado da revendedora: 30% fixo sobre o valor de venda das peças */}
+                          <div className="flex justify-between items-center text-[#6B655E]">
+                            <span>Valor estimado de lucro (30%):</span>
+                            <strong className="text-emerald-700 font-bold text-sm">
+                              {formatCurrency(del.total_value * 0.3)}
+                            </strong>
+                          </div>
 
+                          {/* Tabela de itens DENTRO do card (imagem clicável abre a peça no lightbox) */}
                           {del.items && del.items.length > 0 && (
                             <div className="pt-2 border-t border-[#E5DFD5]/40 space-y-1.5">
                               <p className="text-[10px] uppercase tracking-wide text-[#8C8275]">
                                 Itens da entrega
                               </p>
-                              {del.items.map((it, idx) => (
-                                <div
-                                  key={`${it.product_id}-${idx}`}
-                                  className="flex justify-between items-start gap-2 text-[11px]"
-                                >
-                                  <span className="min-w-0 text-[#2D2A26]">
-                                    <span className="font-mono text-[#7A5C2E]">{it.code}</span>{' '}
-                                    {it.description}
-                                    {it.quantity > 1 ? ` × ${it.quantity}` : ''}
-                                  </span>
-                                  <strong className="shrink-0 text-[#2D2A26] font-semibold">
-                                    {formatCurrency(it.subtotal)}
-                                  </strong>
-                                </div>
-                              ))}
+                              <table className="w-full text-[10px]">
+                                <thead>
+                                  <tr className="text-[#8C8275] text-left">
+                                    <th className="font-medium py-1 pr-1"></th>
+                                    <th className="font-medium py-1 pr-1">Cód.</th>
+                                    <th className="font-medium py-1">Peça</th>
+                                    <th className="font-medium py-1 text-right">Venda</th>
+                                    <th
+                                      className="font-medium py-1 text-center"
+                                      title="Qtde recebida"
+                                    >
+                                      Rec.
+                                    </th>
+                                    <th
+                                      className="font-medium py-1 text-center"
+                                      title="Qtde devolvida"
+                                    >
+                                      Dev.
+                                    </th>
+                                    <th
+                                      className="font-medium py-1 text-center"
+                                      title="Qtde em posse"
+                                    >
+                                      Posse
+                                    </th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {del.items.map((it, idx) => {
+                                    const prod = productById.get(it.product_id)
+                                    const itemPhotoUrl = prod ? getProductDisplayPhoto(prod) : null
+                                    const returnedQty =
+                                      deliveryReturnedQtyByProduct.get(it.product_id) || 0
+                                    const inHandQty = Math.max(0, it.quantity - returnedQty)
+                                    return (
+                                      <tr
+                                        key={`${it.product_id}-${idx}`}
+                                        className="border-t border-[#E5DFD5]/40 align-middle"
+                                      >
+                                        <td className="py-1 pr-1">
+                                          {itemPhotoUrl && (
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation()
+                                                if (prod) handleOpenLightbox(prod, 0)
+                                              }}
+                                              className="block h-9 w-9 rounded border border-[#E5DFD5] overflow-hidden hover:border-[#C6A664] transition-colors"
+                                              title={`Ver ${it.code}`}
+                                            >
+                                              <img
+                                                src={itemPhotoUrl}
+                                                alt={it.code}
+                                                className="h-full w-full object-cover"
+                                                loading="lazy"
+                                              />
+                                            </button>
+                                          )}
+                                        </td>
+                                        <td className="py-1 pr-1 font-mono text-[#7A5C2E] whitespace-nowrap">
+                                          {it.code}
+                                        </td>
+                                        <td className="py-1 text-[#2D2A26] max-w-[90px] truncate">
+                                          {it.description}
+                                        </td>
+                                        <td className="py-1 text-right text-[#2D2A26] whitespace-nowrap">
+                                          {formatCurrency(it.selling_price)}
+                                        </td>
+                                        <td className="py-1 text-center font-semibold text-[#2D2A26]">
+                                          {it.quantity}
+                                        </td>
+                                        <td className="py-1 text-center text-slate-600">
+                                          {returnedQty}
+                                        </td>
+                                        <td className="py-1 text-center font-semibold text-[#7A5C2E]">
+                                          {inHandQty}
+                                        </td>
+                                      </tr>
+                                    )
+                                  })}
+                                </tbody>
+                              </table>
                             </div>
                           )}
 
