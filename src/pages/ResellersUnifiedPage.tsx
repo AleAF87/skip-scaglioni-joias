@@ -77,6 +77,7 @@ import { ResellerDirectCreateModal } from '@/components/resellers/ResellerDirect
 import pb from '@/lib/pocketbase/client'
 import { getBackendErrorMessage } from '@/lib/backendErrors'
 import { getDeliveryDisplayStatus } from '@/lib/deliveryStatus'
+import { compressSignatureDataUrl } from '@/lib/signatureCompression'
 import { toast } from 'sonner'
 
 export default function ResellersUnifiedPage() {
@@ -1109,9 +1110,12 @@ export default function ResellersUnifiedPage() {
   const handleSaveSignature = async (dataUrl: string) => {
     if (!signingDelivery || !currentReseller) return
     try {
+      // Rede de segurança: comprime a assinatura (largura máx. 400px, JPEG)
+      // para que o payload caiba em qualquer limite residual do campo de texto.
+      const compressedSignature = await compressSignatureDataUrl(dataUrl)
       await resellerStockService.signDelivery({
         delivery_id: signingDelivery.id,
-        signature_data: dataUrl,
+        signature_data: compressedSignature,
         signer_name: currentReseller.name || user?.name,
       })
       toast.success('Assinatura da entrega confirmada com sucesso!')

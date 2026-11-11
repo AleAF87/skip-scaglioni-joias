@@ -27,6 +27,7 @@ import { Badge } from '@/components/ui/badge'
 import { TouchSignaturePad } from '@/components/TouchSignaturePad'
 import { getBackendErrorMessage } from '@/lib/backendErrors'
 import { getDeliveryDisplayStatus } from '@/lib/deliveryStatus'
+import { compressSignatureDataUrl } from '@/lib/signatureCompression'
 import { DeliveryReceiptModal } from '@/components/DeliveryReceiptModal'
 import { toast } from 'sonner'
 import { Link } from 'react-router-dom'
@@ -258,9 +259,12 @@ export default function ResellerDeliveriesAndStock() {
   const handleSaveSignature = async (dataUrl: string) => {
     if (!signingDelivery) return
     try {
+      // Rede de segurança: comprime a assinatura (largura máx. 400px, JPEG)
+      // para que o payload caiba em qualquer limite residual do campo de texto.
+      const compressedSignature = await compressSignatureDataUrl(dataUrl)
       await resellerStockService.signDelivery({
         delivery_id: signingDelivery.id,
-        signature_data: dataUrl,
+        signature_data: compressedSignature,
         signer_name: currentReseller?.name || user?.name,
       })
       toast.success('Assinatura salva com sucesso!')
