@@ -1767,7 +1767,7 @@ export default function ResellersUnifiedPage() {
                                     const inHandQty = Math.max(0, it.quantity - returnedQty)
                                     return (
                                       <tr
-                                        key={`${it.product_id}-${idx}`}
+                                        key={`${it.product_id || 'sem-id'}-${it.code || 'sem-cod'}-${idx}`}
                                         className="border-t border-[#E5DFD5]/40 align-middle"
                                       >
                                         <td className="py-1 pr-1">

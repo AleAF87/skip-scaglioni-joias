@@ -335,8 +335,8 @@ export default function ResellerDeliveriesAndStock() {
                 className="flex h-9 w-full sm:w-64 rounded-md border border-[#E5DFD5] bg-white px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#C6A664]"
               >
                 <option value="">Todas as Revendedoras</option>
-                {resellers.map((r) => (
-                  <option key={r.id} value={r.id}>
+                {resellers.map((r, idxRes) => (
+                  <option key={`${r.id || 'sem-id'}-${idxRes}`} value={r.id}>
                     {r.name} {r.commission_rate ? `(${r.commission_rate}% comissão)` : ''}
                   </option>
                 ))}
@@ -421,11 +421,11 @@ export default function ResellerDeliveriesAndStock() {
             </Card>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {deliveries.map((del) => {
+              {deliveries.map((del, idxDel) => {
                 const isAccepted = del.status === 'accepted'
                 return (
                   <Card
-                    key={del.id}
+                    key={`${del.id || 'sem-id'}-${del.code || 'sem-cod'}-${idxDel}`}
                     className="border-[#E5DFD5] hover:shadow-md transition-shadow bg-white flex flex-col justify-between"
                   >
                     <CardHeader className="pb-3 border-b border-[#E5DFD5]/60">
@@ -589,11 +589,14 @@ export default function ResellerDeliveriesAndStock() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#E5DFD5]">
-                    {stockItems.map((item) => {
+                    {stockItems.map((item, idxStock) => {
                       const prod = item.expand?.product
                       const price = item.selling_price || prod?.selling_price || 0
                       return (
-                        <tr key={item.id} className="hover:bg-[#FDFBF7]">
+                        <tr
+                          key={`${item.id || 'sem-id'}-${item.product || 'sem-prod'}-${idxStock}`}
+                          className="hover:bg-[#FDFBF7]"
+                        >
                           <td className="py-3 px-4 font-mono font-bold text-[#7A5C2E]">
                             {prod?.code || '—'}
                           </td>
@@ -658,9 +661,9 @@ export default function ResellerDeliveriesAndStock() {
                     Nenhum produto disponível em estoque no momento.
                   </p>
                 ) : (
-                  availableProducts.map((prod) => (
+                  availableProducts.map((prod, idxProd) => (
                     <div
-                      key={prod.id}
+                      key={`${prod.id || 'sem-id'}-${prod.code || 'sem-cod'}-${idxProd}`}
                       className="flex items-center justify-between p-2.5 rounded-xl border border-[#E5DFD5] hover:border-[#C6A664] hover:bg-[#FDFBF7] transition-all"
                     >
                       <div className="min-w-0 flex-1 pr-3">
@@ -716,8 +719,8 @@ export default function ResellerDeliveriesAndStock() {
                     className="flex h-9 w-full rounded-md border border-[#E5DFD5] bg-white px-3 py-1 text-xs shadow-xs mt-1"
                   >
                     <option value="">Selecione...</option>
-                    {resellers.map((r) => (
-                      <option key={r.id} value={r.id}>
+                    {resellers.map((r, idxRes) => (
+                      <option key={`${r.id || 'sem-id'}-${idxRes}`} value={r.id}>
                         {r.name} ({r.phone || r.email})
                       </option>
                     ))}
@@ -732,9 +735,9 @@ export default function ResellerDeliveriesAndStock() {
                   </div>
                 ) : (
                   <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                    {deliveryItems.map((it) => (
+                    {deliveryItems.map((it, idxItem) => (
                       <div
-                        key={it.product.id}
+                        key={`${it.product?.id || 'sem-id'}-${it.product?.code || 'sem-cod'}-${idxItem}`}
                         className="flex items-center justify-between gap-2 p-2 rounded-lg bg-[#FDFBF7] border border-[#E5DFD5]/80 text-xs"
                       >
                         <div className="min-w-0 flex-1">
