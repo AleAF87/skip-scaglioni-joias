@@ -421,7 +421,7 @@ export interface ResellerReturn {
   total_pending_value_due: number
   // Comissão aplicada neste fechamento (escolhida pelo admin: 30% / 35% / 40%)
   commission_rate?: number
-  // Código da entrega de origem (ex. ENT-0001) — v0.0.144; antigos vêm sem
+  // Código da entrega de origem (numeração pura, ex. "1") — v0.0.152
   delivery_code?: string
   notes?: string
   created: string

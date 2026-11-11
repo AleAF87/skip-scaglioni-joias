@@ -181,7 +181,7 @@ export const resellerStockService = {
     notes?: string
     // Comissão escolhida pelo admin/superadmin na hora do fechamento (30% / 35% / 40%)
     commission_rate?: number
-    // Entrega de origem (v0.0.144): gravada na devolução p/ rastreio ("Devolução DEV-0002 · Entrega ENT-0001")
+    // Entrega de origem (v0.0.144): gravada na devolução p/ rastreio ("Devolução 2 · Entrega 1")
     delivery_id?: string
     delivery_code?: string
   }) {

@@ -317,6 +317,16 @@ export default function ResellersUnifiedPage() {
     setSearchParams({}, { replace: true })
   }
 
+  // Entregas realizadas (v0.0.152): SOMENTE entregas com peças ainda em aberto
+  // (aguardando assinatura ou com peças em posse da revendedora). Entrega 100%
+  // devolvida sai desta lista e fica consultável apenas no histórico de
+  // devoluções (aba Devolução & Pendências / Histórico & Fechamentos).
+  const openDeliveries = useMemo(
+    () =>
+      deliveries.filter((del) => !getDeliveryDisplayStatus(del, returnsHistory).isFullyReturned),
+    [deliveries, returnsHistory],
+  )
+
   // 2. Load context data whenever currentReseller changes with realtime auto-refresh
   useEffect(() => {
     if (!currentReseller?.id) return
@@ -1258,7 +1268,7 @@ export default function ResellersUnifiedPage() {
         total_pending_qty: res.total_pending_qty,
         total_pending_value_due: res.total_pending_value_due,
         commission_rate: res.commission_rate ?? effectiveCommission,
-        // Rastreio: código real da entrega de origem (ENT-XXXX) vindo do backend
+        // Rastreio: código real da entrega de origem (numeração pura) vindo do backend
         delivery_code: res.delivery_code || deliveries[0]?.code,
         notes: returnNotes,
         created: new Date().toISOString(),
@@ -1642,7 +1652,7 @@ export default function ResellersUnifiedPage() {
                 <div className="p-12 text-center text-[#8C8275] text-xs">
                   Carregando entregas...
                 </div>
-              ) : deliveries.length === 0 ? (
+              ) : openDeliveries.length === 0 ? (
                 <Card className="border-[#E5DFD5] p-12 text-center bg-white">
                   <FileText className="h-10 w-10 text-[#C6A664] mx-auto mb-3 opacity-60" />
                   <p className="text-base font-semibold text-[#2D2A26]">
@@ -1656,7 +1666,7 @@ export default function ResellersUnifiedPage() {
                 </Card>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {deliveries.map((del, idxDel) => {
+                  {openDeliveries.map((del, idxDel) => {
                     const isAccepted = del.status === 'accepted'
                     const delDisplay = getDeliveryDisplayStatus(del, returnsHistory)
                     const isFullyReturned = delDisplay.isFullyReturned
@@ -1724,97 +1734,6 @@ export default function ResellersUnifiedPage() {
                               {formatCurrency(del.total_value * 0.3)}
                             </strong>
                           </div>
-
-                          {/* Tabela de itens DENTRO do card (imagem clicável abre a peça no lightbox) */}
-                          {del.items && del.items.length > 0 && (
-                            <div className="pt-2 border-t border-[#E5DFD5]/40 space-y-1.5">
-                              <p className="text-[10px] uppercase tracking-wide text-[#8C8275]">
-                                Itens da entrega
-                              </p>
-                              <table className="w-full text-[10px]">
-                                <thead>
-                                  <tr className="text-[#8C8275] text-left">
-                                    <th className="font-medium py-1 pr-1"></th>
-                                    <th className="font-medium py-1 pr-1">Cód.</th>
-                                    <th className="font-medium py-1">Peça</th>
-                                    <th className="font-medium py-1 text-right">Venda</th>
-                                    <th
-                                      className="font-medium py-1 text-center"
-                                      title="Qtde recebida"
-                                    >
-                                      Rec.
-                                    </th>
-                                    <th
-                                      className="font-medium py-1 text-center"
-                                      title="Qtde devolvida"
-                                    >
-                                      Dev.
-                                    </th>
-                                    <th
-                                      className="font-medium py-1 text-center"
-                                      title="Qtde em posse"
-                                    >
-                                      Posse
-                                    </th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {del.items.map((it, idx) => {
-                                    const prod = productById.get(it.product_id)
-                                    const itemPhotoUrl = prod ? getProductDisplayPhoto(prod) : null
-                                    const returnedQty =
-                                      deliveryReturnedQtyByProduct.get(it.product_id) || 0
-                                    const inHandQty = Math.max(0, it.quantity - returnedQty)
-                                    return (
-                                      <tr
-                                        key={`${it.product_id || 'sem-id'}-${it.code || 'sem-cod'}-${idx}`}
-                                        className="border-t border-[#E5DFD5]/40 align-middle"
-                                      >
-                                        <td className="py-1 pr-1">
-                                          {itemPhotoUrl && (
-                                            <button
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.stopPropagation()
-                                                if (prod) handleOpenLightbox(prod, 0)
-                                              }}
-                                              className="block h-9 w-9 rounded border border-[#E5DFD5] overflow-hidden hover:border-[#C6A664] transition-colors"
-                                              title={`Ver ${it.code}`}
-                                            >
-                                              <img
-                                                src={itemPhotoUrl}
-                                                alt={it.code}
-                                                className="h-full w-full object-cover"
-                                                loading="lazy"
-                                              />
-                                            </button>
-                                          )}
-                                        </td>
-                                        <td className="py-1 pr-1 font-mono text-[#7A5C2E] whitespace-nowrap">
-                                          {it.code}
-                                        </td>
-                                        <td className="py-1 text-[#2D2A26] max-w-[90px] truncate">
-                                          {it.description}
-                                        </td>
-                                        <td className="py-1 text-right text-[#2D2A26] whitespace-nowrap">
-                                          {formatCurrency(it.selling_price)}
-                                        </td>
-                                        <td className="py-1 text-center font-semibold text-[#2D2A26]">
-                                          {it.quantity}
-                                        </td>
-                                        <td className="py-1 text-center text-slate-600">
-                                          {returnedQty}
-                                        </td>
-                                        <td className="py-1 text-center font-semibold text-[#7A5C2E]">
-                                          {inHandQty}
-                                        </td>
-                                      </tr>
-                                    )
-                                  })}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
 
                           {del.notes && (
                             <p className="text-[11px] text-[#8C8275] bg-[#FDFBF7] p-2 rounded border border-[#E5DFD5]/60 italic truncate">
@@ -1932,10 +1851,11 @@ export default function ResellersUnifiedPage() {
                         Entregas Feitas
                       </p>
                       <p className="text-xl font-bold font-serif text-[#2D2A26] mt-1">
-                        {deliveries.length}
+                        {openDeliveries.length}
                       </p>
                       <p className="text-[10px] text-[#6B655E]">
-                        {deliveries.reduce((acc, d) => acc + (d.total_items_count || 0), 0)} peças
+                        {openDeliveries.reduce((acc, d) => acc + (d.total_items_count || 0), 0)}{' '}
+                        peças
                       </p>
                     </div>
 

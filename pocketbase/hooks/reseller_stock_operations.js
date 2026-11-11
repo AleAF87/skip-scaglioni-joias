@@ -127,20 +127,16 @@ routerAdd(
           })
         }
 
-        // Código sequencial curto da entrega (ENT-0001, ENT-0002…) via app_sequences (atômico).
-        // Entregas antigas (formato ENT-NNNNNN-NNNN) não são alteradas.
+        // Código da entrega (v0.0.152): numeração PURA (1, 2, 3…) — sem prefixo e
+        // sem zeros à esquerda — de um contador COMPARTILHADO com devoluções
+        // (reseller_movement_seq), garantindo número único por movimentação.
         let deliveryCode = ''
         try {
-          const pad4 = (n) => {
-            let s = String(n)
-            while (s.length < 4) s = '0' + s
-            return s
-          }
           let seqRec = null
           try {
             seqRec = txApp.findFirstRecordByFilter(
               'app_sequences',
-              "name = 'reseller_delivery_seq'",
+              "name = 'reseller_movement_seq'",
             )
           } catch (_) {}
           let nextVal = 1
@@ -151,16 +147,19 @@ routerAdd(
           } else {
             const seqCol = txApp.findCollectionByNameOrId('app_sequences')
             const newSeqRec = new Record(seqCol)
-            newSeqRec.set('name', 'reseller_delivery_seq')
+            newSeqRec.set('name', 'reseller_movement_seq')
             newSeqRec.set('current_value', nextVal)
             txApp.save(newSeqRec)
           }
-          deliveryCode = 'ENT-' + pad4(nextVal)
+          deliveryCode = String(nextVal)
         } catch (seqErr) {
-          console.log('Erro na sequência ENT, usando fallback por timestamp:', seqErr.message)
+          console.log(
+            'Erro na sequência de movimentações, usando fallback por timestamp:',
+            seqErr.message,
+          )
           const tsFallback = new Date().getTime().toString().slice(-6)
           const randFallback = Math.floor(1000 + Math.random() * 9000).toString()
-          deliveryCode = 'ENT-' + tsFallback + '-' + randFallback
+          deliveryCode = tsFallback + '-' + randFallback
         }
 
         const deliveryRec = new Record(deliveryCol)
@@ -526,18 +525,17 @@ routerAdd(
         const returnsCol = txApp.findCollectionByNameOrId('reseller_returns')
         const issuesCol = txApp.findCollectionByNameOrId('reseller_issues')
 
-        // Código sequencial curto da devolução (DEV-0001, DEV-0002…) via app_sequences (atômico).
-        // Devoluções antigas (formato DEV-NNNNNN-NNNN) não são alteradas.
+        // Código da devolução (v0.0.152): numeração PURA (1, 2, 3…) do MESMO
+        // contador compartilhado com entregas (reseller_movement_seq) — sem
+        // prefixo, sem zeros à esquerda, número único por movimentação.
         let returnCode = ''
         try {
-          const pad4 = (n) => {
-            let s = String(n)
-            while (s.length < 4) s = '0' + s
-            return s
-          }
           let seqRec = null
           try {
-            seqRec = txApp.findFirstRecordByFilter('app_sequences', "name = 'reseller_return_seq'")
+            seqRec = txApp.findFirstRecordByFilter(
+              'app_sequences',
+              "name = 'reseller_movement_seq'",
+            )
           } catch (_) {}
           let nextVal = 1
           if (seqRec) {
@@ -547,19 +545,22 @@ routerAdd(
           } else {
             const seqCol = txApp.findCollectionByNameOrId('app_sequences')
             const newSeqRec = new Record(seqCol)
-            newSeqRec.set('name', 'reseller_return_seq')
+            newSeqRec.set('name', 'reseller_movement_seq')
             newSeqRec.set('current_value', nextVal)
             txApp.save(newSeqRec)
           }
-          returnCode = 'DEV-' + pad4(nextVal)
+          returnCode = String(nextVal)
         } catch (seqErr) {
-          console.log('Erro na sequência DEV, usando fallback por timestamp:', seqErr.message)
+          console.log(
+            'Erro na sequência de movimentações, usando fallback por timestamp:',
+            seqErr.message,
+          )
           const tsFallback = new Date().getTime().toString().slice(-6)
           const randFallback = Math.floor(1000 + Math.random() * 9000).toString()
-          returnCode = 'DEV-' + tsFallback + '-' + randFallback
+          returnCode = tsFallback + '-' + randFallback
         }
 
-        // Referência à entrega de origem (código dela, ex. ENT-0001), enviada pelo fluxo de devolução
+        // Referência à entrega de origem (código dela, ex. "1"), enviada pelo fluxo de devolução
         let originDeliveryCode = (body.delivery_code || '').toString().trim()
         if (body.delivery_id) {
           try {
@@ -700,7 +701,7 @@ routerAdd(
         success: true,
         return_id: finalReturnRec.id,
         code: finalReturnRec.getString('code'),
-        // Código real da entrega de origem gravado no registro (ex. ENT-0001) p/ o comprovante
+        // Código real da entrega de origem gravado no registro (ex. "1") p/ o comprovante
         delivery_code: finalReturnRec.getString('delivery_code') || undefined,
         total_returned_qty: finalReturnRec.getInt('total_returned_qty'),
         total_pending_qty: finalReturnRec.getInt('total_pending_qty'),
