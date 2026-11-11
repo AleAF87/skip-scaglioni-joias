@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import {
   PackagePlus,
   Boxes,
@@ -17,7 +17,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { resellerService } from '@/services/resellerService'
 import { productService } from '@/services/productService'
 import { resellerStockService } from '@/services/resellerStockService'
-import { Reseller, Product, ResellerDelivery, ResellerStockItem } from '@/types'
+import { Reseller, Product, ResellerDelivery, ResellerStockItem, ResellerReturn } from '@/types'
 import { formatCurrency, formatDateTime } from '@/lib/formatters'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -26,6 +26,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { TouchSignaturePad } from '@/components/TouchSignaturePad'
 import { getBackendErrorMessage } from '@/lib/backendErrors'
+import { getDeliveryDisplayStatus } from '@/lib/deliveryStatus'
 import { DeliveryReceiptModal } from '@/components/DeliveryReceiptModal'
 import { toast } from 'sonner'
 import { Link } from 'react-router-dom'
@@ -41,6 +42,7 @@ export default function ResellerDeliveriesAndStock() {
 
   // Deliveries list
   const [deliveries, setDeliveries] = useState<ResellerDelivery[]>([])
+  const [returnsHistory, setReturnsHistory] = useState<ResellerReturn[]>([])
   const [isLoadingDeliveries, setIsLoadingDeliveries] = useState(true)
 
   // Stock items list
@@ -112,10 +114,13 @@ export default function ResellerDeliveriesAndStock() {
   const loadDeliveries = async () => {
     setIsLoadingDeliveries(true)
     try {
-      const res = await resellerStockService.getDeliveries({
-        resellerId: canManage && !selectedResellerId ? undefined : selectedResellerId,
-      })
+      const resellerFilter = canManage && !selectedResellerId ? undefined : selectedResellerId
+      const [res, returnsRes] = await Promise.all([
+        resellerStockService.getDeliveries({ resellerId: resellerFilter }),
+        resellerStockService.getReturns({ resellerId: resellerFilter }),
+      ])
       setDeliveries(res)
+      setReturnsHistory(returnsRes)
     } catch (err) {
       console.error('Erro ao carregar entregas:', err)
       toast.error('Erro ao listar entregas.')
@@ -269,6 +274,16 @@ export default function ResellerDeliveriesAndStock() {
     }
   }
 
+  // Entregas realizadas (v0.0.155): SOMENTE entregas com peças ainda em aberto
+  // (aguardando assinatura ou com peças em posse da revendedora). Entrega 100%
+  // devolvida sai desta lista e fica consultável apenas no histórico de
+  // devoluções — mesmo filtro já aplicado em ResellersUnifiedPage.tsx.
+  const openDeliveries = useMemo(
+    () =>
+      deliveries.filter((del) => !getDeliveryDisplayStatus(del, returnsHistory).isFullyReturned),
+    [deliveries, returnsHistory],
+  )
+
   const totalDeliveryItemsCount = deliveryItems.reduce((acc, it) => acc + it.quantity, 0)
   const totalDeliveryValue = deliveryItems.reduce(
     (acc, it) => acc + it.quantity * it.selling_price,
@@ -375,7 +390,7 @@ export default function ResellerDeliveriesAndStock() {
           }`}
         >
           <FileText className="h-4 w-4" />
-          Histórico de Entregas ({deliveries.length})
+          Histórico de Entregas ({openDeliveries.length})
         </button>
 
         <button
@@ -409,7 +424,7 @@ export default function ResellerDeliveriesAndStock() {
         <div className="space-y-4">
           {isLoadingDeliveries ? (
             <div className="p-12 text-center text-[#8C8275]">Carregando entregas...</div>
-          ) : deliveries.length === 0 ? (
+          ) : openDeliveries.length === 0 ? (
             <Card className="border-[#E5DFD5] p-12 text-center">
               <FileText className="h-10 w-10 text-[#C6A664] mx-auto mb-3 opacity-60" />
               <p className="text-base font-semibold text-[#2D2A26]">Nenhuma entrega registrada</p>
@@ -421,7 +436,7 @@ export default function ResellerDeliveriesAndStock() {
             </Card>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {deliveries.map((del, idxDel) => {
+              {openDeliveries.map((del, idxDel) => {
                 const isAccepted = del.status === 'accepted'
                 return (
                   <Card
