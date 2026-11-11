@@ -654,8 +654,9 @@ export default function Layout() {
               }
 
               if (sidebarCollapsed) {
+                // Chave composta: itens com contexto de revendedora repetem o mesmo 'to'
                 return (
-                  <Tooltip key={item.to}>
+                  <Tooltip key={`${item.to}-${item.label}`}>
                     <TooltipTrigger asChild>
                       <NavLink
                         to={item.to}
@@ -709,7 +710,7 @@ export default function Layout() {
 
               return (
                 <NavLink
-                  key={item.to}
+                  key={`${item.to}-${item.label}`}
                   to={item.to}
                   {...clickHandlers}
                   target={item.targetBlank ? '_blank' : undefined}
@@ -930,7 +931,8 @@ export default function Layout() {
 
                     return (
                       <NavLink
-                        key={item.to}
+                        /* Chave composta: itens com contexto de revendedora repetem o mesmo 'to' */
+                        key={`${item.to}-${item.label}`}
                         to={item.to}
                         ref={isActive ? activeMobileItemRef : undefined}
                         onClick={(e) => {
@@ -1045,7 +1047,7 @@ export default function Layout() {
               if (item.center) {
                 return (
                   <NavLink
-                    key={item.to}
+                    key={`${item.to}-${item.label}`}
                     to={item.to}
                     onClick={(e) => handleNavClick(e, item.to)}
                     className="flex flex-col items-center -mt-5"
@@ -1060,7 +1062,7 @@ export default function Layout() {
 
               return (
                 <NavLink
-                  key={item.to}
+                  key={`${item.to}-${item.label}`}
                   to={item.to}
                   onClick={(e) => handleNavClick(e, item.to)}
                   className={cn(

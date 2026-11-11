@@ -53,7 +53,10 @@ export function DeliveryItemsModal({ delivery, resellerId, onClose }: DeliveryIt
           productList.find((p) => {
             const pCode = String(p.code || '').replace(/^0+/, '')
             const iCode = String(code || '').replace(/^0+/, '')
-            return (pCode && iCode && pCode === iCode) || p.sku === code
+            return (
+              (pCode && iCode && pCode === iCode) ||
+              (p.sku_scaglioni ? p.sku_scaglioni === code : false)
+            )
           })
 
         // Devoluções desta entrega (fluxo novo: toda devolução guarda delivery_code)
@@ -77,7 +80,7 @@ export function DeliveryItemsModal({ delivery, resellerId, onClose }: DeliveryIt
           const deliveredQty = item.quantity || 0
           return {
             code: item.code || '—',
-            description: item.description || product?.name || 'Joia',
+            description: item.description || product?.description || 'Joia',
             selling_price: item.selling_price || product?.selling_price || 0,
             deliveredQty,
             returnedQty: Math.min(returnedQty, deliveredQty),
