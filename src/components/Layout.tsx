@@ -425,6 +425,63 @@ export default function Layout() {
 
   const isPosActive = location.pathname.startsWith(posItem.to)
 
+  // PDV em tela cheia: ao ENTRAR no PDV (admin ou revendedora) recolhe o menu lateral
+  // automaticamente; ao SAIR, restaura o estado anterior (se estava expandido, reexpande).
+  // No celular o menu é gaveta: o PDV abre com a gaveta fechada. O mecanismo de
+  // persistência (localStorage scaglioni_sidebar_collapsed) é preservado.
+  const prevSidebarCollapsedRef = useRef<boolean | null>(null)
+  const prevMobileMenuOpenRef = useRef<boolean>(false)
+
+  useEffect(() => {
+    const isDesktop =
+      typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches
+
+    if (isPosActive) {
+      // Entrando / estando no PDV
+      if (isDesktop) {
+        if (prevSidebarCollapsedRef.current === null) {
+          prevSidebarCollapsedRef.current = sidebarCollapsed
+        }
+        if (!sidebarCollapsed) {
+          setSidebarCollapsed(true)
+          try {
+            localStorage.setItem(SIDEBAR_COLLAPSED_KEY, 'true')
+          } catch {
+            /* ignore */
+          }
+        }
+      } else {
+        if (prevMobileMenuOpenRef.current === null) {
+          prevMobileMenuOpenRef.current = mobileMenuOpen
+        }
+        if (mobileMenuOpen) {
+          setMobileMenuOpen(false)
+        }
+      }
+    } else {
+      // Saindo do PDV: restaura o estado capturado na entrada
+      if (prevSidebarCollapsedRef.current !== null) {
+        const restore = prevSidebarCollapsedRef.current
+        prevSidebarCollapsedRef.current = null
+        if (restore !== sidebarCollapsed) {
+          setSidebarCollapsed(restore)
+          try {
+            localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(restore))
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+      if (prevMobileMenuOpenRef.current !== null) {
+        const restoreMobile = prevMobileMenuOpenRef.current
+        prevMobileMenuOpenRef.current = null
+        if (restoreMobile) {
+          setMobileMenuOpen(true)
+        }
+      }
+    }
+  }, [isPosActive]) // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <TooltipProvider delayDuration={150}>
       <div className="flex min-h-screen bg-[#FDFBF7] text-[#2D2A26]">
