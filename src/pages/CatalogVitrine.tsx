@@ -7,7 +7,11 @@ import { productCreationService } from '@/services/productCreationService'
 import { Product, ProductCategory } from '@/types'
 import { getProductFullName } from '@/types/labelContent'
 import { formatCurrency, getFileUrl, getProductDisplayPhoto } from '@/lib/formatters'
-import { fetchResellerStockQuantityMap, getProductTotalStock } from '@/services/totalStockService'
+import {
+  fetchResellerStockQuantityMap,
+  getEcommerceAvailableStock,
+  getProductTotalStock,
+} from '@/services/totalStockService'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -156,6 +160,10 @@ export default function CatalogVitrine() {
       })
       if (baseFilter) filters.push(baseFilter)
 
+      // Estoque único: só aparece na vitrine quem está publicado no e-commerce
+      // (qtde_loja_virtual é o interruptor "Publicar no e-commerce": 1 = ativado)
+      filters.push('qtde_loja_virtual = 1')
+
       // Filtro Metal / Tipo: busca os produtos vinculados às categorias escolhidas
       // (product_category_links — mesma fonte da página de Categorias)
       const activeCategoryIds = [selectedType, selectedMaterial].filter(Boolean)
@@ -281,15 +289,21 @@ export default function CatalogVitrine() {
         <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6">
           {products.map((p) => {
             const photoUrl = getProductDisplayPhoto(p)
+            // Disponibilidade no e-commerce = estoque único − posse das revendedoras
+            const ecomAvail = getEcommerceAvailableStock(p, resellerQtyMap.get(p.id) || 0)
+            const soldOut = ecomAvail <= 0
 
             return (
               <Card
                 key={p.id}
                 onClick={() => {
+                  if (soldOut) return
                   setSelectedProduct(p)
                   setActivePhotoIndex(0)
                 }}
-                className="group border-[#E5DFD5] bg-white overflow-hidden rounded-2xl shadow-xs hover:shadow-lg hover:-translate-y-1 transition-all duration-200 cursor-pointer flex flex-col"
+                className={`group border-[#E5DFD5] bg-white overflow-hidden rounded-2xl shadow-xs cursor-pointer flex flex-col transition-all duration-200 ${
+                  soldOut ? 'opacity-55 saturate-50' : 'hover:shadow-lg hover:-translate-y-1'
+                }`}
               >
                 {/* Photo container */}
                 <div className="relative aspect-square w-full bg-[#FDFBF7] overflow-hidden flex items-center justify-center border-b border-[#E5DFD5]/60">
@@ -330,6 +344,14 @@ export default function CatalogVitrine() {
                       {p.code}
                     </span>
                   </div>
+
+                  {soldOut && (
+                    <div className="absolute top-2 right-2">
+                      <span className="bg-[#2D2A26]/85 backdrop-blur-xs text-white text-[10px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1">
+                        Esgotado
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Info Container — apenas nome do produto (Categoria — Nome), sem descrição */}
@@ -364,7 +386,10 @@ export default function CatalogVitrine() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="text-xs text-[#7A5C2E] hover:bg-[#F3EAD8] font-semibold"
+                      disabled={soldOut}
+                      className={`text-xs font-semibold ${
+                        soldOut ? 'text-[#A8A196]' : 'text-[#7A5C2E] hover:bg-[#F3EAD8]'
+                      }`}
                     >
                       <Eye className="h-3.5 w-3.5 mr-1" /> Detalhes
                     </Button>
@@ -498,7 +523,7 @@ export default function CatalogVitrine() {
               {/* (7) Quantidade em estoque geral (soma de todos os estoques da peça) */}
               <div>
                 <span className="text-[10px] text-[#6B655E] uppercase tracking-wider block">
-                  Estoque Geral
+                  Estoque Único
                 </span>
                 <span className="font-serif text-xl font-bold text-[#2E7D4F]">
                   {getProductTotalStock(
@@ -508,7 +533,7 @@ export default function CatalogVitrine() {
                   unid.
                 </span>
                 <span className="text-[11px] text-[#6B655E] block mt-0.5">
-                  Loja física + E-commerce + Revendedoras
+                  Loja física + Revendedoras (posse)
                 </span>
               </div>
 
