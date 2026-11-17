@@ -95,10 +95,9 @@ export default function PosSale() {
 
   // Cart state
   const [cart, setCart] = useState<PosCartItem[]>([])
-  const [selectedOrigin, setSelectedOrigin] = useState<'general' | 'ecommerce' | 'reseller'>(
-    'general',
-  )
   const [scannerOpen, setScannerOpen] = useState(false)
+  const [isScannerArmed, setIsScannerArmed] = useState(true)
+  const [isGlobalScanBusy, setIsGlobalScanBusy] = useState(false)
   const [products, setProducts] = useState<Product[]>([])
   const [resellerStockMap, setResellerStockMap] = useState<Map<string, ResellerItemDetail[]>>(
     new Map(),
@@ -453,47 +452,23 @@ export default function PosSale() {
     setFilteredProducts(matches.slice(0, 8))
   }, [barcodeOrSearch, products, resellerStockMap, canSellFromExternal])
 
-  // Determina a melhor origem padrão de estoque para um item adicionado ao carrinho
-  const resolveDefaultOrigin = (
-    product: Product,
-  ): {
-    origin: 'general' | 'ecommerce' | 'reseller'
-    reseller_id?: string
-    reseller_name?: string
-  } => {
-    const general = Number(product.quantity) || 0
-    const ecom = Number(product.qtde_loja_virtual) || 0
-    const resellers = resellerStockMap.get(product.id) || []
+  // Origem padrão de um item novo no carrinho: sempre o estoque único (unificação).
+  // qtde_loja_virtual virou apenas interruptor de publicação (1/0), nunca saldo.
+  const resolveDefaultOrigin = (_product: Product) => ({
+    origin: 'general' as const,
+    reseller_id: undefined,
+    reseller_name: undefined,
+  })
 
-    if (general > 0) {
-      return { origin: 'general' }
-    }
-    if (canSellFromExternal) {
-      if (ecom > 0) {
-        return { origin: 'ecommerce' }
-      }
-      if (resellers.length > 0) {
-        return {
-          origin: 'reseller',
-          reseller_id: resellers[0].reseller_id,
-          reseller_name: resellers[0].reseller_name,
-        }
-      }
-    }
-    return { origin: 'general' }
-  }
-
-  // Quantidade máxima disponível para uma origem específica
+  // Quantidade máxima disponível para uma origem específica.
+  // 'ecommerce' e 'general' caem no mesmo estoque único (quantity).
   const getMaxQtyForOrigin = (
     product: Product,
     origin: 'general' | 'ecommerce' | 'reseller',
     resellerId?: string,
   ): number => {
-    if (origin === 'general') {
+    if (origin === 'general' || origin === 'ecommerce') {
       return Math.max(0, Number(product.quantity) || 0)
-    }
-    if (origin === 'ecommerce') {
-      return Math.max(0, Number(product.qtde_loja_virtual) || 0)
     }
     if (origin === 'reseller') {
       const resellers = resellerStockMap.get(product.id) || []
@@ -530,19 +505,16 @@ export default function PosSale() {
           )
           return prev
         }
-        return prev.map((item) =>
-          item.product_id === product.id
-            ? {
-                ...item,
-                quantity: item.quantity + 1,
-                total: (item.quantity + 1) * item.unit_price,
-              }
-            : item,
-        )
+        // Já existe linha do produto: incrementa A LINHA EXISTENTE, mas move-a
+        // para a PRIMEIRA posição do carrinho (mais recente no topo).
+        return [
+          { ...item, quantity: item.quantity + 1, total: (item.quantity + 1) * item.unit_price },
+          ...prev.filter((i) => i !== existing),
+        ]
       } else {
+        // Novo item entra na PRIMEIRA linha do carrinho (mais recente no topo).
         const fullName = getProductFullName(product) || product.description
         return [
-          ...prev,
           {
             cart_item_id: `${product.id}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
             product_id: product.id,
@@ -556,45 +528,13 @@ export default function PosSale() {
             reseller_name: defaultSource.reseller_name,
             photo: getProductDisplayPhoto(product),
           },
+          ...prev,
         ]
       }
     })
 
     setBarcodeOrSearch('')
     barcodeInputRef.current?.focus()
-  }
-
-  const updateCartItemOrigin = (
-    cartItemKey: string,
-    origin: 'general' | 'ecommerce' | 'reseller',
-    resellerId?: string,
-    resellerName?: string,
-  ) => {
-    const targetItem = cart.find((i) => (i.cart_item_id || i.product_id) === cartItemKey)
-    if (!targetItem) return
-    const prod = products.find((p) => p.id === targetItem.product_id)
-    if (!prod) return
-
-    const maxAvailable = getMaxQtyForOrigin(prod, origin, resellerId)
-    if (maxAvailable <= 0) {
-      toast.warning('Esta origem não possui unidades disponíveis para esta joia.')
-      return
-    }
-
-    setCart((prev) =>
-      prev.map((item) => {
-        if ((item.cart_item_id || item.product_id) !== cartItemKey) return item
-        const newQty = Math.min(item.quantity, maxAvailable)
-        return {
-          ...item,
-          stock_origin: origin,
-          reseller_id: resellerId,
-          reseller_name: resellerName,
-          quantity: newQty,
-          total: newQty * item.unit_price,
-        }
-      }),
-    )
   }
 
   const updateCartQty = (cartItemKey: string, newQty: number) => {
@@ -686,36 +626,10 @@ export default function PosSale() {
       product = exactMatches[0]
     }
 
-    // b) Validar estoque na origem da venda selecionada
-    // Origem atual vem do state selectedOrigin ('general' | 'ecommerce' | 'reseller')
-    let chosenOrigin = selectedOrigin
-    let chosenResellerId: string | undefined = undefined
-    let chosenResellerName: string | undefined = undefined
-
-    // Se a origem selecionada for 'ecommerce' ou 'reseller' mas o usuário não tiver permissão, força geral
-    if (!canSellFromExternal && chosenOrigin !== 'general') {
-      chosenOrigin = 'general'
-    }
-
-    if (chosenOrigin === 'reseller') {
-      const resellers = resellerStockMap.get(product.id) || []
-      if (resellers.length > 0) {
-        chosenResellerId = resellers[0].reseller_id
-        chosenResellerName = resellers[0].reseller_name
-      }
-    }
-
-    const availableInOrigin = getMaxQtyForOrigin(product, chosenOrigin, chosenResellerId)
+    // b) Validar estoque único (unificação): a venda desconta sempre do estoque único.
+    const availableInOrigin = getMaxQtyForOrigin(product, 'general')
     if (availableInOrigin <= 0) {
-      const originName =
-        chosenOrigin === 'general'
-          ? 'Estoque Geral'
-          : chosenOrigin === 'ecommerce'
-            ? 'E-commerce'
-            : 'Revendedora'
-      toast.error(
-        `Produto sem estoque disponível nesta origem (${originName}): ${product.code} - ${product.description}`,
-      )
+      toast.error(`Produto sem estoque disponível: ${product.code} - ${product.description}`)
       return false
     }
 
@@ -741,13 +655,14 @@ export default function PosSale() {
       quantity: 1,
       unit_price: product.selling_price,
       total: product.selling_price,
-      stock_origin: chosenOrigin,
-      reseller_id: chosenResellerId,
-      reseller_name: chosenResellerName,
+      stock_origin: 'general',
+      reseller_id: undefined,
+      reseller_name: undefined,
       photo: getProductDisplayPhoto(product),
     }
 
-    setCart((prev) => [...prev, newItem])
+    // Novo item entra na PRIMEIRA linha do carrinho (mais recente no topo).
+    setCart((prev) => [newItem, ...prev])
 
     if (alreadyInCart) {
       toast.info(`Código já lido — item adicionado novamente (${product.code})`)
@@ -827,6 +742,9 @@ export default function PosSale() {
       const q = barcodeOrSearch.trim()
       if (!q) return
 
+      // Qualquer leitura (manual ou bipeada) desarma o indicador até o campo ser rearmado
+      setIsScannerArmed(false)
+
       // 1. Tenta resolver via endpoint resolveBarcode (lida com formato "número variação" e código isolado)
       try {
         const resolved = await productService.resolveBarcode(q)
@@ -892,6 +810,203 @@ export default function PosSale() {
       }
     }
   }
+
+  // ============================================================
+  // Leitor físico de código de barras — captura global da página
+  // ============================================================
+  // O leitor físico digita o código como um teclado (rajada rápida terminando em
+  // Enter) e o vendedor muitas vezes esquece de clicar no campo. Então o PDV
+  // escuta o teclado DA PÁGINA INTEIRA: qualquer rajada "impossível para humano"
+  // é tratada como leitura de código de barras, mesmo sem foco em campo nenhum.
+  // Humanos não digitam tão rápido: intervalo entre teclas <= 60ms e
+  // código >= 4 caracteres terminando em Enter, com a rajada inteira em < 1s.
+  const barcodeGlobalBufferRef = useRef<{ chars: string; firstAt: number; lastAt: number } | null>(
+    null,
+  )
+  const isGlobalScanBusyRef = useRef(false)
+
+  const processScannedCode = useCallback(
+    async (rawCode: string) => {
+      const code = rawCode.trim()
+      if (!code) return
+      if (isGlobalScanBusyRef.current) return
+      isGlobalScanBusyRef.current = true
+      setIsGlobalScanBusy(true)
+      try {
+        // Caminho preferencial: resolveBarcode (lida com "número + variação" e ambiguidade)
+        try {
+          const resolved = await productService.resolveBarcode(code)
+          if (resolved && resolved.matched && resolved.product) {
+            const resolvedProd =
+              products.find((p) => p.id === resolved.product!.id) || (resolved.product as Product)
+            const varBadge = getProductVariationBadge(resolvedProd)
+            const varSuffix = varBadge ? ' ' + varBadge : ''
+            if (getProductAvailableStock(resolvedProd) > 0) {
+              addToCart(resolvedProd)
+              toast.success(`Joia adicionada: ${resolvedProd.code}${varSuffix}`)
+              return
+            } else {
+              toast.error(`Produto sem estoque disponível: ${resolvedProd.code}${varSuffix}`)
+              return
+            }
+          } else if (resolved && resolved.ambiguous && (resolved.variations?.length ?? 0) > 0) {
+            const readableVariations = (resolved.variations || [])
+              .map((v: any) => {
+                const rawAttrs = (v as any).attributes
+                const attrLabel = rawAttrs ? formatVariationAttributeLabel(rawAttrs) : ''
+                return attrLabel || v.variacao || '(sem variação)'
+              })
+              .join(', ')
+            toast.info(
+              `O código possui múltiplas variações (${readableVariations}). Selecione na lista ou informe a variação.`,
+            )
+            return
+          }
+        } catch {
+          // Fallback para casamento local
+        }
+
+        // Casamento exato local (numérico sem zeros à esquerda, SKU normalizado)
+        const exactMatches = products.filter(
+          (p) => isExactCodeMatch(p, code) && getProductAvailableStock(p) > 0,
+        )
+        if (exactMatches.length === 1) {
+          addToCart(exactMatches[0])
+          toast.success(
+            `Joia adicionada: ${exactMatches[0].code || exactMatches[0].sku_novo || exactMatches[0].sku_scaglioni}`,
+          )
+          return
+        }
+        if (exactMatches.length > 1) {
+          toast.info('Mais de um produto encontrado com este código. Selecione na lista.')
+          return
+        }
+
+        // Último recurso: se a digitação filtrou exatamente 1 produto, adiciona
+        if (filteredProducts.length === 1) {
+          addToCart(filteredProducts[0])
+          toast.success(`Joia adicionada: ${filteredProducts[0].code}`)
+          return
+        }
+
+        toast.info('Nenhuma joia encontrada com esse código de barras.')
+      } finally {
+        isGlobalScanBusyRef.current = false
+        setIsGlobalScanBusy(false)
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [products, resellerStockMap, filteredProducts, addToCart],
+  )
+
+  useEffect(() => {
+    const isTypingInField = () => {
+      // Se o foco já está num campo de texto (busca, quantidade, cliente, desconto...),
+      // a digitação é humana: não intercepta. O campo de código também não entra aqui,
+      // porque ele tem o próprio onKeyDown.
+      const active = document.activeElement as HTMLElement | null
+      return Boolean(
+        active &&
+        (active === barcodeInputRef.current ||
+          active.tagName === 'INPUT' ||
+          active.tagName === 'TEXTAREA' ||
+          active.isContentEditable ||
+          active.tagName === 'SELECT'),
+      )
+    }
+
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (e.key.length !== 1 && e.key !== 'Enter' && e.key !== 'Tab') return
+      if (isTypingInField()) {
+        barcodeGlobalBufferRef.current = null
+        return
+      }
+
+      const now = Date.now()
+      const buf = barcodeGlobalBufferRef.current
+
+      // Enter encerra a rajada: se parecer leitura de leitor, processa como código
+      if (e.key === 'Enter') {
+        if (buf && buf.chars.length >= 4 && now - buf.firstAt < 1000) {
+          e.preventDefault()
+          e.stopPropagation()
+          barcodeGlobalBufferRef.current = null
+          setIsScannerArmed(false)
+          processScannedCode(buf.chars)
+        }
+        barcodeGlobalBufferRef.current = null
+        return
+      }
+
+      if (e.key === 'Tab') {
+        barcodeGlobalBufferRef.current = null
+        return
+      }
+
+      // Caractere comum: só continua buffer se a rajada estiver rápida
+      if (!buf) {
+        barcodeGlobalBufferRef.current = { chars: e.key, firstAt: now, lastAt: now }
+        return
+      }
+      if (now - buf.lastAt > 60 || now - buf.firstAt >= 1000) {
+        barcodeGlobalBufferRef.current = { chars: e.key, firstAt: now, lastAt: now }
+        return
+      }
+      barcodeGlobalBufferRef.current = { ...buf, chars: buf.chars + e.key, lastAt: now }
+    }
+
+    window.addEventListener('keydown', handleGlobalKeyDown, true)
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown, true)
+  }, [processScannedCode])
+
+  // Rearmamento automático: quando o foco sai do campo de escaneamento, ele volta
+  // sozinho após ~0,5s — exceto se o usuário estiver digitando ativamente em outro
+  // campo (quantidade, cliente, desconto, etc.).
+  const rearmTimerRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (isScannerArmed) return
+
+    const scheduleRearm = () => {
+      if (rearmTimerRef.current !== null) window.clearTimeout(rearmTimerRef.current)
+      rearmTimerRef.current = window.setTimeout(() => {
+        const active = document.activeElement as HTMLElement | null
+        const userTyping =
+          active &&
+          active !== barcodeInputRef.current &&
+          (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)
+        if (!userTyping) {
+          barcodeInputRef.current?.focus()
+          setIsScannerArmed(true)
+        }
+        rearmTimerRef.current = null
+      }, 500)
+    }
+
+    scheduleRearm()
+
+    const handleFocusIn = () => {
+      if (!isScannerArmed) scheduleRearm()
+    }
+    document.addEventListener('focusin', handleFocusIn)
+    return () => {
+      if (rearmTimerRef.current !== null) window.clearTimeout(rearmTimerRef.current)
+      document.removeEventListener('focusin', handleFocusIn)
+    }
+  }, [isScannerArmed])
+
+  // Mantém o campo sempre focado quando a tela do PDV fica pronta (armado por padrão)
+  useEffect(() => {
+    if (!isScannerArmed) return
+    const timer = window.setTimeout(() => {
+      const active = document.activeElement as HTMLElement | null
+      const userTyping =
+        active &&
+        active !== barcodeInputRef.current &&
+        (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)
+      if (!userTyping) barcodeInputRef.current?.focus()
+    }, 300)
+    return () => window.clearTimeout(timer)
+  }, [isScannerArmed])
 
   // Save as Pending Sale / Reserva
   const handleSavePending = async () => {
@@ -1223,15 +1338,31 @@ export default function PosSale() {
                 <CardContent className="p-3 space-y-2">
                   <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                     <div className="relative flex-1">
-                      <Barcode className="absolute left-3.5 top-2.5 h-5 w-5 text-[#7A5C2E]" />
+                      <Barcode
+                        className={`absolute left-3.5 top-2.5 h-5 w-5 ${isScannerArmed ? 'text-[#B8860B]' : 'text-[#B8B2A8]'}`}
+                      />
                       <Input
                         ref={barcodeInputRef}
                         value={barcodeOrSearch}
                         onChange={(e) => setBarcodeOrSearch(e.target.value)}
                         onKeyDown={handleBarcodeKeyDown}
-                        placeholder="Escaneie o código de barras ou busque por código / descrição... (Enter para adicionar)"
-                        className="pl-11 h-10 border-[#C6A664] focus-visible:ring-[#C6A664] text-sm font-medium bg-white"
+                        placeholder={
+                          isScannerArmed
+                            ? 'Pronto para escanear — bipe o produto a qualquer momento...'
+                            : 'Clique para escanear'
+                        }
+                        readOnly={!isScannerArmed}
+                        className={`pl-11 h-10 text-sm font-medium transition-all duration-300 ${
+                          isScannerArmed
+                            ? 'border-2 border-[#C6A664] focus-visible:ring-[#C6A664] bg-[#FFFDF5] pdv-scan-armed'
+                            : 'border border-[#E5DFD5] bg-white text-[#8C8275]'
+                        }`}
                       />
+                      {isGlobalScanBusy && (
+                        <span className="absolute right-3 top-2.5 text-[11px] font-semibold text-[#7A5C2E]">
+                          lendo...
+                        </span>
+                      )}
                     </div>
 
                     <Button
@@ -1243,31 +1374,6 @@ export default function PosSale() {
                       <ScanLine className="h-4 w-4" />
                       <span>Ler código de barras</span>
                     </Button>
-                  </div>
-
-                  {/* Estoque único: admin vende sempre do estoque geral (unificação) */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-[#E5DFD5]/60 text-xs text-[#6B655E]">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-[#2D2A26] flex items-center gap-1">
-                        Estoque de venda:
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedOrigin('general')}
-                        title={
-                          canSellFromExternal
-                            ? 'Admin vende sempre do estoque único da loja'
-                            : 'Venda sai do estoque único da loja'
-                        }
-                        className="px-2.5 py-1 text-xs font-medium rounded-md border bg-[#7A5C2E] text-white border-[#7A5C2E] cursor-default"
-                      >
-                        Estoque único da loja
-                      </button>
-                    </div>
-                    <span className="text-[11px] text-[#8C8275] italic">
-                      Admin vende sempre do estoque único; revendedoras vendem pela aba delas
-                      (desconta da posse)
-                    </span>
                   </div>
 
                   {/* Autocomplete Dropdown preview com foto e badges */}
@@ -1344,15 +1450,6 @@ export default function PosSale() {
                                           className="text-[9px] px-1 py-0 h-4 border-[#2E7D4F]/40 text-[#2E7D4F] bg-[#2E7D4F]/5"
                                         >
                                           Geral: {bk.general}
-                                        </Badge>
-                                      )}
-                                      {bk.ecommerce > 0 && (
-                                        <Badge
-                                          variant="outline"
-                                          className="text-[9px] px-1 py-0 h-4 border-[#1E40AF]/40 text-[#1E40AF] bg-[#DBEAFE]"
-                                        >
-                                          <Globe className="h-2.5 w-2.5 mr-0.5" /> E-commerce:{' '}
-                                          {bk.ecommerce}
                                         </Badge>
                                       )}
                                       {bk.reseller > 0 && (
@@ -1449,7 +1546,7 @@ export default function PosSale() {
                                 {item.code}
                               </td>
 
-                              {/* Descrição completa sem truncamento + Badge de Origem & Seletor de Origem */}
+                              {/* Descrição completa sem truncamento + Badge de Origem */}
                               <td className="py-2 px-3">
                                 <div className="space-y-1">
                                   {(() => {
@@ -1513,100 +1610,17 @@ export default function PosSale() {
                                     )
                                   })()}
 
-                                  {/* Badges e Seleção de Origem */}
-                                  {(() => {
-                                    const prod = products.find((p) => p.id === item.product_id)
-                                    if (!prod) return null
-                                    const bk = getProductStockBreakdown(
-                                      prod,
-                                      resellerStockMap.get(prod.id) || [],
-                                    )
-                                    const currentOrigin = item.stock_origin || 'general'
-
-                                    return (
-                                      <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                                        {/* Badge atual */}
-                                        {currentOrigin === 'general' && (
-                                          <Badge className="text-[10px] px-1.5 py-0 bg-[#2E7D4F]/10 text-[#2E7D4F] border border-[#2E7D4F]/30 hover:bg-[#2E7D4F]/20 flex items-center gap-1">
-                                            <Building2 className="h-3 w-3" />
-                                            <span>Estoque Geral</span>
-                                          </Badge>
-                                        )}
-                                        {currentOrigin === 'ecommerce' && (
-                                          <Badge className="text-[10px] px-1.5 py-0 bg-[#DBEAFE] text-[#1E40AF] border border-[#1E40AF]/40 hover:bg-[#BFDBFE] font-bold flex items-center gap-1">
-                                            <Globe className="h-3 w-3" />
-                                            <span>E-commerce</span>
-                                          </Badge>
-                                        )}
-                                        {currentOrigin === 'reseller' && (
-                                          <Badge className="text-[10px] px-1.5 py-0 bg-[#FEF3C7] text-[#B26A00] border border-[#B26A00]/40 hover:bg-[#FDE68A] font-bold flex items-center gap-1">
-                                            <Users className="h-3 w-3" />
-                                            <span>
-                                              Com Revendedora: {item.reseller_name || 'Designada'}
-                                            </span>
-                                          </Badge>
-                                        )}
-
-                                        {/* Seletor de origem para admin quando há mais de uma fonte com saldo */}
-                                        {canSellFromExternal && (
-                                          <div className="inline-flex items-center gap-1 text-[10px] text-[#6B655E] ml-1">
-                                            <span>Origem:</span>
-                                            <select
-                                              value={
-                                                currentOrigin === 'reseller' && item.reseller_id
-                                                  ? `reseller:${item.reseller_id}`
-                                                  : currentOrigin
-                                              }
-                                              onChange={(e) => {
-                                                const val = e.target.value
-                                                if (val === 'general') {
-                                                  updateCartItemOrigin(itemKey, 'general')
-                                                } else if (val === 'ecommerce') {
-                                                  updateCartItemOrigin(itemKey, 'ecommerce')
-                                                } else if (val.startsWith('reseller:')) {
-                                                  const rId = val.split(':')[1]
-                                                  const rMatch = bk.resellerDetails.find(
-                                                    (r) => r.reseller_id === rId,
-                                                  )
-                                                  updateCartItemOrigin(
-                                                    itemKey,
-                                                    'reseller',
-                                                    rId,
-                                                    rMatch?.reseller_name,
-                                                  )
-                                                }
-                                              }}
-                                              className="h-6 rounded border border-[#E5DFD5] bg-white px-1.5 py-0 text-[10px] text-[#2D2A26] focus:outline-none focus:ring-1 focus:ring-[#C6A664]"
-                                            >
-                                              {bk.general > 0 && (
-                                                <option value="general">
-                                                  Geral ({bk.general})
-                                                </option>
-                                              )}
-                                              {bk.ecommerce > 0 && (
-                                                <option value="ecommerce">
-                                                  E-commerce ({bk.ecommerce})
-                                                </option>
-                                              )}
-                                              {bk.resellerDetails.map((r) => (
-                                                <option
-                                                  key={r.reseller_id}
-                                                  value={`reseller:${r.reseller_id}`}
-                                                >
-                                                  {r.reseller_name} ({r.quantity})
-                                                </option>
-                                              ))}
-                                              {bk.general === 0 &&
-                                                bk.ecommerce === 0 &&
-                                                bk.resellerDetails.length === 0 && (
-                                                  <option value="general">Geral (0)</option>
-                                                )}
-                                            </select>
-                                          </div>
-                                        )}
-                                      </div>
-                                    )
-                                  })()}
+                                  {/* Badge de origem (estoque único: sem E-commerce, sem seletor) */}
+                                  {item.stock_origin === 'reseller' && (
+                                    <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                                      <Badge className="text-[10px] px-1.5 py-0 bg-[#FEF3C7] text-[#B26A00] border border-[#B26A00]/40 hover:bg-[#FDE68A] font-bold flex items-center gap-1">
+                                        <Users className="h-3 w-3" />
+                                        <span>
+                                          Com Revendedora: {item.reseller_name || 'Designada'}
+                                        </span>
+                                      </Badge>
+                                    </div>
+                                  )}
                                 </div>
                               </td>
 
@@ -2485,7 +2499,7 @@ export default function PosSale() {
           <div className="space-y-3 py-2">
             <div className="rounded-xl border border-[#FEF3C7] bg-[#FFFBEB] p-3 text-xs text-[#92400E] leading-relaxed">
               <strong>Lembrete de Separação:</strong> Os itens listados abaixo foram baixados do
-              e-commerce ou do mostruário de uma revendedora. Não se esqueça de recolher a peça para
+              estoque ou do mostruário de uma revendedora. Não se esqueça de recolher a peça para
               entregar ao cliente ou regularizar a entrega.
             </div>
 
@@ -2506,12 +2520,6 @@ export default function PosSale() {
                     </div>
                     <p className="text-xs text-[#2D2A26] line-clamp-2">{item.description}</p>
                     <div className="pt-0.5">
-                      {item.stock_origin === 'ecommerce' && (
-                        <Badge className="bg-[#DBEAFE] text-[#1E40AF] border border-[#1E40AF]/30 text-[10px] font-semibold flex items-center gap-1 w-fit">
-                          <Globe className="h-3 w-3" />
-                          <span>Retirar do Estoque E-commerce (separar/embalar)</span>
-                        </Badge>
-                      )}
                       {item.stock_origin === 'reseller' && (
                         <Badge className="bg-[#FEF3C7] text-[#B26A00] border border-[#B26A00]/30 text-[10px] font-semibold flex items-center gap-1 w-fit">
                           <Users className="h-3 w-3" />
@@ -2694,13 +2702,7 @@ export default function PosSale() {
         <BarcodeScannerModal
           onClose={() => setScannerOpen(false)}
           onScan={handleBarcodeScan}
-          originTitle={
-            selectedOrigin === 'general'
-              ? 'Estoque Geral'
-              : selectedOrigin === 'ecommerce'
-                ? 'E-commerce'
-                : 'Revendedora'
-          }
+          originTitle="Estoque único da loja"
         />
       )}
     </div>

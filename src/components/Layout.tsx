@@ -73,6 +73,11 @@ export default function Layout() {
 
   const mobileNavContainerRef = useRef<HTMLElement | null>(null)
   const activeMobileItemRef = useRef<HTMLAnchorElement | null>(null)
+  // PDV em tela cheia: captura do estado do menu ANTES de entrar no PDV (ver useEffect abaixo).
+  // Declarados no topo do componente, chamados incondicionalmente em toda renderização
+  // (React exige hooks na mesma ordem — antes eram declarados após um return condicional).
+  const prevSidebarCollapsedRef = useRef<boolean | null>(null)
+  const prevMobileMenuOpenRef = useRef<boolean>(false)
 
   // Trava o scroll da página enquanto o menu mobile estiver aberto,
   // para que o único scroll ativo seja o do próprio drawer.
@@ -429,9 +434,6 @@ export default function Layout() {
   // automaticamente; ao SAIR, restaura o estado anterior (se estava expandido, reexpande).
   // No celular o menu é gaveta: o PDV abre com a gaveta fechada. O mecanismo de
   // persistência (localStorage scaglioni_sidebar_collapsed) é preservado.
-  const prevSidebarCollapsedRef = useRef<boolean | null>(null)
-  const prevMobileMenuOpenRef = useRef<boolean>(false)
-
   useEffect(() => {
     const isDesktop =
       typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches
