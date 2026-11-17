@@ -55,11 +55,11 @@ routerAdd(
       for (let i = 0; i < records.length; i++) {
         const rec = records[i]
         const recId = rec.id
+        // ESTOQUE ÚNICO: quantity é o único saldo físico real (já inclui o que está
+        // em posse das revendedoras). qtde_loja_virtual é apenas interruptor 1/0.
         const qtyGeral = rec.getInt('quantity') || 0
-        const qtyEcom = rec.getInt('qtde_loja_virtual') || 0
         const qtyReseller = resellerMap[recId] || 0
-        // Estoque atual total somado: geral + e-commerce + revendedoras
-        const totalProductQty = qtyGeral + qtyEcom + qtyReseller
+        const totalProductQty = qtyGeral
 
         const invested = rec.getFloat('invested_value') || 0
         const selling = rec.getFloat('selling_price') || 0

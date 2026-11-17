@@ -1053,10 +1053,8 @@ routerAdd(
                 existing.set('qtde_inicial', saldoInicialQty)
               }
 
-              // Se o produto já foi distribuído para e-commerce (Ajuste E-commerce),
-              // não sobrescrevemos o saldo inicial como "A definir".
-              // Só atualizamos ou criamos initial_stocks se a origem for Scaglioni.
-              const isEcommercePublished = existing.getBool('publicar_no_ecommerce')
+              // ESTOQUE ÚNICO: todo saldo é do estoque geral — initial_stocks sempre
+              // "Scaglioni" / "A definir"; não existe mais separação "Ajuste E-commerce".
               const initStockFilter =
                 "product = '" +
                 existing.id +
@@ -1070,33 +1068,17 @@ routerAdd(
               )
               if (existInitStocks.length > 0) {
                 const initRec = existInitStocks[0]
-                if (initRec.getString('origem') === 'Scaglioni') {
-                  initRec.set('quantidade', saldoInicialQty)
-                  initRec.set('id_origem', idScaglioni)
-                  initRec.set('localizacao', 'A definir')
-                  $app.save(initRec)
-                }
-                // Se origem for 'Ajuste E-commerce', preserva intacto
+                initRec.set('origem', 'Scaglioni')
+                initRec.set('quantidade', saldoInicialQty)
+                initRec.set('id_origem', idScaglioni)
+                initRec.set('localizacao', 'A definir')
+                $app.save(initRec)
               } else {
                 const initRec = new Record(initStockCol)
                 initRec.set('product', existing.id)
-                if (isEcommercePublished) {
-                  initRec.set('origem', 'Ajuste E-commerce')
-                  initRec.set('id_origem', 'ecom-import-' + existing.id)
-                  initRec.set('localizacao', 'Estoque separado para e-commerce')
-                  initRec.set(
-                    'detalhes_distribuicao',
-                    JSON.stringify({
-                      loja_fisica: 0,
-                      expedicao: saldoInicialQty,
-                      revendedoras: [],
-                    }),
-                  )
-                } else {
-                  initRec.set('origem', 'Scaglioni')
-                  initRec.set('id_origem', idScaglioni)
-                  initRec.set('localizacao', 'A definir')
-                }
+                initRec.set('origem', 'Scaglioni')
+                initRec.set('id_origem', idScaglioni)
+                initRec.set('localizacao', 'A definir')
                 initRec.set('quantidade', saldoInicialQty)
                 initRec.set('data_registro', new Date().toISOString())
                 initRec.set('is_ativo', true)
@@ -1193,17 +1175,11 @@ routerAdd(
                 newProd.set('qtde_inicial', saldoInicialQty)
               }
 
-              // Modelo confirmado pelo usuário:
-              // Para produtos NOVOS publicados no e-commerce:
-              // qtde_loja_virtual = qtde_inicial e quantity (físico/geral) = 0.
-              // Para produtos não publicados: quantity = saldoInicialQty e qtde_loja_virtual = 0.
-              if (estadoAtivoEcommerce && saldoInicialQty > 0) {
-                newProd.set('qtde_loja_virtual', saldoInicialQty)
-                newProd.set('quantity', 0)
-              } else {
-                newProd.set('quantity', saldoInicialQty)
-                newProd.set('qtde_loja_virtual', 0)
-              }
+              // ESTOQUE ÚNICO (modelo unificado): TODO o saldo vai para o estoque geral
+              // (quantity); qtde_loja_virtual é apenas o interruptor de publicação
+              // (1 = ativado, 0 = desativado), gravado conforme o estado do produto na origem.
+              newProd.set('quantity', saldoInicialQty)
+              newProd.set('qtde_loja_virtual', estadoAtivoEcommerce ? 1 : 0)
 
               newProd.set(
                 'minimum_quantity',
@@ -1230,30 +1206,13 @@ routerAdd(
               $app.save(newProd)
               createdProductId = newProd.id
 
-              // Saldo inicial Scaglioni:
-              // Se publicado no e-commerce, registra a movimentação de estoque inicial
-              // com origem "Ajuste E-commerce" e localização "Estoque separado para e-commerce",
-              // espelhando o padrão das migrations 0051/0052.
-              // Se não publicado, registra como origem "Scaglioni" e localização "A definir".
+              // Saldo inicial Scaglioni (estoque único):
+              // Tudo vai para o estoque geral — origem "Scaglioni", localização "A definir".
               const initRec = new Record(initStockCol)
               initRec.set('product', newProd.id)
-              if (estadoAtivoEcommerce && saldoInicialQty > 0) {
-                initRec.set('origem', 'Ajuste E-commerce')
-                initRec.set('id_origem', 'ecom-import-' + newProd.id)
-                initRec.set('localizacao', 'Estoque separado para e-commerce')
-                initRec.set(
-                  'detalhes_distribuicao',
-                  JSON.stringify({
-                    loja_fisica: 0,
-                    expedicao: saldoInicialQty,
-                    revendedoras: [],
-                  }),
-                )
-              } else {
-                initRec.set('origem', 'Scaglioni')
-                initRec.set('id_origem', idScaglioni)
-                initRec.set('localizacao', 'A definir')
-              }
+              initRec.set('origem', 'Scaglioni')
+              initRec.set('id_origem', idScaglioni)
+              initRec.set('localizacao', 'A definir')
               initRec.set('quantidade', saldoInicialQty)
               initRec.set('data_registro', new Date().toISOString())
               initRec.set('is_ativo', true)

@@ -515,6 +515,26 @@ routerAdd(
           ' produtos ativos do nosso sistema com a tabela de /admin/produtos...',
       )
 
+      // ESTOQUE ÚNICO: quantidade exibida no e-commerce = estoque geral (quantity)
+      // menos o que está em posse das revendedoras (reseller_stock_items).
+      let resellerQuantityMap = {}
+      try {
+        const resellerItems = $app.findRecordsByFilter(
+          'reseller_stock_items',
+          'quantity > 0',
+          '',
+          0,
+          0,
+        )
+        for (let r = 0; r < resellerItems.length; r++) {
+          const pid = resellerItems[r].getString('product')
+          resellerQuantityMap[pid] =
+            (resellerQuantityMap[pid] || 0) + (resellerItems[r].getInt('quantity') || 0)
+        }
+      } catch (resErr) {
+        logPasso('Aviso ao consultar posse das revendedoras: ' + resErr.message)
+      }
+
       let totalIguais = 0
       let totalDivergentes = 0
       let totalNaoEncontrados = 0
@@ -529,7 +549,11 @@ routerAdd(
         const localNome = rec.getString('nome_produto') || rec.getString('description') || ''
         const localSellingPrice = rec.getFloat('selling_price')
         const localQuantityEstoque = rec.getInt('quantity')
-        const localQtdeEcommerce = rec.getInt('qtde_loja_virtual')
+        // ESTOQUE ÚNICO: qtde exibida no e-commerce = quantity − posse das revendedoras
+        const localQtdeEcommerce = Math.max(
+          0,
+          (rec.getInt('quantity') || 0) - (resellerQuantityMap[rec.id] || 0),
+        )
         const localIdScaglioni = rec.getString('id_scaglioni') || ''
         const localImageUrl = rec.getString('image_url') || ''
 
@@ -602,7 +626,8 @@ routerAdd(
 
           const qtdeSite = parseInt(rawEstoqueSite, 10) || 0
 
-          // A conferência é: quantidade no e-commerce do site vs. nossa quantidade separada para e-commerce (qtde_loja_virtual)
+          // A conferência é: quantidade no e-commerce do site vs. a quantidade
+          // disponível no nosso e-commerce (estoque único − posse das revendedoras).
           // Se qtdeSite == localQtdeEcommerce -> Igual
           // Se qtdeSite != localQtdeEcommerce -> Divergente
           const ehIgual = qtdeSite === localQtdeEcommerce

@@ -2,28 +2,45 @@ import pb from '@/lib/pocketbase/client'
 import { Product } from '@/types'
 
 /**
- * Retorna o estoque total atual de um produto somando:
- * - Estoque físico geral (product.quantity)
- * - Estoque no e-commerce / loja virtual (product.qtde_loja_virtual)
- * - Estoque alocado e em posse das revendedoras (resellerQty, lido de reseller_stock_items)
+ * ESTOQUE ÚNICO (modelo unificado):
+ * - product.quantity é o ÚNICO estoque físico real.
+ * - product.qtde_loja_virtual é apenas o interruptor "Publicar no e-commerce"
+ *   (1 = ativado, 0 = desativado) — não é mais saldo.
+ * - A quantidade exibida/vendável no e-commerce = estoque único (quantity) −
+ *   quantidade em posse das revendedoras (soma de reseller_stock_items).
  *
  * Se uma revendedora vender uma peça, a quantidade em posse dela diminui
- * e o total exibido cai automaticamente.
+ * e a quantidade disponível no e-commerce sobe automaticamente (a peça volta
+ * ao estoque geral de fato).
  */
-export function getProductTotalStock(
-  product: Pick<Product, 'quantity' | 'qtde_loja_virtual'> | null | undefined,
+
+/** Saldo em posse das revendedoras (resellerQty) que NÃO está disponível no e-commerce */
+export function getEcommerceAvailableStock(
+  product: Pick<Product, 'quantity'> | null | undefined,
   resellerQty: number = 0,
 ): number {
   if (!product) return 0
   const general =
     typeof product.quantity === 'number' && !isNaN(product.quantity) ? product.quantity : 0
-  const ecommerce =
-    typeof product.qtde_loja_virtual === 'number' && !isNaN(product.qtde_loja_virtual)
-      ? product.qtde_loja_virtual
-      : 0
   const reseller =
     typeof resellerQty === 'number' && !isNaN(resellerQty) && resellerQty > 0 ? resellerQty : 0
-  return general + ecommerce + reseller
+  return Math.max(0, general - reseller)
+}
+
+/**
+ * Estoque único total do produto: geral + posse das revendedoras.
+ * (Mantida apenas para telas que mostram o total físico existente da peça.)
+ */
+export function getProductTotalStock(
+  product: Pick<Product, 'quantity'> | null | undefined,
+  resellerQty: number = 0,
+): number {
+  if (!product) return 0
+  const general =
+    typeof product.quantity === 'number' && !isNaN(product.quantity) ? product.quantity : 0
+  const reseller =
+    typeof resellerQty === 'number' && !isNaN(resellerQty) && resellerQty > 0 ? resellerQty : 0
+  return general + reseller
 }
 
 /**
@@ -121,26 +138,24 @@ export async function fetchResellerStockDetailsMap(): Promise<Map<string, Resell
 }
 
 /**
- * Retorna o breakdown de estoque completo de um produto
+ * Retorna o breakdown de estoque de um produto no modelo unificado.
+ * `ecommerce` aqui é a quantidade DISPONÍVEL no e-commerce (estoque único − posse).
  */
 export function getProductStockBreakdown(
-  product: Pick<Product, 'quantity' | 'qtde_loja_virtual'> | null | undefined,
+  product: Pick<Product, 'quantity'> | null | undefined,
   resellerDetails: ResellerItemDetail[] = [],
 ): ProductStockBreakdown {
   const general =
     product && typeof product.quantity === 'number' && !isNaN(product.quantity)
       ? Math.max(0, product.quantity)
       : 0
-  const ecommerce =
-    product && typeof product.qtde_loja_virtual === 'number' && !isNaN(product.qtde_loja_virtual)
-      ? Math.max(0, product.qtde_loja_virtual)
-      : 0
   const reseller = resellerDetails.reduce((sum, r) => sum + (r.quantity || 0), 0)
+  const ecommerce = Math.max(0, general - reseller)
   return {
     general,
     ecommerce,
     reseller,
-    total: general + ecommerce + reseller,
+    total: general,
     resellerDetails,
   }
 }

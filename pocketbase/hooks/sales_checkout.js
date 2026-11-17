@@ -44,36 +44,19 @@ routerAdd(
           const origin = item.stock_origin || 'general'
           const resellerId = item.reseller_id
 
-          // Permissão: se não for estoque geral, apenas admin e superadmin podem vender
-          if (origin !== 'general') {
+          // ESTOQUE ÚNICO: só existem duas origens reais — estoque geral (admin/superadmin,
+          // inclusive vendas de e-commerce, que descontam do quantity) e posse de revendedora.
+          // 'ecommerce' é aceito por compatibilidade e tratado como estoque geral.
+          if (origin !== 'general' && origin !== 'ecommerce') {
+            // 'reseller'
             if (role !== 'superadmin' && role !== 'admin') {
               throw new Error(
-                'Apenas administradores podem vender produtos com estoque em e-commerce ou revendedora.',
+                'Apenas administradores podem vender produtos em posse de revendedora.',
               )
             }
           }
 
-          if (origin === 'ecommerce') {
-            const currentEcom = product.getInt('qtde_loja_virtual') || 0
-            if (currentEcom < qtyToBuy) {
-              throw new Error(
-                'Estoque de e-commerce insuficiente para o produto: ' +
-                  product.getString('description') +
-                  ' (Disponível no e-commerce: ' +
-                  currentEcom +
-                  ', Solicitado: ' +
-                  qtyToBuy +
-                  ')',
-              )
-            }
-            const newEcom = currentEcom - qtyToBuy
-            product.set('qtde_loja_virtual', newEcom)
-            const generalQty = product.getInt('quantity') || 0
-            if (newEcom === 0 && generalQty === 0) {
-              product.set('status', 'unavailable')
-            }
-            txApp.save(product)
-          } else if (origin === 'reseller') {
+          if (origin === 'reseller') {
             // Localiza saldo da revendedora
             let stockRec = null
             if (resellerId) {
@@ -149,8 +132,7 @@ routerAdd(
 
             const newQty = currentQty - qtyToBuy
             product.set('quantity', newQty)
-            const ecomQty = product.getInt('qtde_loja_virtual') || 0
-            if (newQty === 0 && ecomQty === 0) {
+            if (newQty === 0) {
               product.set('status', 'unavailable')
             }
             txApp.save(product)
