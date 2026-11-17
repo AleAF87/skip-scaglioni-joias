@@ -1245,58 +1245,28 @@ export default function PosSale() {
                     </Button>
                   </div>
 
-                  {/* Seletor de Origem Padrão para novas leituras / adições */}
+                  {/* Estoque único: admin vende sempre do estoque geral (unificação) */}
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-[#E5DFD5]/60 text-xs text-[#6B655E]">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-[#2D2A26] flex items-center gap-1">
-                        Origem da Venda:
+                        Estoque de venda:
                       </span>
-                      <div className="inline-flex rounded-md shadow-xs" role="group">
-                        <button
-                          type="button"
-                          onClick={() => setSelectedOrigin('general')}
-                          className={`px-2.5 py-1 text-xs font-medium rounded-l-md border transition-colors ${
-                            selectedOrigin === 'general'
-                              ? 'bg-[#7A5C2E] text-white border-[#7A5C2E]'
-                              : 'bg-white text-[#2D2A26] border-[#E5DFD5] hover:bg-[#F3EAD8]'
-                          }`}
-                        >
-                          Geral
-                        </button>
-                        {canSellFromExternal && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => setSelectedOrigin('ecommerce')}
-                              className={`px-2.5 py-1 text-xs font-medium border-t border-b border-r transition-colors ${
-                                selectedOrigin === 'ecommerce'
-                                  ? 'bg-[#1E40AF] text-white border-[#1E40AF]'
-                                  : 'bg-white text-[#2D2A26] border-[#E5DFD5] hover:bg-[#DBEAFE]'
-                              }`}
-                            >
-                              E-commerce
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setSelectedOrigin('reseller')}
-                              className={`px-2.5 py-1 text-xs font-medium rounded-r-md border-t border-b border-r transition-colors ${
-                                selectedOrigin === 'reseller'
-                                  ? 'bg-[#B26A00] text-white border-[#B26A00]'
-                                  : 'bg-white text-[#2D2A26] border-[#E5DFD5] hover:bg-[#FEF3C7]'
-                              }`}
-                            >
-                              Revendedora
-                            </button>
-                          </>
-                        )}
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedOrigin('general')}
+                        title={
+                          canSellFromExternal
+                            ? 'Admin vende sempre do estoque único da loja'
+                            : 'Venda sai do estoque único da loja'
+                        }
+                        className="px-2.5 py-1 text-xs font-medium rounded-md border bg-[#7A5C2E] text-white border-[#7A5C2E] cursor-default"
+                      >
+                        Estoque único da loja
+                      </button>
                     </div>
                     <span className="text-[11px] text-[#8C8275] italic">
-                      {selectedOrigin === 'general'
-                        ? 'Estoque físico da loja'
-                        : selectedOrigin === 'ecommerce'
-                          ? 'Estoque reservado da loja virtual'
-                          : 'Estoque em posse das revendedoras'}
+                      Admin vende sempre do estoque único; revendedoras vendem pela aba delas
+                      (desconta da posse)
                     </span>
                   </div>
 

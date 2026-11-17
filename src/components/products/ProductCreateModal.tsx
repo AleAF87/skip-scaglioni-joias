@@ -96,12 +96,10 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
   // 4. Estoque Inicial
   const [quantidadeInicial, setQuantidadeInicial] = useState<number>(0)
 
-  // 5. E-commerce
+  // 5. E-commerce (interruptor apenas; sem saldo próprio — o estoque é único)
   const [publicarNoEcommerce, setPublicarNoEcommerce] = useState(false)
   const [destaqueEcommerce, setDestaqueEcommerce] = useState(false)
   const [slug, setSlug] = useState('')
-  const [qtdeLojaVirtual, setQtdeLojaVirtual] = useState<number>(0)
-  const [ecommerceQtyError, setEcommerceQtyError] = useState('')
 
   // 6. Variações
   const [hasVariations, setHasVariations] = useState(false)
@@ -173,8 +171,6 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
       setDestaqueEcommerce(false)
       setSlug('')
       setQuantidadeInicial(0)
-      setQtdeLojaVirtual(0)
-      setEcommerceQtyError('')
       setHasVariations(false)
       setVariations([])
     } catch (err) {
@@ -199,45 +195,14 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
   }, [nomeProduto])
 
   // Desabilita destaque no e-commerce se publicar for Não
-  // e se houver variações, sincroniza qtdeLojaVirtual conforme o estado do e-commerce
   useEffect(() => {
     if (!publicarNoEcommerce) {
       setDestaqueEcommerce(false)
-      if (hasVariations) {
-        setQtdeLojaVirtual(0)
-        setEcommerceQtyError('')
-      }
-    } else if (hasVariations) {
-      const sumEcom = variations.reduce(
-        (sum, v) => sum + (typeof v.ecommerceQuantity === 'number' ? v.ecommerceQuantity : 0),
-        0,
-      )
-      setQtdeLojaVirtual(sumEcom)
-      setEcommerceQtyError('')
     }
-  }, [publicarNoEcommerce, hasVariations])
+  }, [publicarNoEcommerce])
 
-  // Valida quantidade e-commerce em relação à quantidade inicial
   const handleQuantidadeInicialChange = (val: number) => {
     setQuantidadeInicial(val)
-    if (qtdeLojaVirtual > val) {
-      setEcommerceQtyError(
-        `A quantidade para e-commerce (${qtdeLojaVirtual}) não pode exceder a quantidade inicial (${val}).`,
-      )
-    } else {
-      setEcommerceQtyError('')
-    }
-  }
-
-  const handleQtdeLojaVirtualChange = (val: number) => {
-    setQtdeLojaVirtual(val)
-    if (val > quantidadeInicial) {
-      setEcommerceQtyError(
-        `A quantidade para e-commerce (${val}) não pode exceder a quantidade inicial (${quantidadeInicial}).`,
-      )
-    } else {
-      setEcommerceQtyError('')
-    }
   }
 
   // Validação de preço promocional
@@ -302,22 +267,10 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
       return
     }
 
-    // 4. Validação do Estoque Inicial e E-commerce
+    // 4. Validação do Estoque Inicial (estoque único)
     if (!hasVariations) {
       if (quantidadeInicial < 0) {
         toast.error('A Quantidade inicial deve ser maior ou igual a zero.')
-        return
-      }
-
-      if (qtdeLojaVirtual < 0) {
-        toast.error('A quantidade de e-commerce deve ser maior ou igual a zero.')
-        return
-      }
-
-      if (qtdeLojaVirtual > quantidadeInicial) {
-        toast.error(
-          `A quantidade para e-commerce (${qtdeLojaVirtual}) não pode exceder a quantidade inicial (${quantidadeInicial}).`,
-        )
         return
       }
     }
@@ -389,7 +342,7 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
       destaque_ecommerce: publicarNoEcommerce && destaqueEcommerce,
       slug: slug || productCreationService.slugify(nomeProduto),
       qtde_inicial: quantidadeInicial,
-      qtde_loja_virtual: qtdeLojaVirtual,
+      qtde_loja_virtual: publicarNoEcommerce ? 1 : 0,
       has_variations: hasVariations,
       variations,
       galleryImages,
@@ -918,7 +871,7 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
                     <label className="text-xs font-semibold text-[#2D2A26] block mb-1">
-                      Quantidade inicial <span className="text-[#B3261E]">*</span>
+                      Estoque (quantidade única) <span className="text-[#B3261E]">*</span>
                     </label>
                     <Input
                       type="number"
@@ -939,16 +892,16 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
 
                   <div className="sm:col-span-2 pt-2 sm:pt-0">
                     <p className="text-xs text-[#6B655E] leading-relaxed">
-                      A quantidade informada entra como estoque da peça. O valor reservado para o
-                      e-commerce (seção 5) define as unidades separadas para a loja virtual, ficando
-                      o restante no estoque geral da loja física.
+                      A quantidade informada é o estoque único da peça (loja física + revendedoras).
+                      Não existe saldo separado de e-commerce — a publicação é só um interruptor
+                      (seção 5).
                     </p>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* SEÇÃO 5: E-COMMERCE */}
+            {/* SEÇÃO 5: E-COMMERCE (interruptor; o estoque é único) */}
             <div className="space-y-4">
               <div className="flex items-center gap-2 border-b border-[#E5DFD5] pb-2">
                 <Globe className="h-4 w-4 text-[#7A5C2E]" />
@@ -957,61 +910,12 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
                 </h3>
               </div>
 
-              {/* Quantidade separada para e-commerce */}
-              <div className="p-4 rounded-xl border border-[#E5DFD5] bg-[#FDFBF7] space-y-2">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center">
-                  <div>
-                    <label className="text-xs font-bold text-[#2D2A26] block mb-1">
-                      Quantidade para e-commerce (Loja Virtual)
-                    </label>
-                    <span className="text-[11px] text-[#6B655E] block">
-                      {hasVariations
-                        ? 'Calculada automaticamente pela soma das quantidades de e-commerce das variações da Seção 6.'
-                        : `Unidades separadas exclusivamente para a loja virtual (no máximo igual à Quantidade inicial: ${quantidadeInicial} un.).`}
-                    </span>
-                  </div>
-
-                  <div>
-                    <Input
-                      type="number"
-                      min="0"
-                      max={
-                        hasVariations
-                          ? variations.reduce((sum, v) => sum + (v.initialQuantity || 0), 0)
-                          : quantidadeInicial
-                      }
-                      step="1"
-                      value={qtdeLojaVirtual}
-                      readOnly={hasVariations}
-                      disabled={hasVariations}
-                      onChange={(e) => {
-                        if (hasVariations) return
-                        const v = parseInt(e.target.value, 10)
-                        handleQtdeLojaVirtualChange(isNaN(v) ? 0 : Math.max(0, v))
-                      }}
-                      className={`h-10 text-sm font-mono font-bold ${
-                        hasVariations ? 'bg-[#F3EAD8]/40 text-[#7A5C2E]' : ''
-                      } ${ecommerceQtyError ? 'border-red-500 ring-1 ring-red-500' : ''}`}
-                    />
-                    {ecommerceQtyError ? (
-                      <span className="text-[11px] text-red-600 font-semibold block mt-1 flex items-center gap-1">
-                        <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                        {ecommerceQtyError}
-                      </span>
-                    ) : (
-                      <span className="text-[10px] text-[#8C8275] block mt-1">
-                        Restante no estoque geral:{' '}
-                        {Math.max(
-                          0,
-                          (hasVariations
-                            ? variations.reduce((sum, v) => sum + (v.initialQuantity || 0), 0)
-                            : quantidadeInicial) - qtdeLojaVirtual,
-                        )}{' '}
-                        un.
-                      </span>
-                    )}
-                  </div>
-                </div>
+              <div className="p-4 rounded-xl border border-[#E5DFD5] bg-[#FDFBF7]">
+                <p className="text-xs text-[#6B655E] leading-relaxed">
+                  O produto não tem saldo separado para e-commerce: existe um único estoque físico
+                  (campo "Estoque"). Ao publicar, a vitrine mostra a disponibilidade deste estoque
+                  único menos as peças em posse de revendedoras.
+                </p>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1107,21 +1011,10 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
                   variations={variations}
                   onChange={(newVariations) => {
                     setVariations(newVariations)
-                    // Se o e-commerce estiver ativo, sincroniza a soma das variações no campo da Seção 5
-                    if (publicarNoEcommerce) {
-                      const totalEcom = newVariations.reduce(
-                        (sum, v) =>
-                          sum + (typeof v.ecommerceQuantity === 'number' ? v.ecommerceQuantity : 0),
-                        0,
-                      )
-                      setQtdeLojaVirtual(totalEcom)
-                      setEcommerceQtyError('')
-                    }
                   }}
                   resellers={resellers}
                   baseSku={skuNovoPreview || '10000'}
                   basePrice={Number(precoVenda) || 0}
-                  isEcommercePublished={publicarNoEcommerce}
                 />
               )}
             </div>
