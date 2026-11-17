@@ -3,7 +3,7 @@ import { ProductVariationInput } from '@/services/productCreationService'
 import { Reseller } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Plus, Trash2, Layers, AlertCircle, Lock } from 'lucide-react'
+import { Plus, Trash2, Layers } from 'lucide-react'
 
 interface VariationsManagerProps {
   variations: ProductVariationInput[]
@@ -27,18 +27,12 @@ export function VariationsManager({
     const nextIdx = variations.length + 1
     const varSku = baseSku ? `${baseSku}-V${nextIdx}` : `VAR-${Date.now().toString().slice(-4)}`
 
-    const initialQty = 1
-    const ecomQty = isEcommercePublished ? 0 : 0
-    const physicalQty = Math.max(0, initialQty - ecomQty)
-
     const newVar: ProductVariationInput = {
       attributeName: 'Aro',
       attributeValue: '',
       sku: varSku,
       price: basePrice || 0,
-      initialQuantity: initialQty,
-      ecommerceQuantity: ecomQty,
-      physicalQuantity: physicalQty,
+      initialQuantity: 1,
     }
 
     onChange([...variations, newVar])
@@ -49,24 +43,7 @@ export function VariationsManager({
   }
 
   const handleUpdateVariation = (index: number, updates: Partial<ProductVariationInput>) => {
-    onChange(
-      variations.map((v, idx) => {
-        if (idx === index) {
-          const updated = { ...v, ...updates }
-
-          // Recalcula physicalQuantity ao vivo
-          const initQty = typeof updated.initialQuantity === 'number' ? updated.initialQuantity : 0
-          const ecomQty =
-            isEcommercePublished && typeof updated.ecommerceQuantity === 'number'
-              ? updated.ecommerceQuantity
-              : 0
-          updated.physicalQuantity = Math.max(0, initQty - ecomQty)
-
-          return updated
-        }
-        return v
-      }),
-    )
+    onChange(variations.map((v, idx) => (idx === index ? { ...v, ...updates } : v)))
   }
 
   return (
@@ -79,7 +56,7 @@ export function VariationsManager({
           </label>
           <p className="text-[11px] text-[#6B655E]">
             {isEcommercePublished
-              ? 'Cada variação possui seu próprio SKU, preço e divisão entre Estoque Geral e E-commerce.'
+              ? 'Cada variação possui seu próprio SKU, preço e quantidade no estoque único. Ao publicar no e-commerce, a vitrine mostra o estoque único menos as peças em posse de revendedoras.'
               : 'Cada variação possui seu próprio SKU, preço e quantidade destinada ao estoque geral.'}
           </p>
         </div>
@@ -102,15 +79,6 @@ export function VariationsManager({
       ) : (
         <div className="space-y-4">
           {variations.map((variation, vIdx) => {
-            const initialQty =
-              typeof variation.initialQuantity === 'number' ? variation.initialQuantity : 0
-            const ecomQtyRaw = variation.ecommerceQuantity
-            const isEcomEmpty =
-              isEcommercePublished && (ecomQtyRaw === undefined || ecomQtyRaw === null)
-            const ecomQty = typeof ecomQtyRaw === 'number' ? ecomQtyRaw : 0
-            const isEcomExcess = isEcommercePublished && ecomQty > initialQty
-            const physicalQty = Math.max(0, initialQty - (isEcommercePublished ? ecomQty : 0))
-
             return (
               <div
                 key={vIdx}
@@ -202,143 +170,38 @@ export function VariationsManager({
                   </div>
                 </div>
 
-                {/* Bloco de Quantidades da Variação */}
+                {/* Bloco de Quantidade da Variação (estoque único) */}
                 <div className="pt-2 border-t border-[#E5DFD5]/70">
-                  {isEcommercePublished ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-start">
-                      {/* Qtde. Inicial Geral * */}
-                      <div>
-                        <label className="text-[11px] font-semibold text-[#2D2A26] block mb-1">
-                          Qtde. Inicial Geral *
-                        </label>
-                        <Input
-                          type="number"
-                          min="0"
-                          step="1"
-                          value={
-                            variation.initialQuantity === 0
-                              ? '0'
-                              : (variation.initialQuantity ?? '')
-                          }
-                          onChange={(e) => {
-                            const val =
-                              e.target.value === '' ? ('' as any) : parseInt(e.target.value, 10)
-                            handleUpdateVariation(vIdx, {
-                              initialQuantity:
-                                typeof val === 'number' ? (isNaN(val) ? 0 : Math.max(0, val)) : val,
-                            })
-                          }}
-                          className="h-9 text-xs font-mono font-semibold"
-                          required
-                        />
-                        <span className="text-[10px] text-[#8C8275] block mt-1">
-                          Total inicial da peça nesta variação
-                        </span>
-                      </div>
-
-                      {/* Qtde. E-commerce * */}
-                      <div>
-                        <label className="text-[11px] font-semibold text-[#2D2A26] block mb-1">
-                          Qtde. E-commerce *
-                        </label>
-                        <Input
-                          type="number"
-                          min="0"
-                          max={initialQty}
-                          step="1"
-                          value={
-                            variation.ecommerceQuantity === undefined ||
-                            variation.ecommerceQuantity === null ||
-                            (variation.ecommerceQuantity as any) === ''
-                              ? ''
-                              : variation.ecommerceQuantity
-                          }
-                          onChange={(e) => {
-                            const raw = e.target.value
-                            if (raw === '') {
-                              handleUpdateVariation(vIdx, {
-                                ecommerceQuantity: '' as any,
-                              })
-                              return
-                            }
-                            const val = parseInt(raw, 10)
-                            handleUpdateVariation(vIdx, {
-                              ecommerceQuantity: isNaN(val) ? 0 : Math.max(0, val),
-                            })
-                          }}
-                          placeholder="0"
-                          className={`h-9 text-xs font-mono font-semibold ${
-                            isEcomExcess || isEcomEmpty ? 'border-red-500 ring-1 ring-red-500' : ''
-                          }`}
-                          required
-                        />
-
-                        {isEcomEmpty ? (
-                          <span className="text-[10px] text-red-600 font-semibold block mt-1 flex items-center gap-1">
-                            <AlertCircle className="h-3 w-3 shrink-0" />
-                            Obrigatório (pode ser 0).
-                          </span>
-                        ) : isEcomExcess ? (
-                          <span className="text-[10px] text-red-600 font-semibold block mt-1 flex items-center gap-1">
-                            <AlertCircle className="h-3 w-3 shrink-0" />
-                            Não pode exceder a inicial ({initialQty} un.).
-                          </span>
-                        ) : (
-                          <span className="text-[10px] text-[#8C8275] block mt-1">
-                            Separado para a loja virtual (pode ser 0)
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Qtde. Venda Física (Automático e não editável) */}
-                      <div>
-                        <label className="text-[11px] font-semibold text-[#2D2A26] flex items-center gap-1 mb-1">
-                          <Lock className="h-3 w-3 text-[#8C8275]" /> Qtde. Venda Física
-                        </label>
-                        <Input
-                          value={`${physicalQty} un.`}
-                          readOnly
-                          disabled
-                          className="h-9 text-xs font-mono font-bold bg-[#F3EAD8]/40 text-[#7A5C2E]"
-                        />
-                        <span className="text-[10px] text-[#8C8275] block mt-1">
-                          Calculado: (Inicial Geral − E-commerce)
-                        </span>
-                      </div>
+                  <div className="flex items-center gap-3">
+                    <div className="w-48">
+                      <label className="text-[11px] font-semibold text-[#2D2A26] block mb-1">
+                        Qtde. Inicial Geral *
+                      </label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={
+                          variation.initialQuantity === 0 ? '0' : (variation.initialQuantity ?? '')
+                        }
+                        onChange={(e) => {
+                          const val =
+                            e.target.value === '' ? ('' as any) : parseInt(e.target.value, 10)
+                          handleUpdateVariation(vIdx, {
+                            initialQuantity:
+                              typeof val === 'number' ? (isNaN(val) ? 0 : Math.max(0, val)) : val,
+                          })
+                        }}
+                        className="h-9 text-xs font-mono font-semibold"
+                        required
+                      />
                     </div>
-                  ) : (
-                    <div className="flex items-center gap-3">
-                      <div className="w-48">
-                        <label className="text-[11px] font-semibold text-[#2D2A26] block mb-1">
-                          Qtde. Inicial Geral *
-                        </label>
-                        <Input
-                          type="number"
-                          min="0"
-                          step="1"
-                          value={
-                            variation.initialQuantity === 0
-                              ? '0'
-                              : (variation.initialQuantity ?? '')
-                          }
-                          onChange={(e) => {
-                            const val =
-                              e.target.value === '' ? ('' as any) : parseInt(e.target.value, 10)
-                            handleUpdateVariation(vIdx, {
-                              initialQuantity:
-                                typeof val === 'number' ? (isNaN(val) ? 0 : Math.max(0, val)) : val,
-                            })
-                          }}
-                          className="h-9 text-xs font-mono font-semibold"
-                          required
-                        />
-                      </div>
-                      <div className="flex-1 pt-4 text-[11px] text-[#6B655E]">
-                        Toda a quantidade desta variação vai automaticamente para o estoque geral da
-                        loja física.
-                      </div>
+                    <div className="flex-1 pt-4 text-[11px] text-[#6B655E]">
+                      {isEcommercePublished
+                        ? 'Toda a quantidade vai para o estoque único da peça; ao publicar no e-commerce, a vitrine mostra o estoque único menos as peças com revendedoras.'
+                        : 'Toda a quantidade desta variação vai automaticamente para o estoque geral da loja física.'}
                     </div>
-                  )}
+                  </div>
                 </div>
               </div>
             )

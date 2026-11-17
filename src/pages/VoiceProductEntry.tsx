@@ -1164,8 +1164,6 @@ export default function VoiceProductEntry() {
       setSellingPrice('')
       setInitialQuantity('')
       setQuantity('')
-      setVirtualStoreQuantity('0')
-      setVirtualStoreQtyError(null)
       setMinimumQuantity('')
       setObservations('')
       setPhotos([])

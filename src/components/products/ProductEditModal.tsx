@@ -127,6 +127,8 @@ export function ProductEditModal({
         invested_value: newCost > 0 ? newCost : null,
         publicar_no_ecommerce: publicarNoEcommerce,
         destaque_ecommerce: publicarNoEcommerce && destaqueEcommerce,
+        // Interruptor de publicação: 1 = publicado, 0 = não publicado (nunca saldo)
+        qtde_loja_virtual: publicarNoEcommerce ? 1 : 0,
         slug: slug.trim() || undefined,
       })
 

@@ -296,30 +296,6 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
           toast.error(`A Quantidade Inicial Geral da variação #${i + 1} deve ser informada (≥ 0).`)
           return
         }
-        if (publicarNoEcommerce) {
-          if (
-            v.ecommerceQuantity === undefined ||
-            v.ecommerceQuantity === null ||
-            (v.ecommerceQuantity as any) === '' ||
-            isNaN(Number(v.ecommerceQuantity))
-          ) {
-            toast.error(
-              `Informe a Qtde. E-commerce na variação #${i + 1} (não pode ficar vazia, mas pode ser 0).`,
-            )
-            return
-          }
-          const ecomQ = Number(v.ecommerceQuantity)
-          if (ecomQ < 0) {
-            toast.error(`A Qtde. E-commerce da variação #${i + 1} não pode ser negativa.`)
-            return
-          }
-          if (ecomQ > initQ) {
-            toast.error(
-              `A Qtde. E-commerce (${ecomQ}) da variação #${i + 1} não pode ser maior que a Qtde. Inicial Geral (${initQ}).`,
-            )
-            return
-          }
-        }
       }
     }
 

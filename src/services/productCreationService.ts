@@ -19,9 +19,7 @@ export interface ProductVariationInput {
   attributeValue: string // '15', '16', 'prata', 'dourado'
   sku: string
   price: number
-  initialQuantity: number // Qtde. Inicial Geral
-  ecommerceQuantity?: number // Qtde. E-commerce (quando publicar_no_ecommerce estiver ativo)
-  physicalQuantity?: number // Qtde. Venda Física (calculado: initialQuantity - ecommerceQuantity)
+  initialQuantity: number // Qtde. Inicial Geral (estoque único)
   distribution?: StockDistributionItem[] // legado/opcional
   imageFile?: File | null
   imageUrl?: string
@@ -53,7 +51,7 @@ export interface CreateProductPayload {
   destaque_ecommerce: boolean
   slug: string
   qtde_inicial: number
-  qtde_loja_virtual?: number
+  qtde_loja_virtual?: number // interruptor: 1 = publicado no e-commerce, 0 = não
   distribution?: StockDistributionItem[]
   has_variations: boolean
   variations: ProductVariationInput[]
@@ -250,8 +248,8 @@ export const productCreationService = {
 
     formData.append('quantity', String(totalQty))
     formData.append('qtde_inicial', String(totalQty))
-    const virtualQty =
-      typeof payload.qtde_loja_virtual === 'number' ? Math.max(0, payload.qtde_loja_virtual) : 0
+    // qtde_loja_virtual é apenas interruptor (1 = publicado, 0 = não publicado)
+    const virtualQty = payload.qtde_loja_virtual ? 1 : 0
     formData.append('qtde_loja_virtual', String(virtualQty))
     // Alerta de estoque Scaglioni: 30% da quantidade inicial
     const minAlert = Math.max(1, Math.round(totalQty * 0.3))
@@ -308,22 +306,11 @@ export const productCreationService = {
     // 4. Salvar Estoque Inicial e Distribuições por Localização (initial_stocks)
     try {
       if (payload.has_variations && payload.variations.length > 0) {
-        // Registra estoque inicial detalhado por variação
+        // Registra estoque inicial detalhado por variação (estoque único)
         for (const variation of payload.variations) {
-          const ecomQty = payload.publicar_no_ecommerce
-            ? Math.max(
-                0,
-                Math.min(variation.initialQuantity || 0, variation.ecommerceQuantity ?? 0),
-              )
-            : 0
-          const physicalQty =
-            typeof variation.physicalQuantity === 'number'
-              ? variation.physicalQuantity
-              : Math.max(0, (variation.initialQuantity || 0) - ecomQty)
-
           const varDistDetails: any = {
-            loja_fisica: physicalQty,
-            expedicao: ecomQty,
+            loja_fisica: variation.initialQuantity || 0,
+            expedicao: 0,
             revendedoras: [] as any[],
           }
 
@@ -339,16 +326,11 @@ export const productCreationService = {
           })
         }
       } else {
-        // Distribuição do produto simples:
-        // Se houver payload.distribution (ex: legado ou custom), calcula;
-        // Caso contrário, usa o modelo simplificado: expedicao = qtde_loja_virtual, e o restante = loja_fisica (geral)
-        const virtualStoreQty =
-          typeof payload.qtde_loja_virtual === 'number' ? payload.qtde_loja_virtual : 0
-        const generalQty = Math.max(0, payload.qtde_inicial - virtualStoreQty)
-
+        // Distribuição do produto simples (estoque único):
+        // tudo vai para o estoque geral; qtde_loja_virtual é apenas interruptor de publicação
         const distDetails: any = {
-          loja_fisica: generalQty,
-          expedicao: virtualStoreQty,
+          loja_fisica: payload.qtde_inicial || 0,
+          expedicao: 0,
           revendedoras: [] as any[],
         }
 

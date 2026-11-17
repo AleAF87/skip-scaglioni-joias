@@ -425,7 +425,7 @@ export function ProductsPage() {
                     <th className="py-3 px-3 min-w-[140px]">Categorias</th>
                     <th className="py-3 px-3 text-right">Preço de venda</th>
                     <th className="py-3 px-3 text-center">Estoque total</th>
-                    <th className="py-3 px-3 text-center">E-commerce</th>
+                    <th className="py-3 px-3 text-center">Publicação</th>
                     <th className="py-3 px-3 text-center">Destaque</th>
                     <th className="py-3 px-3">Data cadastro</th>
                     <th className="py-3 px-3 text-right">Ações</th>
@@ -533,7 +533,7 @@ export function ProductsPage() {
                           ) : null}
                         </td>
 
-                        {/* Estoque atual total (geral + e-commerce + revendedoras) */}
+                        {/* Estoque único + posse das revendedoras */}
                         <td className="py-2.5 px-3 text-center">
                           {(() => {
                             const resQty = resellerStockMap.get(p.id) || 0
@@ -542,7 +542,7 @@ export function ProductsPage() {
                             return (
                               <div
                                 className="inline-flex flex-col items-center"
-                                title={`Estoque total atual: ${total} un. (Geral: ${p.quantity || 0} | E-commerce: ${p.qtde_loja_virtual || 0} | Revendedoras: ${resQty})`}
+                                title={`Estoque total: ${total} un. | Estoque: ${p.quantity || 0} | Com revendedoras: ${resQty}`}
                               >
                                 <span
                                   className={`font-mono font-bold text-xs px-2 py-0.5 rounded-full ${
@@ -555,11 +555,10 @@ export function ProductsPage() {
                                 >
                                   {total} un.
                                 </span>
-                                {p.qtde_loja_virtual || resQty ? (
+                                {p.quantity || resQty ? (
                                   <span className="text-[9px] text-[#6B655E] mt-0.5">
-                                    G:{p.quantity || 0}
-                                    {p.qtde_loja_virtual ? ` | E:${p.qtde_loja_virtual}` : ''}
-                                    {resQty ? ` | R:${resQty}` : ''}
+                                    Estoque: {p.quantity || 0}
+                                    {resQty ? ` | Com revendedoras: ${resQty}` : ''}
                                   </span>
                                 ) : null}
                               </div>
@@ -567,15 +566,15 @@ export function ProductsPage() {
                           })()}
                         </td>
 
-                        {/* Publicar no e-commerce */}
+                        {/* Publicação no e-commerce (interruptor 1/0) */}
                         <td className="py-2.5 px-3 text-center">
-                          {p.publicar_no_ecommerce ? (
+                          {p.qtde_loja_virtual === 1 || p.publicar_no_ecommerce ? (
                             <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-semibold">
-                              <CheckCircle2 className="h-3 w-3 mr-1 text-emerald-600" /> Sim
+                              <CheckCircle2 className="h-3 w-3 mr-1 text-emerald-600" /> Publicado
                             </Badge>
                           ) : (
                             <Badge className="bg-gray-100 text-gray-600 border border-gray-200 text-[10px] font-normal">
-                              Não
+                              Não publicado
                             </Badge>
                           )}
                         </td>
