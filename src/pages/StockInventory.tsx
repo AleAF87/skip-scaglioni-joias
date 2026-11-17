@@ -148,7 +148,7 @@ export default function StockInventory() {
   const [isSavingEdit, setIsSavingEdit] = useState(false)
   const [productResellerStock, setProductResellerStock] = useState<ResellerStockItem[]>([])
   const [loadingResellerStock, setLoadingResellerStock] = useState(false)
-  const [editVirtualStoreQtyError, setEditVirtualStoreQtyError] = useState<string | null>(null)
+  const [editPublishEcommerce, setEditPublishEcommerce] = useState(false)
   const [showInvestedColumn, setShowInvestedColumn] = useState(false)
   const [showProfitColumn, setShowProfitColumn] = useState(false)
   const [resellerAllocatedProductIds, setResellerAllocatedProductIds] = useState<Set<string>>(
@@ -166,7 +166,6 @@ export default function StockInventory() {
     selling_price: '',
     qtde_inicial: '',
     quantity: '',
-    qtde_loja_virtual: '0',
     minimum_quantity: '',
     observations: '',
     status: 'available',
@@ -481,7 +480,7 @@ export default function StockInventory() {
     setEditingProduct(p)
     setEditExistingPhotos(p.photos ? [...p.photos] : [])
     setEditNewPhotoFiles([])
-    setEditVirtualStoreQtyError(null)
+    setEditPublishEcommerce((p.qtde_loja_virtual || 0) > 0)
 
     // Estoque inicial gravado ou fallback sensato para quantity atual em memória (sem gravar no banco antes de salvar)
     const initialStockVal =
@@ -496,11 +495,6 @@ export default function StockInventory() {
         ? p.minimum_quantity.toString()
         : Math.max(1, Math.round(initialStockVal * 0.3)).toString()
 
-    const virtualStoreVal =
-      typeof p.qtde_loja_virtual === 'number' && !isNaN(p.qtde_loja_virtual)
-        ? p.qtde_loja_virtual
-        : 0
-
     setEditForm({
       code: p.code,
       description: p.description,
@@ -512,7 +506,6 @@ export default function StockInventory() {
       selling_price: p.selling_price ? p.selling_price.toString() : '',
       qtde_inicial: initialStockVal.toString(),
       quantity: (p.quantity ?? 0).toString(),
-      qtde_loja_virtual: virtualStoreVal.toString(),
       minimum_quantity: initialMinQty,
       observations: p.observations || '',
       status: p.status || 'available',
@@ -578,27 +571,10 @@ export default function StockInventory() {
 
     const parsedQty = parseInt(editForm.quantity, 10)
     const parsedInitQty = parseInt(editForm.qtde_inicial, 10)
-    const parsedVirtualQty = parseInt(editForm.qtde_loja_virtual || '0', 10)
 
     if (isNaN(parsedQty) || parsedQty < 0) {
       toast.error('Informe um estoque atual válido.')
       return
-    }
-
-    if (isNaN(parsedVirtualQty) || parsedVirtualQty < 0) {
-      const msg = 'Informe uma quantidade válida para o Estoque da Loja Virtual.'
-      setEditVirtualStoreQtyError(msg)
-      toast.error(msg)
-      return
-    }
-
-    if (parsedVirtualQty > parsedQty) {
-      const msg = `A quantidade da loja virtual (${parsedVirtualQty}) não pode ser maior que o Estoque Atual (${parsedQty}).`
-      setEditVirtualStoreQtyError(msg)
-      toast.error(msg)
-      return
-    } else {
-      setEditVirtualStoreQtyError(null)
     }
 
     setIsSavingEdit(true)
@@ -623,7 +599,8 @@ export default function StockInventory() {
             ? parsedInitQty
             : (editingProduct.qtde_inicial ?? parsedQty),
         quantity: parsedQty,
-        qtde_loja_virtual: parsedVirtualQty,
+        // Interruptor de publicação (flag 1/0): não é saldo, apenas publica ou não no e-commerce
+        qtde_loja_virtual: editPublishEcommerce ? 1 : 0,
         // Preserva o mínimo gravado caso o usuário não tenha alterado manualmente
         minimum_quantity:
           editForm.minimum_quantity && parseInt(editForm.minimum_quantity, 10) > 0
@@ -1414,8 +1391,8 @@ export default function StockInventory() {
                   const isSelected = selectedIds.includes(p.id)
                   const isEditingThisQty = editingQtyId === p.id
                   const resellerUnits = resellerStockMap.get(p.id) || 0
-                  // Estoque total atual = geral + e-commerce + revendedoras
-                  const currentTotalStock = getProductTotalStock(p, resellerUnits)
+                  // Estoque único: o saldo real da peça é o campo quantity; o que está com revendedoras continua em posse
+                  const currentTotalStock = p.quantity || 0
 
                   // Regra da usuária: o alerta ativa quando a quantidade atual atinge o mínimo (30% do inicial gravado).
                   // Se por algum motivo o mínimo vier ausente ou zero, usa o fallback dinâmico de 30% da quantidade (mínimo 1), nunca um valor fixo.
@@ -1540,7 +1517,7 @@ export default function StockInventory() {
                         <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                           {p.publicar_no_ecommerce ? (
                             <Badge className="bg-[#C6A664] hover:bg-[#b0914f] text-[#2D2A26] font-semibold text-[10px] px-1.5 py-0 h-4.5 border border-[#B38F48] shadow-2xs">
-                              E-commerce
+                              Publicado
                             </Badge>
                           ) : (
                             <Badge
@@ -1582,7 +1559,7 @@ export default function StockInventory() {
                           : 'R$ ••••'}
                       </td>
 
-                      {/* Coluna Estoque: mostra o estoque atual total (geral + e-commerce + revendedoras) com detalhamento em tooltip */}
+                      {/* Coluna Estoque: estoque único (quantity) com a posse das revendedoras em detalhe */}
                       <td className="py-3 px-4 text-center">
                         {isEditingThisQty ? (
                           <div className="flex items-center justify-center gap-1.5">
@@ -1616,7 +1593,7 @@ export default function StockInventory() {
                               setTempQty((p.quantity || 0).toString())
                             }}
                             className="inline-flex flex-col items-center justify-center px-2 py-1 rounded-md hover:bg-[#F3EAD8] cursor-pointer group"
-                            title={`Estoque total atual: ${currentTotalStock} un. (Geral: ${p.quantity || 0} | E-commerce: ${p.qtde_loja_virtual || 0} | Revendedoras: ${resellerUnits})\nClique para editar a quantidade geral`}
+                            title={`Estoque: ${currentTotalStock} un. | Com revendedoras: ${resellerUnits} un.\nClique para editar o estoque único da peça`}
                           >
                             <div className="inline-flex items-center gap-1.5">
                               <span
@@ -1632,11 +1609,9 @@ export default function StockInventory() {
                               </span>
                               <Edit className="h-3 w-3 text-[#6B655E] opacity-0 group-hover:opacity-100 transition-opacity" />
                             </div>
-                            {p.qtde_loja_virtual || resellerUnits ? (
+                            {resellerUnits ? (
                               <span className="text-[10px] text-[#6B655E] leading-tight font-normal">
-                                G:{p.quantity || 0}
-                                {p.qtde_loja_virtual ? ` | E:${p.qtde_loja_virtual}` : ''}
-                                {resellerUnits ? ` | R:${resellerUnits}` : ''}
+                                Com revendedoras: {resellerUnits}
                               </span>
                             ) : null}
                           </div>
@@ -1933,7 +1908,7 @@ export default function StockInventory() {
               />
             </div>
 
-            {/* Ordem: Valor Investido, Preço de Venda, Estoque Inicial, Estoque Atual, Estoque Loja Virtual e Mínimo */}
+            {/* Ordem: Valor Investido, Preço de Venda, Estoque Inicial, Estoque Atual, Publicar no E-commerce e Mínimo */}
             <div className="space-y-2">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 <div>
@@ -1990,20 +1965,8 @@ export default function StockInventory() {
                     step="1"
                     required
                     value={editForm.quantity}
-                    onChange={(e) => {
-                      const nextQty = e.target.value
-                      setEditForm({ ...editForm, quantity: nextQty })
-                      const pQ = parseInt(nextQty || '0', 10)
-                      const pV = parseInt(editForm.qtde_loja_virtual || '0', 10)
-                      if (!isNaN(pQ) && !isNaN(pV) && pV > pQ) {
-                        setEditVirtualStoreQtyError(
-                          `A quantidade da loja virtual (${pV}) não pode ser maior que o Estoque Atual (${pQ}).`,
-                        )
-                      } else {
-                        setEditVirtualStoreQtyError(null)
-                      }
-                    }}
-                    title="Quantidade física atual total em estoque"
+                    onChange={(e) => setEditForm({ ...editForm, quantity: e.target.value })}
+                    title="Estoque único da peça (físico + e-commerce + posse de revendedoras)"
                     className="mt-1 font-bold text-[#2E7D4F]"
                   />
                 </div>
@@ -2011,36 +1974,41 @@ export default function StockInventory() {
                 <div>
                   <div className="flex items-center justify-between">
                     <Label className="text-xs font-semibold text-[#2D2A26]">
-                      Estoque Loja Virtual
+                      Publicar no E-commerce
                     </Label>
-                    <span className="text-[10px] text-[#2E7D4F] font-semibold">Separado</span>
+                    <span
+                      className={`text-[10px] font-semibold ${
+                        editPublishEcommerce ? 'text-[#2E7D4F]' : 'text-[#6B655E]'
+                      }`}
+                    >
+                      {editPublishEcommerce ? 'Ativado' : 'Desativado'}
+                    </span>
                   </div>
-                  <Input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={editForm.qtde_loja_virtual}
-                    onChange={(e) => {
-                      const nextV = e.target.value
-                      setEditForm({ ...editForm, qtde_loja_virtual: nextV })
-                      const pV = parseInt(nextV || '0', 10)
-                      const pQ = parseInt(editForm.quantity || '0', 10)
-                      if (!isNaN(pQ) && !isNaN(pV) && pV > pQ) {
-                        setEditVirtualStoreQtyError(
-                          `A quantidade da loja virtual (${pV}) não pode ser maior que o Estoque Atual (${pQ}).`,
-                        )
-                      } else {
-                        setEditVirtualStoreQtyError(null)
-                      }
-                    }}
-                    placeholder="0"
-                    title="Quantidade que está separada exclusivamente para o estoque da loja virtual"
-                    className={`mt-1 font-bold ${
-                      editVirtualStoreQtyError
-                        ? 'border-[#B3261E] focus-visible:ring-[#B3261E] text-[#B3261E]'
-                        : 'border-[#2E7D4F]/60 text-[#2E7D4F]'
+                  <button
+                    type="button"
+                    onClick={() => setEditPublishEcommerce((v) => !v)}
+                    className={`mt-1 w-full inline-flex items-center justify-between px-3 py-2 rounded-md border text-xs font-semibold transition-colors ${
+                      editPublishEcommerce
+                        ? 'border-[#2E7D4F] bg-[#2E7D4F]/10 text-[#2E7D4F]'
+                        : 'border-[#E5DFD5] bg-white text-[#6B655E]'
                     }`}
-                  />
+                    title="Publica ou retira esta peça da loja virtual (não altera o estoque)"
+                  >
+                    <span>
+                      {editPublishEcommerce ? 'Publicado no e-commerce' : 'Não publicado'}
+                    </span>
+                    <span
+                      className={`inline-flex h-4 w-8 rounded-full p-0.5 transition-colors ${
+                        editPublishEcommerce ? 'bg-[#2E7D4F]' : 'bg-[#E5DFD5]'
+                      }`}
+                    >
+                      <span
+                        className={`h-3 w-3 rounded-full bg-white shadow-sm transition-transform ${
+                          editPublishEcommerce ? 'translate-x-4' : ''
+                        }`}
+                      />
+                    </span>
+                  </button>
                 </div>
 
                 <div>
@@ -2059,12 +2027,6 @@ export default function StockInventory() {
                   />
                 </div>
               </div>
-
-              {editVirtualStoreQtyError && (
-                <p className="text-xs font-medium text-[#B3261E] flex items-center gap-1 mt-1">
-                  <span>⚠️</span> {editVirtualStoreQtyError}
-                </p>
-              )}
             </div>
 
             {/* Painel de Localização e Divisão do Estoque (Onde a peça está) */}
@@ -2087,11 +2049,9 @@ export default function StockInventory() {
                   </span>
                 </div>
 
-                {/* 3 Blocos de Resumo: Estoque Geral, Loja Virtual e Com Revendedoras */}
+                {/* 2 Blocos de Resumo: Estoque (único) e Com Revendedoras */}
                 {(() => {
                   const totalAtual = parseInt(editForm.quantity || '0', 10) || 0
-                  const lojaVirtual = parseInt(editForm.qtde_loja_virtual || '0', 10) || 0
-                  const estoqueGeral = Math.max(0, totalAtual - lojaVirtual)
                   const totalEmRevendedoras = productResellerStock.reduce(
                     (acc, item) => acc + (item.quantity || 0),
                     0,
@@ -2099,38 +2059,23 @@ export default function StockInventory() {
 
                   return (
                     <div className="space-y-3">
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                        {/* 1. Estoque Geral */}
-                        <div className="p-2.5 rounded-lg bg-white border border-[#E5DFD5] shadow-2xs">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-[#6B655E] block">
-                            Estoque Geral (Físico)
-                          </span>
-                          <div className="flex items-baseline justify-between mt-1">
-                            <span className="font-serif text-lg font-bold text-[#2D2A26]">
-                              {estoqueGeral}
-                            </span>
-                            <span className="text-[10px] text-[#6B655E]">
-                              (Total - Loja Virtual)
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* 2. Loja Virtual */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {/* 1. Estoque (único) */}
                         <div className="p-2.5 rounded-lg bg-white border border-[#2E7D4F]/30 shadow-2xs">
                           <span className="text-[10px] font-bold uppercase tracking-wider text-[#2E7D4F] block">
-                            Loja Virtual
+                            Estoque
                           </span>
                           <div className="flex items-baseline justify-between mt-1">
                             <span className="font-serif text-lg font-bold text-[#2E7D4F]">
-                              {lojaVirtual}
+                              {totalAtual}
                             </span>
                             <span className="text-[10px] text-[#2E7D4F] font-medium">
-                              Quantidade Separada
+                              Estoque único da peça
                             </span>
                           </div>
                         </div>
 
-                        {/* 3. Com Revendedoras */}
+                        {/* 2. Com Revendedoras */}
                         <div className="p-2.5 rounded-lg bg-white border border-[#7A5C2E]/30 shadow-2xs">
                           <span className="text-[10px] font-bold uppercase tracking-wider text-[#7A5C2E] block">
                             Com Revendedoras

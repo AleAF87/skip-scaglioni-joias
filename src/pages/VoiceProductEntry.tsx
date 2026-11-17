@@ -113,8 +113,7 @@ export default function VoiceProductEntry() {
   const [sellingPrice, setSellingPrice] = useState<string>('')
   const [initialQuantity, setInitialQuantity] = useState<string>('')
   const [quantity, setQuantity] = useState<string>('')
-  const [virtualStoreQuantity, setVirtualStoreQuantity] = useState<string>('0')
-  const [virtualStoreQtyError, setVirtualStoreQtyError] = useState<string | null>(null)
+  const [publishEcommerce, setPublishEcommerce] = useState<boolean>(true)
   const [minimumQuantity, setMinimumQuantity] = useState<string>('')
   const [observations, setObservations] = useState('')
   const [photos, setPhotos] = useState<File[]>([])
@@ -706,31 +705,6 @@ export default function VoiceProductEntry() {
         setMinimumQuantity(thirtyPercent.toString())
       }
     }
-
-    // Valida estoque da loja virtual contra a nova quantidade atual
-    const parsedQty = parseInt(newQtyStr, 10)
-    const parsedVirtual = parseInt(virtualStoreQuantity || '0', 10)
-    if (!isNaN(parsedQty) && !isNaN(parsedVirtual) && parsedVirtual > parsedQty) {
-      setVirtualStoreQtyError(
-        `A quantidade para a loja virtual (${parsedVirtual}) não pode ser maior que o Estoque Atual (${parsedQty}).`,
-      )
-    } else {
-      setVirtualStoreQtyError(null)
-    }
-  }
-
-  // Handle virtual store quantity change
-  const handleVirtualStoreQuantityChange = (valStr: string) => {
-    setVirtualStoreQuantity(valStr)
-    const parsedVirtual = parseInt(valStr || '0', 10)
-    const parsedQty = parseInt(quantity || '0', 10)
-    if (!isNaN(parsedVirtual) && !isNaN(parsedQty) && parsedVirtual > parsedQty) {
-      setVirtualStoreQtyError(
-        `A quantidade para a loja virtual (${parsedVirtual}) não pode ser maior que o Estoque Atual (${parsedQty}).`,
-      )
-    } else {
-      setVirtualStoreQtyError(null)
-    }
   }
 
   // Apply data returned from Guided Voice Modal
@@ -1105,8 +1079,7 @@ export default function VoiceProductEntry() {
       setSellingPrice('')
       setInitialQuantity('')
       setQuantity('')
-      setVirtualStoreQuantity('0')
-      setVirtualStoreQtyError(null)
+      setPublishEcommerce(true)
       setMinimumQuantity('')
       setObservations('')
       setPhotos([])
@@ -1144,24 +1117,6 @@ export default function VoiceProductEntry() {
       return
     }
 
-    const numVirtualStoreQuantity = parseInt(virtualStoreQuantity || '0', 10)
-    if (isNaN(numVirtualStoreQuantity) || numVirtualStoreQuantity < 0) {
-      toast.error('Informe uma quantidade válida para o estoque da loja virtual.')
-      setVirtualStoreQtyError(
-        'A quantidade da loja virtual deve ser um número maior ou igual a zero.',
-      )
-      return
-    }
-
-    if (numVirtualStoreQuantity > numQuantity) {
-      const errorMsg = `A quantidade da loja virtual (${numVirtualStoreQuantity}) não pode ser maior que o Estoque Atual (${numQuantity}).`
-      setVirtualStoreQtyError(errorMsg)
-      toast.error(errorMsg)
-      return
-    } else {
-      setVirtualStoreQtyError(null)
-    }
-
     setIsSaving(true)
     try {
       const formData = new FormData()
@@ -1177,7 +1132,9 @@ export default function VoiceProductEntry() {
       formData.append('selling_price', normSellingPrice.toFixed(2))
       formData.append('qtde_inicial', numInitialQuantity.toString())
       formData.append('quantity', numQuantity.toString())
-      formData.append('qtde_loja_virtual', numVirtualStoreQuantity.toString())
+      // qtde_loja_virtual é apenas o interruptor de publicação (1 = publicado)
+      formData.append('qtde_loja_virtual', publishEcommerce ? '1' : '0')
+      formData.append('publicar_no_ecommerce', publishEcommerce ? 'true' : 'false')
       if (minimumQuantity) {
         const numMin = parseInt(minimumQuantity, 10)
         if (!isNaN(numMin) && numMin >= 0) {
@@ -1837,28 +1794,41 @@ export default function VoiceProductEntry() {
 
                 <div>
                   <div className="flex items-center justify-between">
-                    <Label
-                      htmlFor="virtualStoreQty"
-                      className="text-xs font-semibold text-[#2D2A26]"
-                    >
-                      Estoque Loja Virtual
+                    <Label htmlFor="publishEcom" className="text-xs font-semibold text-[#2D2A26]">
+                      Publicar no E-commerce
                     </Label>
-                    <span className="text-[10px] text-[#2E7D4F] font-medium">Separado</span>
+                    <span
+                      className={`text-[10px] font-semibold ${
+                        publishEcommerce ? 'text-[#2E7D4F]' : 'text-[#6B655E]'
+                      }`}
+                    >
+                      {publishEcommerce ? 'Ativado' : 'Desativado'}
+                    </span>
                   </div>
-                  <Input
-                    id="virtualStoreQty"
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={virtualStoreQuantity}
-                    onChange={(e) => handleVirtualStoreQuantityChange(e.target.value)}
-                    placeholder="0"
-                    className={`mt-1 bg-white font-semibold ${
-                      virtualStoreQtyError
-                        ? 'border-[#B3261E] focus-visible:ring-[#B3261E] text-[#B3261E]'
-                        : 'border-[#2E7D4F]/50 focus-visible:ring-[#2E7D4F] text-[#2E7D4F]'
+                  <button
+                    type="button"
+                    id="publishEcom"
+                    onClick={() => setPublishEcommerce((v) => !v)}
+                    className={`mt-1 w-full inline-flex items-center justify-between px-3 py-2 rounded-md border text-xs font-semibold transition-colors ${
+                      publishEcommerce
+                        ? 'border-[#2E7D4F] bg-[#2E7D4F]/10 text-[#2E7D4F]'
+                        : 'border-[#E5DFD5] bg-white text-[#6B655E]'
                     }`}
-                  />
+                    title="Publica ou retira esta peça da loja virtual (não altera o estoque)"
+                  >
+                    <span>{publishEcommerce ? 'Publicado no e-commerce' : 'Não publicado'}</span>
+                    <span
+                      className={`inline-flex h-4 w-8 rounded-full p-0.5 transition-colors ${
+                        publishEcommerce ? 'bg-[#2E7D4F]' : 'bg-[#E5DFD5]'
+                      }`}
+                    >
+                      <span
+                        className={`h-3 w-3 rounded-full bg-white shadow-sm transition-transform ${
+                          publishEcommerce ? 'translate-x-4' : ''
+                        }`}
+                      />
+                    </span>
+                  </button>
                 </div>
 
                 <div>
@@ -1880,12 +1850,6 @@ export default function VoiceProductEntry() {
                   />
                 </div>
               </div>
-
-              {virtualStoreQtyError && (
-                <p className="text-xs font-medium text-[#B3261E] flex items-center gap-1 -mt-2">
-                  <span>⚠️</span> {virtualStoreQtyError}
-                </p>
-              )}
 
               {/* Row 4: Observations with Server-side Audio Dictate button */}
               <div>
