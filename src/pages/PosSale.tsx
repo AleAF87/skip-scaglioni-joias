@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { salesService } from '@/services/salesService'
 import { productService } from '@/services/productService'
 import { useAuth } from '@/contexts/AuthContext'
@@ -508,7 +508,11 @@ export default function PosSale() {
         // Já existe linha do produto: incrementa A LINHA EXISTENTE, mas move-a
         // para a PRIMEIRA posição do carrinho (mais recente no topo).
         return [
-          { ...item, quantity: item.quantity + 1, total: (item.quantity + 1) * item.unit_price },
+          {
+            ...existing,
+            quantity: existing.quantity + 1,
+            total: (existing.quantity + 1) * existing.unit_price,
+          },
           ...prev.filter((i) => i !== existing),
         ]
       } else {

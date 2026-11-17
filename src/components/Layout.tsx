@@ -201,15 +201,9 @@ export default function Layout() {
     [isCartDirty, location.pathname, requestLeave, closeMobileMenu, navigate],
   )
 
-  if (!user) {
-    return (
-      <main className="min-h-screen bg-[#FDFBF7]">
-        <Outlet />
-      </main>
-    )
-  }
-
   // Item de PDV destacado no topo
+  // (declarado antes de qualquer return condicional: hooks abaixo dependem dele
+  // e o React exige que todos os hooks rodem na mesma ordem em todo render)
   const posItem = canManageInternal
     ? {
         to: '/pdv',
@@ -225,6 +219,71 @@ export default function Layout() {
         icon: ShoppingCart,
         badge: 'Vender',
       }
+
+  const isPosActive = location.pathname.startsWith(posItem.to)
+
+  // PDV em tela cheia: ao ENTRAR no PDV (admin ou revendedora) recolhe o menu lateral
+  // automaticamente; ao SAIR, restaura o estado anterior (se estava expandido, reexpande).
+  // No celular o menu é gaveta: o PDV abre com a gaveta fechada. O mecanismo de
+  // persistência (localStorage scaglioni_sidebar_collapsed) é preservado.
+  // (no nível superior do componente, antes de qualquer return condicional)
+  useEffect(() => {
+    const isDesktop =
+      typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches
+
+    if (isPosActive) {
+      // Entrando / estando no PDV
+      if (isDesktop) {
+        if (prevSidebarCollapsedRef.current === null) {
+          prevSidebarCollapsedRef.current = sidebarCollapsed
+        }
+        if (!sidebarCollapsed) {
+          setSidebarCollapsed(true)
+          try {
+            localStorage.setItem(SIDEBAR_COLLAPSED_KEY, 'true')
+          } catch {
+            /* ignore */
+          }
+        }
+      } else {
+        if (prevMobileMenuOpenRef.current === null) {
+          prevMobileMenuOpenRef.current = mobileMenuOpen
+        }
+        if (mobileMenuOpen) {
+          setMobileMenuOpen(false)
+        }
+      }
+    } else {
+      // Saindo do PDV: restaura o estado capturado na entrada
+      if (prevSidebarCollapsedRef.current !== null) {
+        const restore = prevSidebarCollapsedRef.current
+        prevSidebarCollapsedRef.current = null
+        if (restore !== sidebarCollapsed) {
+          setSidebarCollapsed(restore)
+          try {
+            localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(restore))
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+      if (prevMobileMenuOpenRef.current !== null) {
+        const restoreMobile = prevMobileMenuOpenRef.current
+        prevMobileMenuOpenRef.current = null
+        if (restoreMobile) {
+          setMobileMenuOpen(true)
+        }
+      }
+    }
+  }, [isPosActive]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!user) {
+    return (
+      <main className="min-h-screen bg-[#FDFBF7]">
+        <Outlet />
+      </main>
+    )
+  }
 
   // Demais itens de navegação
   // Para superadmin: NADA fica oculto ou bloqueado. Todas as páginas restritas aparecem no menu
@@ -427,62 +486,6 @@ export default function Layout() {
     logout()
     navigate('/login')
   }
-
-  const isPosActive = location.pathname.startsWith(posItem.to)
-
-  // PDV em tela cheia: ao ENTRAR no PDV (admin ou revendedora) recolhe o menu lateral
-  // automaticamente; ao SAIR, restaura o estado anterior (se estava expandido, reexpande).
-  // No celular o menu é gaveta: o PDV abre com a gaveta fechada. O mecanismo de
-  // persistência (localStorage scaglioni_sidebar_collapsed) é preservado.
-  useEffect(() => {
-    const isDesktop =
-      typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches
-
-    if (isPosActive) {
-      // Entrando / estando no PDV
-      if (isDesktop) {
-        if (prevSidebarCollapsedRef.current === null) {
-          prevSidebarCollapsedRef.current = sidebarCollapsed
-        }
-        if (!sidebarCollapsed) {
-          setSidebarCollapsed(true)
-          try {
-            localStorage.setItem(SIDEBAR_COLLAPSED_KEY, 'true')
-          } catch {
-            /* ignore */
-          }
-        }
-      } else {
-        if (prevMobileMenuOpenRef.current === null) {
-          prevMobileMenuOpenRef.current = mobileMenuOpen
-        }
-        if (mobileMenuOpen) {
-          setMobileMenuOpen(false)
-        }
-      }
-    } else {
-      // Saindo do PDV: restaura o estado capturado na entrada
-      if (prevSidebarCollapsedRef.current !== null) {
-        const restore = prevSidebarCollapsedRef.current
-        prevSidebarCollapsedRef.current = null
-        if (restore !== sidebarCollapsed) {
-          setSidebarCollapsed(restore)
-          try {
-            localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(restore))
-          } catch {
-            /* ignore */
-          }
-        }
-      }
-      if (prevMobileMenuOpenRef.current !== null) {
-        const restoreMobile = prevMobileMenuOpenRef.current
-        prevMobileMenuOpenRef.current = null
-        if (restoreMobile) {
-          setMobileMenuOpen(true)
-        }
-      }
-    }
-  }, [isPosActive]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <TooltipProvider delayDuration={150}>
