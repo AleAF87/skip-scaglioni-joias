@@ -51,6 +51,7 @@ export function UserEditModal({
   const [zip, setZip] = useState('')
   const [notes, setNotes] = useState('')
   const [newPassword, setNewPassword] = useState('')
+  const [currentPassword, setCurrentPassword] = useState('')
 
   // Validation errors
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -73,6 +74,7 @@ export function UserEditModal({
       setZip(user.address_zip || '')
       setNotes(user.notes || '')
       setNewPassword('')
+      setCurrentPassword('')
       setErrors({})
     }
   }, [user, open])
@@ -130,9 +132,10 @@ export function UserEditModal({
 
     setLoading(true)
     try {
+      // Só envia campos que realmente mudaram (evita recusa do PocketBase
+      // por campos de sistema não alterados, como e-mail/senha).
       const payload: Record<string, any> = {
         name: name.trim(),
-        email: email.trim(),
         role,
         status,
         phone: phone.trim(),
@@ -148,9 +151,20 @@ export function UserEditModal({
         notes: notes.trim(),
       }
 
+      const emailChanged = email.trim().toLowerCase() !== (user.email || '').trim().toLowerCase()
+      if (emailChanged) {
+        payload.email = email.trim()
+      }
+
       if (newPassword.trim()) {
         payload.password = newPassword.trim()
         payload.passwordConfirm = newPassword.trim()
+        // Admin/superadmin editando outro usuário: a manageRule da collection
+        // users dispensa a senha atual. Ao editar a si mesmo sem ser admin,
+        // o PocketBase exige oldPassword — enviamos quando preenchida.
+        if (currentPassword.trim()) {
+          payload.oldPassword = currentPassword.trim()
+        }
       }
 
       await pb.collection('users').update(user.id, payload)
@@ -185,13 +199,34 @@ export function UserEditModal({
     } catch (err: any) {
       console.error('Erro ao atualizar usuário:', err)
       const dataErrors = err?.response?.data || {}
+
+      // Mapeia erros por campo do backend para mensagens claras em português,
+      // mantendo o modal aberto e utilizável (nunca relança o erro).
+      const fieldMessages: Record<string, string> = {}
       if (dataErrors.email) {
-        setErrors((prev) => ({
-          ...prev,
-          email: dataErrors.email.message || 'E-mail já está em uso ou inválido.',
-        }))
+        fieldMessages.email = /duplicate|unique/i.test(dataErrors.email.message || '')
+          ? 'Já existe um usuário cadastrado com este e-mail.'
+          : dataErrors.email.message || 'E-mail inválido.'
       }
-      toast.error(err?.message || 'Falha ao atualizar dados do usuário.')
+      if (dataErrors.oldPassword) {
+        fieldMessages.currentPassword = 'A senha atual informada está incorreta.'
+      }
+      if (dataErrors.password) {
+        fieldMessages.newPassword =
+          dataErrors.password.message ||
+          'A nova senha não atende aos requisitos (mínimo de 8 caracteres).'
+      }
+      if (Object.keys(fieldMessages).length > 0) {
+        setErrors((prev) => ({ ...prev, ...fieldMessages }))
+      }
+
+      // Mensagem geral em português (nunca o texto cru em inglês do backend).
+      const hasFieldErrors = Object.keys(fieldMessages).length > 0
+      toast.error(
+        hasFieldErrors
+          ? 'Corrija os campos destacados e tente novamente.'
+          : 'Falha ao atualizar os dados do usuário. Verifique os campos e tente novamente.',
+      )
     } finally {
       setLoading(false)
     }
@@ -231,6 +266,8 @@ export function UserEditModal({
             setStatus={setStatus}
             newPassword={newPassword}
             setNewPassword={setNewPassword}
+            currentPassword={currentPassword}
+            setCurrentPassword={setCurrentPassword}
             errors={errors}
             clearError={clearError}
             isEditingSelf={isEditingSelf}

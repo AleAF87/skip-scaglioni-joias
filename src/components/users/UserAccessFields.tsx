@@ -15,6 +15,8 @@ interface UserAccessFieldsProps {
   setStatus: (v: UserStatus) => void
   newPassword: string
   setNewPassword: (v: string) => void
+  currentPassword?: string
+  setCurrentPassword?: (v: string) => void
   errors: Record<string, string>
   clearError: (field: string) => void
   isEditingSelf?: boolean
@@ -32,6 +34,8 @@ export function UserAccessFields({
   setStatus,
   newPassword,
   setNewPassword,
+  currentPassword,
+  setCurrentPassword,
   errors,
   clearError,
   isEditingSelf,
@@ -150,6 +154,37 @@ export function UserAccessFields({
           </p>
         )}
       </div>
+
+      {newPassword.trim() !== '' && setCurrentPassword && (
+        <div>
+          <Label
+            htmlFor="edit-user-current-password"
+            className="text-xs font-semibold text-[#2D2A26] flex items-center gap-1"
+          >
+            <Lock className="h-3 w-3 text-[#6B655E]" /> Senha Atual do Usuário (opcional)
+          </Label>
+          <Input
+            id="edit-user-current-password"
+            type="password"
+            value={currentPassword ?? ''}
+            onChange={(e) => {
+              setCurrentPassword(e.target.value)
+              clearError('currentPassword')
+            }}
+            placeholder="Informe a senha atual deste usuário"
+            className={`mt-1 bg-white ${errors.currentPassword ? 'border-red-500 focus-visible:ring-red-500' : 'border-[#E5DFD5]'}`}
+            autoComplete="current-password"
+          />
+          {errors.currentPassword && (
+            <p className="text-xs text-red-600 mt-1">{errors.currentPassword}</p>
+          )}
+          {!errors.currentPassword && (
+            <p className="text-[11px] text-[#6B655E] mt-1">
+              Necessária apenas quando você estiver alterando a sua própria senha.
+            </p>
+          )}
+        </div>
+      )}
     </div>
   )
 }
