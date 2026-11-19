@@ -116,7 +116,6 @@ export default function ResellerConferencePage() {
       resellerService.getResellerById(resellerId),
       resellerStockService.getAllResellerStockItems(resellerId),
       resellerStockService.getResellerSales({ resellerId }),
-      resellerStockService.getReturns({ resellerId }),
     ])
       .then(async ([r, stock, salesList]) => {
         if (cancelled) return
