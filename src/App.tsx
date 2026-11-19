@@ -38,6 +38,7 @@ import ResellerDeliveriesAndStock from '@/pages/ResellerDeliveriesAndStock'
 import ResellerPosSale from '@/pages/ResellerPosSale'
 import ResellerReturnsAndIssues from '@/pages/ResellerReturnsAndIssues'
 import ResellerFinancial from '@/pages/ResellerFinancial'
+import ResellerConferencePage from '@/pages/ResellerConferencePage'
 import PublicResellerStore from '@/pages/PublicResellerStore'
 import InstallAppPage from '@/pages/InstallAppPage'
 
@@ -200,6 +201,7 @@ export default function App() {
                 element={<ResellerReturnsAndIssues />}
               />
               <Route path="revendedora/financeiro" element={<ResellerFinancial />} />
+              <Route path="revendedoras/conferencia" element={<ResellerConferencePage />} />
 
               {/* Resellers cadastros (Admin & Operator) */}
               <Route
