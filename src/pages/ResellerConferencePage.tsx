@@ -378,6 +378,19 @@ export default function ResellerConferencePage() {
     0,
   )
   const activeCommission = commission ?? reseller?.commission_rate ?? 40
+  // O acerto financeiro da revendedora reúne vendas concluídas e somente
+  // extravios marcados para cobrança; devolução física não entra nesse valor.
+  const totalSettlementQty =
+    totalSoldQty +
+    issueItems.reduce(
+      (acc, item) =>
+        acc +
+        (conferenceMap[item.product]?.pending_charge === false
+          ? 0
+          : conferenceMap[item.product]?.pending_qty || 0),
+      0,
+    )
+  const totalSettlementValue = totalSoldValue + totalIssuedValue
   const totalProfit = (totalSoldValue * activeCommission) / 100
 
   const buildItemsPayload = () =>
@@ -999,8 +1012,8 @@ export default function ResellerConferencePage() {
                 />
                 <StatCard
                   label="Total à Devolver"
-                  value={totalReturningValue}
-                  qty={totalReturningQty}
+                  value={totalSettlementValue}
+                  qty={totalSettlementQty}
                   icon={<RotateCcw className="h-4 w-4" />}
                   tone="border-[#C6A664] bg-[#FDFBF7] text-[#7A5C2E]"
                 />
