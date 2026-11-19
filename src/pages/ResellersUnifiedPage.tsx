@@ -139,6 +139,7 @@ export default function ResellersUnifiedPage() {
 
   // Vendas no PDV da revendedora (usadas no modal Recebidas: seções Vendidas / Reservadas no PDV)
   const [resellerSales, setResellerSales] = useState<ResellerSale[]>([])
+  const [contextLoadError, setContextLoadError] = useState<string | null>(null)
 
   // Receipt Modal & Touch Sign
   const [selectedReceiptDelivery, setSelectedReceiptDelivery] = useState<ResellerDelivery | null>(
@@ -315,58 +316,15 @@ export default function ResellersUnifiedPage() {
   // Seção 1 "Não Vendidas": posse (stockItems) menos o que já foi vendido/reservado no PDV
   // Seção 2 "Vendidas": itens de reseller_sales com status 'completed'
   // Seção 3 "Reservadas no PDV": itens de reseller_sales com status 'pending'
-  const soldQtyByProduct = useMemo(() => {
-    const map = new Map<string, number>()
-    for (const sale of resellerSales) {
-      if (sale.status !== 'completed') continue
-      for (const it of sale.items || []) {
-        map.set(it.product_id, (map.get(it.product_id) || 0) + (it.quantity || 0))
-      }
-    }
-    return map
-  }, [resellerSales])
-
-  const reservedQtyByProduct = useMemo(() => {
-    const map = new Map<string, number>()
-    for (const sale of resellerSales) {
-      if (sale.status !== 'pending') continue
-      for (const it of sale.items || []) {
-        map.set(it.product_id, (map.get(it.product_id) || 0) + (it.quantity || 0))
-      }
-    }
-    return map
-  }, [resellerSales])
-
-  const nonSoldStockItems = useMemo(() => {
-    // A mesma joia pode existir em mais de um lançamento de estoque. Primeiro
-    // consolida as entradas por produto e só então desconta as vendas/reservas;
-    // descontar em cada linha faria uma única venda abater todas as entradas.
-    const stockByProduct = new Map<string, ResellerStockItem[]>()
-    for (const item of stockItems) {
-      const entries = stockByProduct.get(item.product) || []
-      entries.push(item)
-      stockByProduct.set(item.product, entries)
-    }
-
-    return Array.from(stockByProduct.values()).flatMap((items) => {
-      const totalStock = items.reduce((sum, item) => sum + item.quantity, 0)
-      const productId = items[0].product
-      let remainingQty = Math.max(
-        0,
-        totalStock -
-          (soldQtyByProduct.get(productId) || 0) -
-          (reservedQtyByProduct.get(productId) || 0),
-      )
-
-      // Mantém as linhas originais quando houver preços diferentes, distribuindo
-      // o saldo sem abatê-lo repetidamente em cada uma delas.
-      return items.flatMap((item) => {
-        const quantity = Math.min(item.quantity, remainingQty)
-        remainingQty -= quantity
-        return quantity > 0 ? [{ item, remainingQty: quantity }] : []
-      })
-    })
-  }, [stockItems, soldQtyByProduct, reservedQtyByProduct])
+  // reseller_stock_items já representa a posse atual da revendedora. Vendas concluídas
+  // são baixadas desse estoque no PDV; portanto, não devem ser descontadas outra vez aqui.
+  const nonSoldStockItems = useMemo(
+    () =>
+      stockItems
+        .filter((item) => item.quantity > 0)
+        .map((item) => ({ item, remainingQty: item.quantity })),
+    [stockItems],
+  )
 
   const saleRowsByStatus = useMemo(() => {
     const build = (status: 'completed' | 'pending') => {
@@ -408,6 +366,7 @@ export default function ResellersUnifiedPage() {
         setIsLoadingDeliveries(true)
         setIsLoadingStock(true)
       }
+      if (isMounted) setContextLoadError(null)
       try {
         const [dels, items, issuesList, returnsList, legacy, salesList] = await Promise.all([
           resellerStockService.getDeliveries({ resellerId }),
@@ -427,6 +386,11 @@ export default function ResellersUnifiedPage() {
         setResellerSales(salesList)
       } catch (err) {
         console.error('Erro ao carregar dados da revendedora:', err)
+        if (isMounted) {
+          setContextLoadError(
+            'Não foi possível carregar a posse e as vendas desta revendedora. Verifique a sessão e as permissões de acesso antes de considerar o saldo vazio.',
+          )
+        }
       } finally {
         if (isMounted && !silent) {
           setIsLoadingDeliveries(false)
@@ -2251,6 +2215,12 @@ export default function ResellersUnifiedPage() {
               {isLoadingStock ? (
                 <div className="p-12 text-center text-[#8C8275] text-xs">
                   Carregando dados da revendedora...
+                </div>
+              ) : contextLoadError ? (
+                <div className="border border-red-200 p-5 text-center rounded-xl bg-red-50">
+                  <AlertCircle className="h-8 w-8 text-red-600 mx-auto mb-2" />
+                  <p className="text-sm font-semibold text-red-800">Falha ao carregar os dados</p>
+                  <p className="text-xs text-red-700 mt-1">{contextLoadError}</p>
                 </div>
               ) : stockItems.length === 0 && resellerSales.length === 0 ? (
                 <div className="border border-[#E5DFD5] p-10 text-center rounded-xl bg-[#FDFBF7]">
