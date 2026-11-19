@@ -28,12 +28,14 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
+import { ImageLightbox } from '@/components/ImageLightbox'
 
 interface ConferenceEntry {
   returned_qty: number
   pending_qty: number
   pending_reason: 'extraviada' | 'venda_avulsa_sem_pdv' | 'outros'
   pending_notes: string
+  pending_charge: boolean
 }
 
 const emptyEntry = (): ConferenceEntry => ({
@@ -41,6 +43,7 @@ const emptyEntry = (): ConferenceEntry => ({
   pending_qty: 0,
   pending_reason: 'extraviada',
   pending_notes: '',
+  pending_charge: true,
 })
 
 const digitsOf = (s: string) => String(s || '').replace(/\D/g, '')
@@ -85,7 +88,8 @@ export default function ResellerConferencePage() {
 
   const [conferenceMap, setConferenceMap] = useState<Record<string, ConferenceEntry>>({})
   const [searchText, setSearchText] = useState('')
-  const [commission, setCommission] = useState<number | null>(null)
+  const [commission, setCommission] = useState<number | null>(30)
+  const [lightboxPhoto, setLightboxPhoto] = useState<{ url: string; title: string } | null>(null)
   const [notes, setNotes] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [confirmAction, setConfirmAction] = useState<'cancel' | 'save' | null>(null)
@@ -358,7 +362,11 @@ export default function ResellerConferencePage() {
     0,
   )
   const totalIssuedValue = issueItems.reduce(
-    (acc, it) => acc + (conferenceMap[it.product]?.pending_qty || 0) * priceOf(it),
+    (acc, it) =>
+      acc +
+      (conferenceMap[it.product]?.pending_charge === false
+        ? 0
+        : (conferenceMap[it.product]?.pending_qty || 0) * priceOf(it)),
     0,
   )
   const totalReturningQty = returningItems.reduce(
@@ -381,6 +389,7 @@ export default function ResellerConferencePage() {
         pending_qty: c.pending_qty || 0,
         pending_reason: (c.pending_qty || 0) > 0 ? c.pending_reason : undefined,
         pending_notes: (c.pending_qty || 0) > 0 ? c.pending_notes || undefined : undefined,
+        pending_charge: (c.pending_qty || 0) > 0 ? c.pending_charge !== false : undefined,
       }))
 
   const doSave = async () => {
@@ -615,7 +624,8 @@ export default function ResellerConferencePage() {
                                   <img
                                     src={photo}
                                     alt={getProductFullName(p) || 'Joia'}
-                                    className="h-9 w-9 rounded-lg object-cover border border-[#E5DFD5]"
+                                    className="h-9 w-9 rounded-lg object-cover border border-[#E5DFD5] cursor-zoom-in"
+                                    onClick={() => setLightboxPhoto({ url: photo, title: getProductFullName(p) || 'Joia' })}
                                   />
                                 ) : (
                                   <div className="h-9 w-9 rounded-lg bg-neutral-100 flex items-center justify-center">
@@ -704,7 +714,8 @@ export default function ResellerConferencePage() {
                                     <img
                                       src={photo}
                                       alt={getProductFullName(p) || 'Joia'}
-                                      className="h-9 w-9 rounded-lg object-cover border border-[#E5DFD5]"
+                                      className="h-9 w-9 rounded-lg object-cover border border-[#E5DFD5] cursor-zoom-in"
+                                      onClick={() => setLightboxPhoto({ url: photo, title: getProductFullName(p) || 'Joia' })}
                                     />
                                   ) : (
                                     <Package className="h-4 w-4 text-[#C6A664]" />
@@ -768,7 +779,7 @@ export default function ResellerConferencePage() {
                 <div className="border border-amber-300 rounded-xl overflow-hidden bg-white">
                   <div className="px-3 py-2 bg-amber-50 border-b border-amber-300 text-xs font-bold text-amber-900 flex items-center gap-2">
                     <AlertTriangle className="h-4 w-4" />
-                    Extravios (não serão cobrados no acerto de devolução — geram pendência)
+                    Extravios — defina se cada pendência será cobrada
                   </div>
                   <div className="divide-y divide-[#E5DFD5]">
                     {issueItems.map((it, idx) => {
@@ -817,9 +828,13 @@ export default function ResellerConferencePage() {
                             <option value="venda_avulsa_sem_pdv">Venda avulsa sem PDV</option>
                             <option value="outros">Outros motivos</option>
                           </select>
+                          <div className="flex rounded-md border border-amber-300 overflow-hidden h-8">
+                            <button type="button" onClick={() => handleItemChange(it.product, 'pending_charge', true)} className={`px-2 text-[10px] font-bold ${conf.pending_charge !== false ? 'bg-[#7A5C2E] text-white' : 'bg-white text-[#7A5C2E]'}`}>Cobrar</button>
+                            <button type="button" onClick={() => handleItemChange(it.product, 'pending_charge', false)} className={`px-2 text-[10px] font-bold ${conf.pending_charge === false ? 'bg-[#6B655E] text-white' : 'bg-white text-[#6B655E]'}`}>Não cobrar</button>
+                          </div>
                           <input
                             type="text"
-                            placeholder="Obs..."
+                            placeholder="Obs obrigatória..."
                             value={conf.pending_notes}
                             onChange={(e) =>
                               handleItemChange(it.product, 'pending_notes', e.target.value)
@@ -876,7 +891,8 @@ export default function ResellerConferencePage() {
                                     alt={
                                       getProductFullName(row.product) || row.description || 'Joia'
                                     }
-                                    className="h-9 w-9 rounded-lg object-cover border border-[#E5DFD5]"
+                                    className="h-9 w-9 rounded-lg object-cover border border-[#E5DFD5] cursor-zoom-in"
+                                    onClick={() => setLightboxPhoto({ url: photo, title: getProductFullName(row.product) || row.description || 'Joia' })}
                                   />
                                 ) : (
                                   <Package className="h-4 w-4 text-[#C6A664]" />
@@ -1029,6 +1045,7 @@ export default function ResellerConferencePage() {
           )}
         </>
       )}
+      <ImageLightbox open={Boolean(lightboxPhoto)} onClose={() => setLightboxPhoto(null)} photos={lightboxPhoto ? [lightboxPhoto.url] : []} title={lightboxPhoto?.title} />
     </div>
   )
 }
