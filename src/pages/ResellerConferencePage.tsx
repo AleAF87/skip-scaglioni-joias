@@ -118,7 +118,7 @@ export default function ResellerConferencePage() {
     setIsLoading(true)
     Promise.all([
       resellerService.getResellerById(resellerId),
-      resellerStockService.getAllResellerStockItems(resellerId),
+      resellerStockService.getResellerStock(resellerId),
       resellerStockService.getResellerSales({ resellerId }),
     ])
       .then(async ([r, stock, salesList]) => {
@@ -425,7 +425,7 @@ export default function ResellerConferencePage() {
       setConferenceMap({})
       setNotes('')
       setConfirmAction(null)
-      const fresh = await resellerStockService.getAllResellerStockItems(reseller.id)
+      const fresh = await resellerStockService.getResellerStock(reseller.id)
       setStockItems(fresh)
     } catch (err: any) {
       toast.error(getBackendErrorMessage(err) || 'Erro ao salvar devolução.')
