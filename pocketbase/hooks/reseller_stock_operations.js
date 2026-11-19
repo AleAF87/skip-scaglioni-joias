@@ -592,6 +592,8 @@ routerAdd(
           const pendingQty = Math.max(0, parseInt(it.pending_qty, 10) || 0)
           const pendingReason = it.pending_reason || 'extraviada' // 'extraviada' | 'venda_avulsa_sem_pdv' | 'outros'
           const pendingNotes = it.pending_notes || ''
+          // A pendência pode ser apenas registrada (sem cobrança financeira).
+          const pendingCharge = it.pending_charge !== false
 
           if (returnedQty === 0 && pendingQty === 0) {
             continue
@@ -657,7 +659,9 @@ routerAdd(
             // Preço de venda menos a comissão da revendedora (ou valor total dependendo da regra; padrão: preço de venda - comissão)
             const itemGrossTotal = sellingPrice * pendingQty
             const itemResellerCut = (itemGrossTotal * commissionRate) / 100
-            scaglioniDueForThisItem = Math.round((itemGrossTotal - itemResellerCut) * 100) / 100
+            scaglioniDueForThisItem = pendingCharge
+              ? Math.round((itemGrossTotal - itemResellerCut) * 100) / 100
+              : 0
             totalPendingValueDue += scaglioniDueForThisItem
 
             // Criar registro na tabela reseller_issues
@@ -670,8 +674,8 @@ routerAdd(
             issueRec.set('unit_selling_price', sellingPrice)
             issueRec.set('commission_rate', commissionRate)
             issueRec.set('scaglioni_due_total', scaglioniDueForThisItem)
-            issueRec.set('status', 'pending')
-            issueRec.set('notes', pendingNotes)
+            issueRec.set('status', pendingCharge ? 'pending' : 'forgiven')
+            issueRec.set('notes', pendingNotes + (pendingCharge ? '' : ' [Não cobrar]'))
             txApp.save(issueRec)
           }
 
@@ -684,6 +688,7 @@ routerAdd(
             pending_qty: pendingQty,
             pending_reason: pendingQty > 0 ? pendingReason : null,
             scaglioni_due: scaglioniDueForThisItem,
+            pending_charge: pendingCharge,
           })
         }
 
