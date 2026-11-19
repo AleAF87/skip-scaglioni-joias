@@ -384,11 +384,6 @@ export default function ResellerConferencePage() {
   const priceOf = (it: ResellerStockItem) =>
     it.selling_price || it.expand?.product?.selling_price || 0
 
-  const totalReceivedQty = stockItems.reduce((acc, it) => acc + (it.quantity || 0), 0)
-  const totalReceivedValue = stockItems.reduce(
-    (acc, it) => acc + (it.quantity || 0) * priceOf(it),
-    0,
-  )
   const totalSoldQty = soldItems.reduce((acc, it) => acc + it.quantity, 0)
   const totalSoldValue = soldItems.reduce((acc, it) => acc + it.quantity * it.unit_price, 0)
   const totalIssuedQty = issueItems.reduce(
@@ -412,20 +407,16 @@ export default function ResellerConferencePage() {
     0,
   )
   const activeCommission = commission ?? reseller?.commission_rate ?? 40
-  // O acerto financeiro da revendedora reúne vendas concluídas e somente
-  // extravios marcados para cobrança; devolução física não entra nesse valor.
-  const totalSettlementQty =
-    totalSoldQty +
-    issueItems.reduce(
-      (acc, item) =>
-        acc +
-        (conferenceMap[item.product]?.pending_charge === false
-          ? 0
-          : conferenceMap[item.product]?.pending_qty || 0),
-      0,
-    )
-  const totalSettlementValue = totalSoldValue + totalIssuedValue
+  // No acerto, a empresa recebe o valor das vendas menos a comissão da
+  // revendedora. Extravios entram somente quando estiverem marcados para cobrança.
   const totalProfit = (totalSoldValue * activeCommission) / 100
+  const totalSettlementValue = totalSoldValue - totalProfit + totalIssuedValue
+  // A quantidade deste card representa as peças físicas que serão devolvidas agora.
+  const totalSettlementQty = totalReturningQty
+  const unclassifiedQty = possessionItems.reduce(
+    (total, item) => total + remainingOf(item),
+    0,
+  )
 
   const buildItemsPayload = () =>
     Object.entries(conferenceMap)
@@ -441,7 +432,6 @@ export default function ResellerConferencePage() {
 
   const doSave = async () => {
     if (!reseller) return
-    const unclassifiedQty = possessionItems.reduce((total, item) => total + remainingOf(item), 0)
     if (unclassifiedQty > 0) {
       toast.error(
         `Há ${unclassifiedQty} peça(s) em posse sem destinação — marque a devolução ou justifique o extravio.`,
@@ -1033,14 +1023,7 @@ export default function ResellerConferencePage() {
               </div>
 
               {/* Cards de totais */}
-              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-                <StatCard
-                  label="Total Recebido"
-                  value={totalReceivedValue}
-                  qty={totalReceivedQty}
-                  icon={<Boxes className="h-4 w-4" />}
-                  tone="border-[#E5DFD5] bg-white text-[#6B655E]"
-                />
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <StatCard
                   label="Total Vendido"
                   value={totalSoldValue}
@@ -1111,7 +1094,14 @@ export default function ResellerConferencePage() {
                 </div>
               )}
 
-              <div className="flex justify-end gap-2 pt-2 border-t border-[#E5DFD5]">
+              <div className="pt-2 border-t border-[#E5DFD5]">
+                {unclassifiedQty > 0 && (
+                  <p className="mb-2 text-xs font-medium text-amber-800">
+                    Há {unclassifiedQty} peça{unclassifiedQty === 1 ? '' : 's'} em posse sem destinação.
+                    Marque cada uma para devolução ou extravio para liberar o salvamento.
+                  </p>
+                )}
+                <div className="flex justify-end gap-2">
                 <Button
                   variant="outline"
                   size="sm"
@@ -1122,12 +1112,18 @@ export default function ResellerConferencePage() {
                 </Button>
                 <Button
                   onClick={() => setConfirmAction('save')}
-                  disabled={isSubmitting || stockItems.length === 0}
+                  disabled={isSubmitting || stockItems.length === 0 || unclassifiedQty > 0}
+                  title={
+                    unclassifiedQty > 0
+                      ? 'Classifique todas as peças em posse antes de salvar.'
+                      : undefined
+                  }
                   className="bg-[#7A5C2E] hover:bg-[#634923] text-white font-medium text-xs h-9 px-6 shadow-xs flex items-center gap-2"
                 >
                   <CheckCircle2 className="h-4 w-4" />
                   {isSubmitting ? 'Salvando...' : 'Salvar Devolução'}
                 </Button>
+                </div>
               </div>
             </>
           )}
