@@ -413,10 +413,7 @@ export default function ResellerConferencePage() {
   const totalSettlementValue = totalSoldValue - totalProfit + totalIssuedValue
   // A quantidade deste card representa as peças físicas que serão devolvidas agora.
   const totalSettlementQty = totalReturningQty
-  const unclassifiedQty = possessionItems.reduce(
-    (total, item) => total + remainingOf(item),
-    0,
-  )
+  const unclassifiedQty = possessionItems.reduce((total, item) => total + remainingOf(item), 0)
 
   const buildItemsPayload = () =>
     Object.entries(conferenceMap)
@@ -652,85 +649,87 @@ export default function ResellerConferencePage() {
                               Nenhuma peça em posse — todas vendidas ou devolvidas.
                             </td>
                           </tr>
-                        ) : possessionItems.map((it, idx) => {
-                          const p = it.expand?.product
-                          const photo = p ? getProductDisplayPhoto(p) : null
-                          const deliveredQty = deliveredQtyByProduct.get(it.product)
-                          const remaining = remainingOf(it)
-                          const pending = remaining > 0
-                          return (
-                            <tr
-                              key={`${it.id || it.product}-${idx}`}
-                              className={pending ? 'bg-amber-50/70' : ''}
-                            >
-                              <td className="p-2">
-                                {photo ? (
-                                  <img
-                                    src={photo}
-                                    alt={getProductFullName(p) || 'Joia'}
-                                    className="h-9 w-9 rounded-lg object-cover border border-[#E5DFD5] cursor-zoom-in"
-                                    onClick={() =>
-                                      setLightboxPhoto({
-                                        url: photo,
-                                        title: getProductFullName(p) || 'Joia',
-                                      })
-                                    }
-                                  />
-                                ) : (
-                                  <div className="h-9 w-9 rounded-lg bg-neutral-100 flex items-center justify-center">
-                                    <Package className="h-4 w-4 text-[#C6A664]" />
-                                  </div>
-                                )}
-                              </td>
-                              <td className="p-2">
-                                <p className="font-mono font-bold text-[#7A5C2E]">
-                                  {p?.code || '—'}
-                                </p>
-                                <p className="text-[#2D2A26]">
-                                  {getProductFullName(p!) ||
-                                    p?.description ||
-                                    p?.nome_produto ||
-                                    'Joia'}
-                                </p>
-                              </td>
-                              <td className="p-2 text-center font-bold">
-                                {deliveredQty && deliveredQty > it.quantity
-                                  ? `${it.quantity} de ${deliveredQty}`
-                                  : it.quantity}
-                              </td>
-                              <td
-                                className={`p-2 text-center font-bold ${pending ? 'text-amber-800' : 'text-emerald-700'}`}
+                        ) : (
+                          possessionItems.map((it, idx) => {
+                            const p = it.expand?.product
+                            const photo = p ? getProductDisplayPhoto(p) : null
+                            const deliveredQty = deliveredQtyByProduct.get(it.product)
+                            const remaining = remainingOf(it)
+                            const pending = remaining > 0
+                            return (
+                              <tr
+                                key={`${it.id || it.product}-${idx}`}
+                                className={pending ? 'bg-amber-50/70' : ''}
                               >
-                                {remaining}
-                              </td>
-                              <td className="p-2 text-right space-y-1">
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  disabled={remaining === 0}
-                                  onClick={() => registerOne(it.product, p?.code || 'Joia')}
-                                  className="h-7 text-[11px] bg-[#7A5C2E] hover:bg-[#634923]"
+                                <td className="p-2">
+                                  {photo ? (
+                                    <img
+                                      src={photo}
+                                      alt={getProductFullName(p) || 'Joia'}
+                                      className="h-9 w-9 rounded-lg object-cover border border-[#E5DFD5] cursor-zoom-in"
+                                      onClick={() =>
+                                        setLightboxPhoto({
+                                          url: photo,
+                                          title: getProductFullName(p) || 'Joia',
+                                        })
+                                      }
+                                    />
+                                  ) : (
+                                    <div className="h-9 w-9 rounded-lg bg-neutral-100 flex items-center justify-center">
+                                      <Package className="h-4 w-4 text-[#C6A664]" />
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="p-2">
+                                  <p className="font-mono font-bold text-[#7A5C2E]">
+                                    {p?.code || '—'}
+                                  </p>
+                                  <p className="text-[#2D2A26]">
+                                    {getProductFullName(p!) ||
+                                      p?.description ||
+                                      p?.nome_produto ||
+                                      'Joia'}
+                                  </p>
+                                </td>
+                                <td className="p-2 text-center font-bold">
+                                  {deliveredQty && deliveredQty > it.quantity
+                                    ? `${it.quantity} de ${deliveredQty}`
+                                    : it.quantity}
+                                </td>
+                                <td
+                                  className={`p-2 text-center font-bold ${pending ? 'text-amber-800' : 'text-emerald-700'}`}
                                 >
-                                  +1 →
-                                </Button>
-                                {remaining > 0 && (
+                                  {remaining}
+                                </td>
+                                <td className="p-2 text-right space-y-1">
                                   <Button
                                     type="button"
                                     size="sm"
-                                    variant="outline"
-                                    onClick={() => {
-                                      handleItemChange(it.product, 'pending_qty', remaining)
-                                      handleItemChange(it.product, 'pending_reason', 'extraviada')
-                                    }}
-                                    className="h-7 text-[10px] border-amber-300 text-amber-800 block ml-auto"
+                                    disabled={remaining === 0}
+                                    onClick={() => registerOne(it.product, p?.code || 'Joia')}
+                                    className="h-7 text-[11px] bg-[#7A5C2E] hover:bg-[#634923]"
                                   >
-                                    Extraviar
+                                    +1 →
                                   </Button>
-                                )}
-                              </td>
-                            </tr>
-                          )
-                        })}
+                                  {remaining > 0 && (
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => {
+                                        handleItemChange(it.product, 'pending_qty', remaining)
+                                        handleItemChange(it.product, 'pending_reason', 'extraviada')
+                                      }}
+                                      className="h-7 text-[10px] border-amber-300 text-amber-800 block ml-auto"
+                                    >
+                                      Extraviar
+                                    </Button>
+                                  )}
+                                </td>
+                              </tr>
+                            )
+                          })
+                        )}
                       </tbody>
                     </table>
                   </div>
@@ -1097,32 +1096,33 @@ export default function ResellerConferencePage() {
               <div className="pt-2 border-t border-[#E5DFD5]">
                 {unclassifiedQty > 0 && (
                   <p className="mb-2 text-xs font-medium text-amber-800">
-                    Há {unclassifiedQty} peça{unclassifiedQty === 1 ? '' : 's'} em posse sem destinação.
-                    Marque cada uma para devolução ou extravio para liberar o salvamento.
+                    Há {unclassifiedQty} peça{unclassifiedQty === 1 ? '' : 's'} em posse sem
+                    destinação. Marque cada uma para devolução ou extravio para liberar o
+                    salvamento.
                   </p>
                 )}
                 <div className="flex justify-end gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setConfirmAction('cancel')}
-                  className="text-xs border-[#E5DFD5]"
-                >
-                  Cancelar
-                </Button>
-                <Button
-                  onClick={() => setConfirmAction('save')}
-                  disabled={isSubmitting || stockItems.length === 0 || unclassifiedQty > 0}
-                  title={
-                    unclassifiedQty > 0
-                      ? 'Classifique todas as peças em posse antes de salvar.'
-                      : undefined
-                  }
-                  className="bg-[#7A5C2E] hover:bg-[#634923] text-white font-medium text-xs h-9 px-6 shadow-xs flex items-center gap-2"
-                >
-                  <CheckCircle2 className="h-4 w-4" />
-                  {isSubmitting ? 'Salvando...' : 'Salvar Devolução'}
-                </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setConfirmAction('cancel')}
+                    className="text-xs border-[#E5DFD5]"
+                  >
+                    Cancelar
+                  </Button>
+                  <Button
+                    onClick={() => setConfirmAction('save')}
+                    disabled={isSubmitting || stockItems.length === 0 || unclassifiedQty > 0}
+                    title={
+                      unclassifiedQty > 0
+                        ? 'Classifique todas as peças em posse antes de salvar.'
+                        : undefined
+                    }
+                    className="bg-[#7A5C2E] hover:bg-[#634923] text-white font-medium text-xs h-9 px-6 shadow-xs flex items-center gap-2"
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                    {isSubmitting ? 'Salvando...' : 'Salvar Devolução'}
+                  </Button>
                 </div>
               </div>
             </>
