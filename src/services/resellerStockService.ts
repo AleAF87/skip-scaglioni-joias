@@ -177,6 +177,7 @@ export const resellerStockService = {
       pending_qty: number
       pending_reason?: 'extraviada' | 'venda_avulsa_sem_pdv' | 'outros'
       pending_notes?: string
+      pending_charge?: boolean
     }>
     notes?: string
     // Comissão escolhida pelo admin/superadmin na hora do fechamento (30% / 35% / 40%)
