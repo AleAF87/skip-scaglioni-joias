@@ -1573,7 +1573,7 @@ export default function ResellersUnifiedPage() {
               }`}
             >
               <FileText className="h-3.5 w-3.5" />
-              Entregas Realizadas
+              Recebidas
             </button>
 
             <button
@@ -1585,7 +1585,7 @@ export default function ResellersUnifiedPage() {
               }`}
             >
               <FileCheck2 className="h-3.5 w-3.5" />
-              Histórico & Fechamentos
+              Histórico
               <span
                 className={`rounded-full px-1.5 py-0.5 text-[10px] leading-none font-bold ${
                   profileTab === 'history_closing'
@@ -1606,7 +1606,7 @@ export default function ResellersUnifiedPage() {
               }`}
             >
               <DollarSign className="h-3.5 w-3.5" />
-              Financeiro &amp; Lucro
+              Financeiro
             </button>
 
             <button
