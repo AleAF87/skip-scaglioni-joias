@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { DollarSign, TrendingUp, AlertTriangle, Boxes, Receipt, Store } from 'lucide-react'
+import { DollarSign, TrendingUp, AlertTriangle, Boxes, Receipt, Store, Package } from 'lucide-react'
 import pb from '@/lib/pocketbase/client'
 import { useAuth } from '@/contexts/AuthContext'
 import { resellerService } from '@/services/resellerService'
@@ -9,6 +9,7 @@ import { formatCurrency, formatDateTime } from '@/lib/formatters'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 
@@ -47,6 +48,8 @@ export function ResellerFinancialContent({
     pendingIssuesList: ResellerIssue[]
   } | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  // Venda selecionada na tabela "Últimas Vendas Realizadas no PDV" — abre modal com as peças
+  const [viewSale, setViewSale] = useState<ResellerSale | null>(null)
 
   useEffect(() => {
     let isMounted = true
@@ -421,7 +424,9 @@ export function ResellerFinancialContent({
                     {summary.recentSales.map((sale, idxSale) => (
                       <tr
                         key={`${sale.id || 'sem-id'}-${sale.code || 'sem-cod'}-${idxSale}`}
-                        className="hover:bg-[#FDFBF7]"
+                        className="hover:bg-[#FDFBF7] cursor-pointer"
+                        onClick={() => setViewSale(sale)}
+                        title="Clique para ver as peças vendidas"
                       >
                         <td className="py-2.5 px-3 font-mono font-bold text-[#7A5C2E]">
                           {sale.code}
@@ -450,6 +455,93 @@ export function ResellerFinancialContent({
           </Card>
         </div>
       ) : null}
+
+      {/* Modal de detalhe da venda: peças vendidas */}
+      <Dialog open={!!viewSale} onOpenChange={(open) => !open && setViewSale(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="font-serif text-base font-bold text-[#2D2A26] flex items-center gap-2">
+              <Package className="h-4 w-4 text-[#7A5C2E]" />
+              Venda {viewSale?.code} — Peças Vendidas
+            </DialogTitle>
+          </DialogHeader>
+          {viewSale && (
+            <div className="space-y-3">
+              <div className="text-xs text-[#6B655E] flex flex-wrap gap-x-4 gap-y-1">
+                <span>
+                  <strong className="text-[#2D2A26]">Data:</strong>{' '}
+                  {formatDateTime(viewSale.created)}
+                </span>
+                <span>
+                  <strong className="text-[#2D2A26]">Cliente:</strong>{' '}
+                  {viewSale.customer_name || 'Consumidor'}
+                </span>
+              </div>
+              {(viewSale.items || []).length === 0 ? (
+                <p className="py-4 text-center text-xs text-[#8C8275]">
+                  Sem detalhes de peças registrados nesta venda.
+                </p>
+              ) : (
+                <div className="border border-[#E5DFD5] rounded-xl overflow-hidden">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-[#FDFBF7] text-[#6B655E] uppercase font-semibold border-b border-[#E5DFD5]">
+                      <tr>
+                        <th className="py-2 px-2.5">Código / Joia</th>
+                        <th className="py-2 px-2.5 text-center">Qtd</th>
+                        <th className="py-2 px-2.5 text-right">Valor Un.</th>
+                        <th className="py-2 px-2.5 text-right">Subtotal</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#E5DFD5]">
+                      {(viewSale.items || []).map((it, idxIt) => (
+                        <tr key={`${it.product_id || 'sem-id'}-${idxIt}`}>
+                          <td className="py-2 px-2.5">
+                            <strong className="font-mono text-[#7A5C2E] block">{it.code}</strong>
+                            <span className="text-[#2D2A26]">{it.description}</span>
+                          </td>
+                          <td className="py-2 px-2.5 text-center font-bold">{it.quantity}</td>
+                          <td className="py-2 px-2.5 text-right">
+                            {formatCurrency(it.unit_price)}
+                          </td>
+                          <td className="py-2 px-2.5 text-right font-bold text-[#2D2A26]">
+                            {formatCurrency(it.quantity * it.unit_price)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="border-t border-[#E5DFD5] bg-[#FDFBF7]">
+                      <tr className="text-xs font-bold">
+                        <td className="py-2 px-2.5" colSpan={2}>
+                          Total da venda
+                        </td>
+                        <td className="py-2 px-2.5 text-right text-[#2D2A26]" colSpan={2}>
+                          {formatCurrency(viewSale.total)}
+                        </td>
+                      </tr>
+                      <tr className="text-xs">
+                        <td className="py-1.5 px-2.5 text-emerald-700" colSpan={2}>
+                          Seu lucro ({reseller.commission_rate || 40}%)
+                        </td>
+                        <td className="py-1.5 px-2.5 text-right text-emerald-700" colSpan={2}>
+                          {formatCurrency(viewSale.reseller_profit)}
+                        </td>
+                      </tr>
+                      <tr className="text-xs">
+                        <td className="py-1.5 px-2.5 pb-2 text-[#7A5C2E]" colSpan={2}>
+                          Repasse Scaglioni
+                        </td>
+                        <td className="py-1.5 px-2.5 pb-2 text-right text-[#7A5C2E]" colSpan={2}>
+                          {formatCurrency(viewSale.scaglioni_due)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
