@@ -122,15 +122,32 @@ export default function ResellerConferencePage() {
         setReseller(r)
         setStockItems(stock)
         setSales(salesList)
-        const productIds = Array.from(new Set(salesList.flatMap((sale) => (sale.items || []).map((item) => item.product_id)).filter(Boolean)))
-        const products = await Promise.all(productIds.map((id) => productService.getProductById(id).catch(() => null)))
+        const productIds = Array.from(
+          new Set(
+            salesList
+              .flatMap((sale) => (sale.items || []).map((item) => item.product_id))
+              .filter(Boolean),
+          ),
+        )
+        const products = await Promise.all(
+          productIds.map((id) => productService.getProductById(id).catch(() => null)),
+        )
         if (cancelled) return
-        setSalesProducts(Object.fromEntries(products.filter((product): product is Product => Boolean(product)).map((product) => [product.id, product])))
+        setSalesProducts(
+          Object.fromEntries(
+            products
+              .filter((product): product is Product => Boolean(product))
+              .map((product) => [product.id, product]),
+          ),
+        )
         setLoadError(null)
       })
       .catch((err) => {
         console.error('Erro ao carregar conferência:', err)
-        if (!cancelled) setLoadError('Não foi possível carregar os dados da conferência. Verifique a sessão e as permissões de acesso antes de considerar a lista vazia.')
+        if (!cancelled)
+          setLoadError(
+            'Não foi possível carregar os dados da conferência. Verifique a sessão e as permissões de acesso antes de considerar a lista vazia.',
+          )
         toast.error('Erro ao carregar dados da conferência.')
       })
       .finally(() => {
@@ -300,13 +317,29 @@ export default function ResellerConferencePage() {
     return Array.from(map.entries()).map(([product_id, v]) => ({ product_id, ...v }))
   }, [sales])
 
-  const returningItems = stockItems.filter((it) => (conferenceMap[it.product]?.returned_qty || 0) > 0)
+  const returningItems = stockItems.filter(
+    (it) => (conferenceMap[it.product]?.returned_qty || 0) > 0,
+  )
   const issueItems = stockItems.filter((it) => (conferenceMap[it.product]?.pending_qty || 0) > 0)
-  const remainingOf = (it: ResellerStockItem) => Math.max(0, it.quantity - (conferenceMap[it.product]?.returned_qty || 0) - (conferenceMap[it.product]?.pending_qty || 0))
+  const remainingOf = (it: ResellerStockItem) =>
+    Math.max(
+      0,
+      it.quantity -
+        (conferenceMap[it.product]?.returned_qty || 0) -
+        (conferenceMap[it.product]?.pending_qty || 0),
+    )
   const soldSaleRows = useMemo(
-    () => sales.filter((sale) => sale.status !== 'pending' && sale.status !== 'cancelled').flatMap((sale) =>
-      (sale.items || []).map((item) => ({ ...item, saleCode: sale.code || '—', saleCreated: sale.created, product: salesProducts[item.product_id] })),
-    ),
+    () =>
+      sales
+        .filter((sale) => sale.status !== 'pending' && sale.status !== 'cancelled')
+        .flatMap((sale) =>
+          (sale.items || []).map((item) => ({
+            ...item,
+            saleCode: sale.code || '—',
+            saleCreated: sale.created,
+            product: salesProducts[item.product_id],
+          })),
+        ),
     [sales, salesProducts],
   )
 
@@ -354,7 +387,9 @@ export default function ResellerConferencePage() {
     if (!reseller) return
     const unclassifiedQty = stockItems.reduce((total, item) => total + remainingOf(item), 0)
     if (unclassifiedQty > 0) {
-      toast.error(`Há ${unclassifiedQty} peça(s) em posse sem destinação — marque a devolução ou justifique o extravio.`)
+      toast.error(
+        `Há ${unclassifiedQty} peça(s) em posse sem destinação — marque a devolução ou justifique o extravio.`,
+      )
       setConfirmAction(null)
       return
     }
@@ -453,8 +488,21 @@ export default function ResellerConferencePage() {
         <>
           {loadError && (
             <div className="p-4 rounded-xl border border-red-300 bg-red-50 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
-              <div className="text-xs text-red-800"><strong>Falha ao carregar a conferência.</strong><br />{loadError}</div>
-              <Button type="button" size="sm" variant="outline" onClick={() => setLoadAttempt((attempt) => attempt + 1)} className="border-red-300 text-red-700"><RefreshCw className="h-3.5 w-3.5 mr-1" />Tentar novamente</Button>
+              <div className="text-xs text-red-800">
+                <strong>Falha ao carregar a conferência.</strong>
+                <br />
+                {loadError}
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setLoadAttempt((attempt) => attempt + 1)}
+                className="border-red-300 text-red-700"
+              >
+                <RefreshCw className="h-3.5 w-3.5 mr-1" />
+                Tentar novamente
+              </Button>
             </div>
           )}
           {/* Busca com dropdown ao vivo + leitor */}
@@ -537,17 +585,181 @@ export default function ResellerConferencePage() {
             <>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div className="border border-[#E5DFD5] rounded-xl overflow-hidden bg-white">
-                  <div className="px-3 py-2 bg-[#F3EAD8]/60 border-b border-[#E5DFD5] text-xs font-bold text-[#7A5C2E]">Peças em posse</div>
+                  <div className="px-3 py-2 bg-[#F3EAD8]/60 border-b border-[#E5DFD5] text-xs font-bold text-[#7A5C2E]">
+                    Peças em posse
+                  </div>
                   <div className="overflow-x-auto max-h-80 overflow-y-auto">
                     <table className="w-full text-xs text-left">
-                      <thead className="sticky top-0 bg-[#FDFBF7] text-[#7A5C2E]"><tr><th className="p-2">Foto</th><th className="p-2">Código / Joia</th><th className="p-2 text-center">Posse</th><th className="p-2 text-center">Restante</th><th className="p-2"></th></tr></thead>
-                      <tbody className="divide-y divide-[#E5DFD5]">{stockItems.map((it, idx) => { const p=it.expand?.product; const photo=p?getProductDisplayPhoto(p):null; const remaining=remainingOf(it); const pending=remaining>0; return <tr key={`${it.id || it.product}-${idx}`} className={pending ? 'bg-amber-50/70' : ''}><td className="p-2">{photo ? <img src={photo} alt={getProductFullName(p) || 'Joia'} className="h-9 w-9 rounded-lg object-cover border border-[#E5DFD5]" /> : <div className="h-9 w-9 rounded-lg bg-neutral-100 flex items-center justify-center"><Package className="h-4 w-4 text-[#C6A664]" /></div>}</td><td className="p-2"><p className="font-mono font-bold text-[#7A5C2E]">{p?.code || '—'}</p><p className="text-[#2D2A26]">{getProductFullName(p!) || p?.description || p?.nome_produto || 'Joia'}</p></td><td className="p-2 text-center font-bold">{it.quantity}</td><td className={`p-2 text-center font-bold ${pending ? 'text-amber-800' : 'text-emerald-700'}`}>{remaining}</td><td className="p-2 text-right space-y-1"><Button type="button" size="sm" disabled={remaining === 0} onClick={() => registerOne(it.product, p?.code || 'Joia')} className="h-7 text-[11px] bg-[#7A5C2E] hover:bg-[#634923]">+1 →</Button>{remaining > 0 && <Button type="button" size="sm" variant="outline" onClick={() => { handleItemChange(it.product, 'pending_qty', remaining); handleItemChange(it.product, 'pending_reason', 'extraviada') }} className="h-7 text-[10px] border-amber-300 text-amber-800 block ml-auto">Extraviar</Button>}</td></tr>})}</tbody>
+                      <thead className="sticky top-0 bg-[#FDFBF7] text-[#7A5C2E]">
+                        <tr>
+                          <th className="p-2">Foto</th>
+                          <th className="p-2">Código / Joia</th>
+                          <th className="p-2 text-center">Posse</th>
+                          <th className="p-2 text-center">Restante</th>
+                          <th className="p-2"></th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#E5DFD5]">
+                        {stockItems.map((it, idx) => {
+                          const p = it.expand?.product
+                          const photo = p ? getProductDisplayPhoto(p) : null
+                          const remaining = remainingOf(it)
+                          const pending = remaining > 0
+                          return (
+                            <tr
+                              key={`${it.id || it.product}-${idx}`}
+                              className={pending ? 'bg-amber-50/70' : ''}
+                            >
+                              <td className="p-2">
+                                {photo ? (
+                                  <img
+                                    src={photo}
+                                    alt={getProductFullName(p) || 'Joia'}
+                                    className="h-9 w-9 rounded-lg object-cover border border-[#E5DFD5]"
+                                  />
+                                ) : (
+                                  <div className="h-9 w-9 rounded-lg bg-neutral-100 flex items-center justify-center">
+                                    <Package className="h-4 w-4 text-[#C6A664]" />
+                                  </div>
+                                )}
+                              </td>
+                              <td className="p-2">
+                                <p className="font-mono font-bold text-[#7A5C2E]">
+                                  {p?.code || '—'}
+                                </p>
+                                <p className="text-[#2D2A26]">
+                                  {getProductFullName(p!) ||
+                                    p?.description ||
+                                    p?.nome_produto ||
+                                    'Joia'}
+                                </p>
+                              </td>
+                              <td className="p-2 text-center font-bold">{it.quantity}</td>
+                              <td
+                                className={`p-2 text-center font-bold ${pending ? 'text-amber-800' : 'text-emerald-700'}`}
+                              >
+                                {remaining}
+                              </td>
+                              <td className="p-2 text-right space-y-1">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  disabled={remaining === 0}
+                                  onClick={() => registerOne(it.product, p?.code || 'Joia')}
+                                  className="h-7 text-[11px] bg-[#7A5C2E] hover:bg-[#634923]"
+                                >
+                                  +1 →
+                                </Button>
+                                {remaining > 0 && (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      handleItemChange(it.product, 'pending_qty', remaining)
+                                      handleItemChange(it.product, 'pending_reason', 'extraviada')
+                                    }}
+                                    className="h-7 text-[10px] border-amber-300 text-amber-800 block ml-auto"
+                                  >
+                                    Extraviar
+                                  </Button>
+                                )}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
                     </table>
                   </div>
                 </div>
                 <div className="border border-emerald-200 rounded-xl overflow-hidden bg-white">
-                  <div className="px-3 py-2 bg-emerald-50 border-b border-emerald-200 text-xs font-bold text-emerald-800 flex justify-between"><span>Sendo devolvido agora</span><span>{totalReturningQty} peça(s)</span></div>
-                  {returningItems.length === 0 ? <p className="p-6 text-center text-xs text-[#8C8275]">Escaneie, busque ou use “+1 →” para iniciar a devolução.</p> : <div className="overflow-x-auto"><table className="w-full text-xs text-left"><thead className="bg-[#FDFBF7] text-[#7A5C2E]"><tr><th className="p-2">Foto</th><th className="p-2">Código / Joia</th><th className="p-2 text-center">Qtd.</th></tr></thead><tbody className="divide-y divide-[#E5DFD5]">{returningItems.map((it, idx) => { const p=it.expand?.product; const photo=p?getProductDisplayPhoto(p):null; const conf=conferenceMap[it.product]; const canAdd=remainingOf(it)>0; return <tr key={`${it.id || it.product}-${idx}`}><td className="p-2">{photo ? <img src={photo} alt={getProductFullName(p) || 'Joia'} className="h-9 w-9 rounded-lg object-cover border border-[#E5DFD5]" /> : <Package className="h-4 w-4 text-[#C6A664]" />}</td><td className="p-2"><p className="font-mono font-bold text-[#7A5C2E]">{p?.code || '—'}</p><p className="text-[#2D2A26]">{getProductFullName(p!) || p?.description || p?.nome_produto || 'Joia'}</p></td><td className="p-2"><div className="flex items-center justify-center gap-1"><Button type="button" variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => handleItemChange(it.product, 'returned_qty', Math.max(0, (conf.returned_qty || 0) - 1))}><Minus className="h-3 w-3" /></Button><span className="font-bold w-7 text-center">{conf.returned_qty}</span><Button type="button" variant="outline" size="sm" disabled={!canAdd} className="h-7 w-7 p-0" onClick={() => registerOne(it.product, p?.code || 'Joia')}><Plus className="h-3 w-3" /></Button></div></td></tr>})}</tbody></table></div>}
+                  <div className="px-3 py-2 bg-emerald-50 border-b border-emerald-200 text-xs font-bold text-emerald-800 flex justify-between">
+                    <span>Sendo devolvido agora</span>
+                    <span>{totalReturningQty} peça(s)</span>
+                  </div>
+                  {returningItems.length === 0 ? (
+                    <p className="p-6 text-center text-xs text-[#8C8275]">
+                      Escaneie, busque ou use “+1 →” para iniciar a devolução.
+                    </p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs text-left">
+                        <thead className="bg-[#FDFBF7] text-[#7A5C2E]">
+                          <tr>
+                            <th className="p-2">Foto</th>
+                            <th className="p-2">Código / Joia</th>
+                            <th className="p-2 text-center">Qtd.</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#E5DFD5]">
+                          {returningItems.map((it, idx) => {
+                            const p = it.expand?.product
+                            const photo = p ? getProductDisplayPhoto(p) : null
+                            const conf = conferenceMap[it.product]
+                            const canAdd = remainingOf(it) > 0
+                            return (
+                              <tr key={`${it.id || it.product}-${idx}`}>
+                                <td className="p-2">
+                                  {photo ? (
+                                    <img
+                                      src={photo}
+                                      alt={getProductFullName(p) || 'Joia'}
+                                      className="h-9 w-9 rounded-lg object-cover border border-[#E5DFD5]"
+                                    />
+                                  ) : (
+                                    <Package className="h-4 w-4 text-[#C6A664]" />
+                                  )}
+                                </td>
+                                <td className="p-2">
+                                  <p className="font-mono font-bold text-[#7A5C2E]">
+                                    {p?.code || '—'}
+                                  </p>
+                                  <p className="text-[#2D2A26]">
+                                    {getProductFullName(p!) ||
+                                      p?.description ||
+                                      p?.nome_produto ||
+                                      'Joia'}
+                                  </p>
+                                </td>
+                                <td className="p-2">
+                                  <div className="flex items-center justify-center gap-1">
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-7 w-7 p-0"
+                                      onClick={() =>
+                                        handleItemChange(
+                                          it.product,
+                                          'returned_qty',
+                                          Math.max(0, (conf.returned_qty || 0) - 1),
+                                        )
+                                      }
+                                    >
+                                      <Minus className="h-3 w-3" />
+                                    </Button>
+                                    <span className="font-bold w-7 text-center">
+                                      {conf.returned_qty}
+                                    </span>
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      disabled={!canAdd}
+                                      className="h-7 w-7 p-0"
+                                      onClick={() => registerOne(it.product, p?.code || 'Joia')}
+                                    >
+                                      <Plus className="h-3 w-3" />
+                                    </Button>
+                                  </div>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -585,7 +797,10 @@ export default function ResellerConferencePage() {
                               handleItemChange(
                                 it.product,
                                 'pending_qty',
-                                Math.min(Math.max(0, parseInt(e.target.value, 10) || 0), Math.max(0, it.quantity - (conf.returned_qty || 0))),
+                                Math.min(
+                                  Math.max(0, parseInt(e.target.value, 10) || 0),
+                                  Math.max(0, it.quantity - (conf.returned_qty || 0)),
+                                ),
                               )
                             }
                             className="w-16 h-8 text-center rounded-md border border-amber-300 bg-white font-bold"
@@ -629,8 +844,64 @@ export default function ResellerConferencePage() {
               )}
 
               <div className="border border-[#E5DFD5] rounded-xl overflow-hidden bg-white">
-                <div className="px-3 py-2 bg-emerald-50/70 border-b border-emerald-200 text-xs font-bold text-emerald-800">Vendidas</div>
-                {soldSaleRows.length === 0 ? <p className="p-5 text-center text-xs text-[#8C8275]">Nenhuma venda concluída no PDV desta revendedora.</p> : <div className="overflow-x-auto"><table className="w-full text-xs text-left"><thead className="bg-[#FDFBF7] text-[#7A5C2E]"><tr><th className="p-2">Foto</th><th className="p-2">Código</th><th className="p-2">Nome</th><th className="p-2 text-center">Qtd.</th><th className="p-2">Data da venda</th><th className="p-2">Venda</th></tr></thead><tbody className="divide-y divide-[#E5DFD5]">{soldSaleRows.map((row, idx) => { const photo=row.product?getProductDisplayPhoto(row.product):null; return <tr key={`${row.saleCode}-${row.product_id}-${idx}`}><td className="p-2">{photo ? <img src={photo} alt={getProductFullName(row.product) || row.description || 'Joia'} className="h-9 w-9 rounded-lg object-cover border border-[#E5DFD5]" /> : <Package className="h-4 w-4 text-[#C6A664]" />}</td><td className="p-2 font-mono font-bold text-[#7A5C2E]">{row.code || row.product?.code || '—'}</td><td className="p-2 text-[#2D2A26]">{getProductFullName(row.product!) || row.description || 'Joia'}</td><td className="p-2 text-center font-bold">{row.quantity}</td><td className="p-2 text-[#6B655E]">{row.saleCreated ? new Date(row.saleCreated).toLocaleString('pt-BR') : '—'}</td><td className="p-2 font-mono text-[#7A5C2E]">{row.saleCode}</td></tr>})}</tbody></table></div>}
+                <div className="px-3 py-2 bg-emerald-50/70 border-b border-emerald-200 text-xs font-bold text-emerald-800">
+                  Vendidas
+                </div>
+                {soldSaleRows.length === 0 ? (
+                  <p className="p-5 text-center text-xs text-[#8C8275]">
+                    Nenhuma venda concluída no PDV desta revendedora.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs text-left">
+                      <thead className="bg-[#FDFBF7] text-[#7A5C2E]">
+                        <tr>
+                          <th className="p-2">Foto</th>
+                          <th className="p-2">Código</th>
+                          <th className="p-2">Nome</th>
+                          <th className="p-2 text-center">Qtd.</th>
+                          <th className="p-2">Data da venda</th>
+                          <th className="p-2">Venda</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#E5DFD5]">
+                        {soldSaleRows.map((row, idx) => {
+                          const photo = row.product ? getProductDisplayPhoto(row.product) : null
+                          return (
+                            <tr key={`${row.saleCode}-${row.product_id}-${idx}`}>
+                              <td className="p-2">
+                                {photo ? (
+                                  <img
+                                    src={photo}
+                                    alt={
+                                      getProductFullName(row.product) || row.description || 'Joia'
+                                    }
+                                    className="h-9 w-9 rounded-lg object-cover border border-[#E5DFD5]"
+                                  />
+                                ) : (
+                                  <Package className="h-4 w-4 text-[#C6A664]" />
+                                )}
+                              </td>
+                              <td className="p-2 font-mono font-bold text-[#7A5C2E]">
+                                {row.code || row.product?.code || '—'}
+                              </td>
+                              <td className="p-2 text-[#2D2A26]">
+                                {getProductFullName(row.product!) || row.description || 'Joia'}
+                              </td>
+                              <td className="p-2 text-center font-bold">{row.quantity}</td>
+                              <td className="p-2 text-[#6B655E]">
+                                {row.saleCreated
+                                  ? new Date(row.saleCreated).toLocaleString('pt-BR')
+                                  : '—'}
+                              </td>
+                              <td className="p-2 font-mono text-[#7A5C2E]">{row.saleCode}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
 
               {/* Percentuais de lucro */}
