@@ -20,7 +20,7 @@ import {
 import { resellerService } from '@/services/resellerService'
 import { resellerStockService } from '@/services/resellerStockService'
 import { productService } from '@/services/productService'
-import { Reseller, ResellerStockItem, ResellerSale, Product } from '@/types'
+import { Reseller, ResellerStockItem, ResellerSale, ResellerDelivery, Product } from '@/types'
 import { formatCurrency, getProductDisplayPhoto } from '@/lib/formatters'
 import { getProductFullName } from '@/types/labelContent'
 import { getBackendErrorMessage } from '@/lib/backendErrors'
@@ -81,6 +81,7 @@ export default function ResellerConferencePage() {
   const [reseller, setReseller] = useState<Reseller | null>(null)
   const [stockItems, setStockItems] = useState<ResellerStockItem[]>([])
   const [sales, setSales] = useState<ResellerSale[]>([])
+  const [deliveries, setDeliveries] = useState<ResellerDelivery[]>([])
   const [salesProducts, setSalesProducts] = useState<Record<string, Product>>({})
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -120,12 +121,16 @@ export default function ResellerConferencePage() {
       resellerService.getResellerById(resellerId),
       resellerStockService.getAllResellerStockItems(resellerId),
       resellerStockService.getResellerSales({ resellerId }),
+      // A origem "entregue" é apenas informativa para o rótulo "X de Y".
+      // Falhar aqui não pode esconder a posse atual nem derrubar a conferência.
+      resellerStockService.getDeliveries({ resellerId }).catch(() => [] as ResellerDelivery[]),
     ])
-      .then(async ([r, stock, salesList]) => {
+      .then(async ([r, stock, salesList, deliveryList]) => {
         if (cancelled) return
         setReseller(r)
         setStockItems(stock)
         setSales(salesList)
+        setDeliveries(deliveryList)
         const productIds = Array.from(
           new Set(
             salesList
@@ -180,7 +185,7 @@ export default function ResellerConferencePage() {
   }
 
   const registerOne = (productId: string, label: string) => {
-    const it = stockRef.current.find((s) => s.product === productId)
+    const it = stockRef.current.find((s) => s.product === productId && s.quantity > 0)
     const conf = conferenceRef.current[productId] || emptyEntry()
     const availableQty = (it?.quantity || 0) - (conf.returned_qty || 0) - (conf.pending_qty || 0)
     if (!it || availableQty <= 0) {
@@ -195,13 +200,16 @@ export default function ResellerConferencePage() {
     const digits = digitsOf(raw)
     if (!digits) return
     const found = stockRef.current.find((it) => {
+      if (it.quantity <= 0) return false
       const p = it.expand?.product
       if (!p) return false
       return digitsOf(p.code) === digits
     })
     if (!found) {
-      const p = stockRef.current.find((it) =>
-        getProductFullName(it.expand?.product!)?.toLowerCase().includes(raw.toLowerCase()),
+      const p = stockRef.current.find(
+        (it) =>
+          it.quantity > 0 &&
+          getProductFullName(it.expand?.product!)?.toLowerCase().includes(raw.toLowerCase()),
       )
       if (p) {
         registerOne(
@@ -257,11 +265,35 @@ export default function ResellerConferencePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Os totais continuam usando stockItems completo. Esta lista é exclusivamente
+  // a posse atual que ainda pode ser devolvida ou justificada na conferência.
+  const possessionItems = useMemo(
+    () => stockItems.filter((item) => item.quantity > 0),
+    [stockItems],
+  )
+
+  // Soma o que foi originalmente entregue (somente entregas aceitas), sem
+  // inventar uma quantidade quando a origem não estiver disponível.
+  const deliveredQtyByProduct = useMemo(() => {
+    const quantities = new Map<string, number>()
+    deliveries
+      .filter((delivery) => delivery.status === 'accepted')
+      .forEach((delivery) =>
+        (delivery.items || []).forEach((item) => {
+          quantities.set(
+            item.product_id,
+            (quantities.get(item.product_id) || 0) + (item.quantity || 0),
+          )
+        }),
+      )
+    return quantities
+  }, [deliveries])
+
   // Dropdown ao vivo da busca (mesmo padrão de customerSearch: filtro tolerante)
   const searchResults = useMemo(() => {
     const q = searchText.trim().toLowerCase()
     if (!q) return []
-    return stockItems
+    return possessionItems
       .filter((it) => {
         const p = it.expand?.product
         if (!p) return false
@@ -271,7 +303,7 @@ export default function ResellerConferencePage() {
         return hay.includes(q) || digitsOf(p.code).includes(digitsOf(q))
       })
       .slice(0, 8)
-  }, [searchText, stockItems])
+  }, [searchText, possessionItems])
 
   const soldItems = useMemo(() => {
     const map = new Map<
@@ -321,10 +353,12 @@ export default function ResellerConferencePage() {
     return Array.from(map.entries()).map(([product_id, v]) => ({ product_id, ...v }))
   }, [sales])
 
-  const returningItems = stockItems.filter(
+  const returningItems = possessionItems.filter(
     (it) => (conferenceMap[it.product]?.returned_qty || 0) > 0,
   )
-  const issueItems = stockItems.filter((it) => (conferenceMap[it.product]?.pending_qty || 0) > 0)
+  const issueItems = possessionItems.filter(
+    (it) => (conferenceMap[it.product]?.pending_qty || 0) > 0,
+  )
   const remainingOf = (it: ResellerStockItem) =>
     Math.max(
       0,
@@ -350,11 +384,6 @@ export default function ResellerConferencePage() {
   const priceOf = (it: ResellerStockItem) =>
     it.selling_price || it.expand?.product?.selling_price || 0
 
-  const totalReceivedQty = stockItems.reduce((acc, it) => acc + (it.quantity || 0), 0)
-  const totalReceivedValue = stockItems.reduce(
-    (acc, it) => acc + (it.quantity || 0) * priceOf(it),
-    0,
-  )
   const totalSoldQty = soldItems.reduce((acc, it) => acc + it.quantity, 0)
   const totalSoldValue = soldItems.reduce((acc, it) => acc + it.quantity * it.unit_price, 0)
   const totalIssuedQty = issueItems.reduce(
@@ -378,7 +407,16 @@ export default function ResellerConferencePage() {
     0,
   )
   const activeCommission = commission ?? reseller?.commission_rate ?? 40
+  // No acerto, a empresa recebe o valor das vendas menos a comissão da
+  // revendedora. Extravios entram somente quando estiverem marcados para cobrança.
   const totalProfit = (totalSoldValue * activeCommission) / 100
+  const totalSettlementValue = totalSoldValue - totalProfit + totalIssuedValue
+  // A quantidade deste card representa as peças físicas que serão devolvidas agora.
+  const totalSettlementQty = totalReturningQty
+  const unclassifiedQty = possessionItems.reduce(
+    (total, item) => total + remainingOf(item),
+    0,
+  )
 
   const buildItemsPayload = () =>
     Object.entries(conferenceMap)
@@ -394,7 +432,6 @@ export default function ResellerConferencePage() {
 
   const doSave = async () => {
     if (!reseller) return
-    const unclassifiedQty = stockItems.reduce((total, item) => total + remainingOf(item), 0)
     if (unclassifiedQty > 0) {
       toast.error(
         `Há ${unclassifiedQty} peça(s) em posse sem destinação — marque a devolução ou justifique o extravio.`,
@@ -587,7 +624,7 @@ export default function ResellerConferencePage() {
             <div className="py-12 text-center text-xs text-[#8C8275] border border-[#E5DFD5] rounded-xl bg-[#FDFBF7]">
               <Boxes className="h-10 w-10 text-[#C6A664] mx-auto mb-2 opacity-60" />
               <p className="font-semibold text-sm text-[#2D2A26]">
-                Nenhuma joia em poder desta revendedora.
+                Nenhuma peça em posse — todas vendidas ou devolvidas.
               </p>
             </div>
           ) : (
@@ -609,9 +646,16 @@ export default function ResellerConferencePage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#E5DFD5]">
-                        {stockItems.map((it, idx) => {
+                        {possessionItems.length === 0 ? (
+                          <tr>
+                            <td colSpan={5} className="p-6 text-center text-xs text-[#8C8275]">
+                              Nenhuma peça em posse — todas vendidas ou devolvidas.
+                            </td>
+                          </tr>
+                        ) : possessionItems.map((it, idx) => {
                           const p = it.expand?.product
                           const photo = p ? getProductDisplayPhoto(p) : null
+                          const deliveredQty = deliveredQtyByProduct.get(it.product)
                           const remaining = remainingOf(it)
                           const pending = remaining > 0
                           return (
@@ -649,7 +693,11 @@ export default function ResellerConferencePage() {
                                     'Joia'}
                                 </p>
                               </td>
-                              <td className="p-2 text-center font-bold">{it.quantity}</td>
+                              <td className="p-2 text-center font-bold">
+                                {deliveredQty && deliveredQty > it.quantity
+                                  ? `${it.quantity} de ${deliveredQty}`
+                                  : it.quantity}
+                              </td>
                               <td
                                 className={`p-2 text-center font-bold ${pending ? 'text-amber-800' : 'text-emerald-700'}`}
                               >
@@ -975,14 +1023,7 @@ export default function ResellerConferencePage() {
               </div>
 
               {/* Cards de totais */}
-              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-                <StatCard
-                  label="Total Recebido"
-                  value={totalReceivedValue}
-                  qty={totalReceivedQty}
-                  icon={<Boxes className="h-4 w-4" />}
-                  tone="border-[#E5DFD5] bg-white text-[#6B655E]"
-                />
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <StatCard
                   label="Total Vendido"
                   value={totalSoldValue}
@@ -999,8 +1040,8 @@ export default function ResellerConferencePage() {
                 />
                 <StatCard
                   label="Total à Devolver"
-                  value={totalReturningValue}
-                  qty={totalReturningQty}
+                  value={totalSettlementValue}
+                  qty={totalSettlementQty}
                   icon={<RotateCcw className="h-4 w-4" />}
                   tone="border-[#C6A664] bg-[#FDFBF7] text-[#7A5C2E]"
                 />
@@ -1053,7 +1094,14 @@ export default function ResellerConferencePage() {
                 </div>
               )}
 
-              <div className="flex justify-end gap-2 pt-2 border-t border-[#E5DFD5]">
+              <div className="pt-2 border-t border-[#E5DFD5]">
+                {unclassifiedQty > 0 && (
+                  <p className="mb-2 text-xs font-medium text-amber-800">
+                    Há {unclassifiedQty} peça{unclassifiedQty === 1 ? '' : 's'} em posse sem destinação.
+                    Marque cada uma para devolução ou extravio para liberar o salvamento.
+                  </p>
+                )}
+                <div className="flex justify-end gap-2">
                 <Button
                   variant="outline"
                   size="sm"
@@ -1064,12 +1112,18 @@ export default function ResellerConferencePage() {
                 </Button>
                 <Button
                   onClick={() => setConfirmAction('save')}
-                  disabled={isSubmitting || stockItems.length === 0}
+                  disabled={isSubmitting || stockItems.length === 0 || unclassifiedQty > 0}
+                  title={
+                    unclassifiedQty > 0
+                      ? 'Classifique todas as peças em posse antes de salvar.'
+                      : undefined
+                  }
                   className="bg-[#7A5C2E] hover:bg-[#634923] text-white font-medium text-xs h-9 px-6 shadow-xs flex items-center gap-2"
                 >
                   <CheckCircle2 className="h-4 w-4" />
                   {isSubmitting ? 'Salvando...' : 'Salvar Devolução'}
                 </Button>
+                </div>
               </div>
             </>
           )}
