@@ -625,7 +625,12 @@ export default function ResellerConferencePage() {
                                     src={photo}
                                     alt={getProductFullName(p) || 'Joia'}
                                     className="h-9 w-9 rounded-lg object-cover border border-[#E5DFD5] cursor-zoom-in"
-                                    onClick={() => setLightboxPhoto({ url: photo, title: getProductFullName(p) || 'Joia' })}
+                                    onClick={() =>
+                                      setLightboxPhoto({
+                                        url: photo,
+                                        title: getProductFullName(p) || 'Joia',
+                                      })
+                                    }
                                   />
                                 ) : (
                                   <div className="h-9 w-9 rounded-lg bg-neutral-100 flex items-center justify-center">
@@ -715,7 +720,12 @@ export default function ResellerConferencePage() {
                                       src={photo}
                                       alt={getProductFullName(p) || 'Joia'}
                                       className="h-9 w-9 rounded-lg object-cover border border-[#E5DFD5] cursor-zoom-in"
-                                      onClick={() => setLightboxPhoto({ url: photo, title: getProductFullName(p) || 'Joia' })}
+                                      onClick={() =>
+                                        setLightboxPhoto({
+                                          url: photo,
+                                          title: getProductFullName(p) || 'Joia',
+                                        })
+                                      }
                                     />
                                   ) : (
                                     <Package className="h-4 w-4 text-[#C6A664]" />
@@ -829,8 +839,20 @@ export default function ResellerConferencePage() {
                             <option value="outros">Outros motivos</option>
                           </select>
                           <div className="flex rounded-md border border-amber-300 overflow-hidden h-8">
-                            <button type="button" onClick={() => handleItemChange(it.product, 'pending_charge', true)} className={`px-2 text-[10px] font-bold ${conf.pending_charge !== false ? 'bg-[#7A5C2E] text-white' : 'bg-white text-[#7A5C2E]'}`}>Cobrar</button>
-                            <button type="button" onClick={() => handleItemChange(it.product, 'pending_charge', false)} className={`px-2 text-[10px] font-bold ${conf.pending_charge === false ? 'bg-[#6B655E] text-white' : 'bg-white text-[#6B655E]'}`}>Não cobrar</button>
+                            <button
+                              type="button"
+                              onClick={() => handleItemChange(it.product, 'pending_charge', true)}
+                              className={`px-2 text-[10px] font-bold ${conf.pending_charge !== false ? 'bg-[#7A5C2E] text-white' : 'bg-white text-[#7A5C2E]'}`}
+                            >
+                              Cobrar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleItemChange(it.product, 'pending_charge', false)}
+                              className={`px-2 text-[10px] font-bold ${conf.pending_charge === false ? 'bg-[#6B655E] text-white' : 'bg-white text-[#6B655E]'}`}
+                            >
+                              Não cobrar
+                            </button>
                           </div>
                           <input
                             type="text"
@@ -892,7 +914,15 @@ export default function ResellerConferencePage() {
                                       getProductFullName(row.product) || row.description || 'Joia'
                                     }
                                     className="h-9 w-9 rounded-lg object-cover border border-[#E5DFD5] cursor-zoom-in"
-                                    onClick={() => setLightboxPhoto({ url: photo, title: getProductFullName(row.product) || row.description || 'Joia' })}
+                                    onClick={() =>
+                                      setLightboxPhoto({
+                                        url: photo,
+                                        title:
+                                          getProductFullName(row.product) ||
+                                          row.description ||
+                                          'Joia',
+                                      })
+                                    }
                                   />
                                 ) : (
                                   <Package className="h-4 w-4 text-[#C6A664]" />
@@ -1045,7 +1075,12 @@ export default function ResellerConferencePage() {
           )}
         </>
       )}
-      <ImageLightbox open={Boolean(lightboxPhoto)} onClose={() => setLightboxPhoto(null)} photos={lightboxPhoto ? [lightboxPhoto.url] : []} title={lightboxPhoto?.title} />
+      <ImageLightbox
+        open={Boolean(lightboxPhoto)}
+        onClose={() => setLightboxPhoto(null)}
+        photos={lightboxPhoto ? [lightboxPhoto.url] : []}
+        title={lightboxPhoto?.title}
+      />
     </div>
   )
 }
