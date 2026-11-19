@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Users2,
   PackagePlus,
@@ -52,6 +52,7 @@ import {
   ResellerIssue,
   ConsignmentList,
   AppSettings,
+  ResellerSale,
 } from '@/types'
 import {
   formatCurrency,
@@ -84,6 +85,7 @@ export default function ResellersUnifiedPage() {
   const { user, isAdmin, isOperator, isReseller } = useAuth()
   const canManage = isAdmin || isOperator
   const [searchParams, setSearchParams] = useSearchParams()
+  const navigate = useNavigate()
 
   // Reseller Context
   const [resellers, setResellers] = useState<Reseller[]>([])
@@ -125,7 +127,6 @@ export default function ResellersUnifiedPage() {
   }, [openNewDeliveryModal, currentReseller?.id])
 
   const [isStockModalOpen, setIsStockModalOpen] = useState(false)
-  const [isConferenceModalOpen, setIsConferenceModalOpen] = useState(false)
   const [isDirectCreateModalOpen, setIsDirectCreateModalOpen] = useState(false)
 
   // Deliveries List
@@ -135,6 +136,9 @@ export default function ResellersUnifiedPage() {
   // Current reseller stock items
   const [stockItems, setStockItems] = useState<ResellerStockItem[]>([])
   const [isLoadingStock, setIsLoadingStock] = useState<boolean>(false)
+
+  // Vendas no PDV da revendedora (usadas no modal Recebidas: seções Vendidas / Reservadas no PDV)
+  const [resellerSales, setResellerSales] = useState<ResellerSale[]>([])
 
   // Receipt Modal & Touch Sign
   const [selectedReceiptDelivery, setSelectedReceiptDelivery] = useState<ResellerDelivery | null>(
@@ -167,30 +171,11 @@ export default function ResellersUnifiedPage() {
   const lastScannedDeliveryCodeRef = useRef<string>('')
 
   // Returns / Devoluções & Conferência State
-  const [conferenceMap, setConferenceMap] = useState<
-    Record<
-      string,
-      {
-        returned_qty: number
-        pending_qty: number
-        pending_reason: 'extraviada' | 'venda_avulsa_sem_pdv' | 'outros'
-        pending_notes: string
-      }
-    >
-  >({})
-  const [returnNotes, setReturnNotes] = useState('')
-  // Comissão escolhida pelo admin/superadmin na hora do fechamento (padrão: a da revendedora).
-  const [settlementCommission, setSettlementCommission] = useState<number | null>(null)
-  const [isSubmittingReturn, setIsSubmittingReturn] = useState(false)
+  // (v0.0.172: o modal antigo de conferência foi removido — o fluxo completo vive
+  //  na página dedicada /revendedoras/conferencia, que persiste as devoluções pelo
+  //  resellerStockService.processReturn. Estados/funções órfãos foram retirados.)
   const [returnsHistory, setReturnsHistory] = useState<ResellerReturn[]>([])
   const [issues, setIssues] = useState<ResellerIssue[]>([])
-
-  // Barcode Scanner State - Modal de Conferência & Devolução
-  const [returnBarcodeScan, setReturnBarcodeScan] = useState('')
-  const [returnScanAlert, setReturnScanAlert] = useState<string | null>(null)
-  const returnBarcodeInputRef = useRef<HTMLInputElement>(null)
-  const [isReturnCameraOpen, setIsReturnCameraOpen] = useState(false)
-  const lastScannedReturnCodeRef = useRef<string>('')
 
   // Comprovante de Fechamento / Acerto State
   const [selectedSettlementReceipt, setSelectedSettlementReceipt] = useState<ResellerReturn | null>(
@@ -311,10 +296,8 @@ export default function ResellersUnifiedPage() {
     setDeliveryNotes('')
     setDeliverySignature(null)
     setShowSignPadInForm(false)
-    setReturnNotes('')
     setIsNewDeliveryModalOpen(false)
     setIsStockModalOpen(false)
-    setIsConferenceModalOpen(false)
     setSearchParams({}, { replace: true })
   }
 
@@ -327,6 +310,68 @@ export default function ResellersUnifiedPage() {
       deliveries.filter((del) => !getDeliveryDisplayStatus(del, returnsHistory).isFullyReturned),
     [deliveries, returnsHistory],
   )
+
+  // v0.0.172 — Modal "Recebidas" em 3 seções:
+  // Seção 1 "Não Vendidas": posse (stockItems) menos o que já foi vendido/reservado no PDV
+  // Seção 2 "Vendidas": itens de reseller_sales com status 'completed'
+  // Seção 3 "Reservadas no PDV": itens de reseller_sales com status 'pending'
+  const soldQtyByProduct = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const sale of resellerSales) {
+      if (sale.status !== 'completed') continue
+      for (const it of sale.items || []) {
+        map.set(it.product_id, (map.get(it.product_id) || 0) + (it.quantity || 0))
+      }
+    }
+    return map
+  }, [resellerSales])
+
+  const reservedQtyByProduct = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const sale of resellerSales) {
+      if (sale.status !== 'pending') continue
+      for (const it of sale.items || []) {
+        map.set(it.product_id, (map.get(it.product_id) || 0) + (it.quantity || 0))
+      }
+    }
+    return map
+  }, [resellerSales])
+
+  const nonSoldStockItems = useMemo(() => {
+    return stockItems
+      .map((it) => {
+        const removedQty =
+          (soldQtyByProduct.get(it.product) || 0) + (reservedQtyByProduct.get(it.product) || 0)
+        return { item: it, remainingQty: Math.max(0, it.quantity - removedQty) }
+      })
+      .filter((r) => r.remainingQty > 0)
+  }, [stockItems, soldQtyByProduct, reservedQtyByProduct])
+
+  const saleRowsByStatus = useMemo(() => {
+    const build = (status: 'completed' | 'pending') => {
+      const map = new Map<
+        string,
+        { code: string; description: string; quantity: number; total: number }
+      >()
+      for (const sale of resellerSales) {
+        if (sale.status !== status) continue
+        for (const it of sale.items || []) {
+          const key = it.product_id || `${it.code}-${it.description}`
+          const prev = map.get(key) || {
+            code: it.code,
+            description: it.description,
+            quantity: 0,
+            total: 0,
+          }
+          prev.quantity += it.quantity || 0
+          prev.total += it.total || 0
+          map.set(key, prev)
+        }
+      }
+      return Array.from(map.values())
+    }
+    return { sold: build('completed'), reserved: build('pending') }
+  }, [resellerSales])
 
   // 2. Load context data whenever currentReseller changes with realtime auto-refresh
   useEffect(() => {
@@ -343,12 +388,13 @@ export default function ResellersUnifiedPage() {
         setIsLoadingStock(true)
       }
       try {
-        const [dels, items, issuesList, returnsList, legacy] = await Promise.all([
+        const [dels, items, issuesList, returnsList, legacy, salesList] = await Promise.all([
           resellerStockService.getDeliveries({ resellerId }),
           resellerStockService.getResellerStock(resellerId),
           resellerStockService.getIssues({ resellerId }),
           resellerStockService.getReturns({ resellerId }),
           resellerService.getConsignmentLists({ resellerId }),
+          resellerStockService.getResellerSales({ resellerId }),
         ])
         if (!isMounted) return
 
@@ -357,28 +403,7 @@ export default function ResellersUnifiedPage() {
         setIssues(issuesList)
         setReturnsHistory(returnsList)
         setLegacyLists(legacy)
-
-        // Atualiza conferenceMap preservando digitação em andamento
-        setConferenceMap((prev) => {
-          const updated: Record<
-            string,
-            {
-              returned_qty: number
-              pending_qty: number
-              pending_reason: 'extraviada' | 'venda_avulsa_sem_pdv' | 'outros'
-              pending_notes: string
-            }
-          > = {}
-          items.forEach((it) => {
-            updated[it.product] = prev[it.product] || {
-              returned_qty: 0,
-              pending_qty: 0,
-              pending_reason: 'extraviada',
-              pending_notes: '',
-            }
-          })
-          return updated
-        })
+        setResellerSales(salesList)
       } catch (err) {
         console.error('Erro ao carregar dados da revendedora:', err)
       } finally {
@@ -580,129 +605,6 @@ export default function ResellersUnifiedPage() {
       }, 100)
     }
   }, [currentReseller?.id, isNewDeliveryModalOpen])
-
-  useEffect(() => {
-    if (currentReseller && isConferenceModalOpen) {
-      setReturnBarcodeScan('')
-      setReturnScanAlert(null)
-      setIsReturnCameraOpen(false)
-      lastScannedReturnCodeRef.current = ''
-      // Auto-foco imediato no leitor de código de barras
-      setTimeout(() => {
-        returnBarcodeInputRef.current?.focus()
-      }, 100)
-    }
-  }, [currentReseller?.id, isConferenceModalOpen])
-
-  // Leitura por CÂMERA - Modal de Conferência & Devolução (mesmo modelo do PDV e Nova Entrega:
-  // cooldown de 3s, bip, vibração, lanterna e pergunta de duplicado só na câmera)
-  const handleReturnCameraScan = async (
-    barcode: string,
-    options?: { forceDuplicate?: boolean; viaCamera?: boolean },
-  ): Promise<boolean | { requiresDuplicateConfirmation: boolean; product?: Product }> => {
-    const rawCode = (barcode || '').trim()
-    if (!rawCode) return false
-
-    // 1. Tenta resolver via endpoint especializado resolveBarcode
-    let foundStockItem: ResellerStockItem | undefined = undefined
-    let foundProd: Product | null = null
-
-    try {
-      const resolved = await productService.resolveBarcode(rawCode)
-      if (resolved && resolved.matched && resolved.product) {
-        foundProd = resolved.product as Product
-        foundStockItem = stockItems.find(
-          (it) =>
-            it.product === resolved.product!.id || it.expand?.product?.id === resolved.product!.id,
-        )
-      } else if (
-        resolved &&
-        resolved.ambiguous &&
-        resolved.variations &&
-        resolved.variations.length > 0
-      ) {
-        toast.info(
-          resolved.message ||
-            `O código possui variações (${resolved.variations.map((v) => v.variacao).join(', ')}). Especifique a variação.`,
-        )
-        return false
-      }
-    } catch {
-      /* fallback */
-    }
-
-    // 2. Busca nas joias que estão EM PODER desta revendedora (stockItems) por match local
-    if (!foundStockItem) {
-      foundStockItem = stockItems.find((it) => {
-        const prod = it.expand?.product
-        return prod && isExactCodeMatch(prod, rawCode)
-      })
-      if (foundStockItem) {
-        foundProd = foundStockItem.expand?.product || null
-      }
-    }
-
-    if (!foundStockItem && !foundProd) {
-      try {
-        const res = await productService.getProducts({ search: rawCode, perPage: 10 })
-        foundProd = res.items.find((p) => isExactCodeMatch(p, rawCode)) || null
-        if (foundProd) {
-          foundStockItem = stockItems.find((it) => it.product === foundProd?.id)
-        }
-      } catch {
-        /* ignore */
-      }
-    }
-
-    if (!foundStockItem || !foundProd) {
-      const alertMsg = `ALERTA: A peça código "${rawCode}" NÃO pertence ao estoque em poder de ${currentReseller?.name || 'esta revendedora'}! Não foi entregue a ela.`
-      setReturnScanAlert(alertMsg)
-      toast.error(`Peça "${rawCode}" não pertence a esta revendedora!`)
-      return false
-    }
-
-    const prodId = foundStockItem.product
-    const currentConf = conferenceMap[prodId] || {
-      returned_qty: 0,
-      pending_qty: 0,
-      pending_reason: 'extraviada',
-      pending_notes: '',
-    }
-
-    // Pergunta de duplicado: apenas pela câmera caso seja o mesmo código lido repetido ou já tenha retornado > 0
-    const alreadyReturned = (currentConf.returned_qty || 0) > 0
-    const isSameCodeAsLast = lastScannedReturnCodeRef.current === rawCode
-    if (
-      (isSameCodeAsLast || alreadyReturned) &&
-      !options?.forceDuplicate &&
-      options?.viaCamera === true
-    ) {
-      return { requiresDuplicateConfirmation: true, product: foundProd }
-    }
-
-    lastScannedReturnCodeRef.current = rawCode
-
-    const newReturnedQty = (currentConf.returned_qty || 0) + 1
-    const totalCount = newReturnedQty + (currentConf.pending_qty || 0)
-
-    if (totalCount > foundStockItem.quantity) {
-      setReturnScanAlert(
-        `A revendedora possui apenas ${foundStockItem.quantity} unidade(s) de "${foundProd.code}". A quantidade devolvida não pode exceder o saldo em poder.`,
-      )
-      toast.warning(
-        `Saldo máximo em mãos atingido (${foundStockItem.quantity} un) para ${foundProd.code}.`,
-      )
-      return false
-    }
-
-    // Incrementa a quantidade devolvida em 1
-    handleItemChange(prodId, 'returned_qty', newReturnedQty)
-    toast.success(
-      `+1 devolvido: ${foundProd.code} (${newReturnedQty} de ${foundStockItem.quantity} un)`,
-    )
-    setReturnScanAlert(null)
-    return true
-  }
 
   // Leitura por CÂMERA - Modal de Entrega (mesmo modelo do PDV: 3s de cooldown, bip e pergunta de duplicado)
   // onScan pode retornar Promise (consulta ao banco) — o scanner espera o resultado.
@@ -912,97 +814,6 @@ export default function ResellersUnifiedPage() {
     }
   }
 
-  // Handler de leitura de código de barras - Modal de Conferência & Devolução
-  const handleReturnBarcodeKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      e.preventDefault()
-      const rawCode = returnBarcodeScan.trim()
-      if (!rawCode) return
-
-      setReturnScanAlert(null)
-
-      // 1. Tenta resolver via endpoint especializado resolveBarcode
-      let foundStockItem: ResellerStockItem | undefined = undefined
-
-      try {
-        const resolved = await productService.resolveBarcode(rawCode)
-        if (resolved && resolved.matched && resolved.product) {
-          foundStockItem = stockItems.find(
-            (it) =>
-              it.product === resolved.product!.id ||
-              it.expand?.product?.id === resolved.product!.id,
-          )
-        } else if (
-          resolved &&
-          resolved.ambiguous &&
-          resolved.variations &&
-          resolved.variations.length > 0
-        ) {
-          setReturnScanAlert(
-            resolved.message ||
-              `Código possui variações (${resolved.variations.map((v) => v.variacao).join(', ')}). Especifique a variação.`,
-          )
-          toast.info('Código possui variações. Especifique a variação.')
-          setReturnBarcodeScan('')
-          return
-        }
-      } catch {
-        /* fallback */
-      }
-
-      // 2. Busca nas joias que estão EM PODER desta revendedora (stockItems)
-      if (!foundStockItem) {
-        foundStockItem = stockItems.find((it) => {
-          const prod = it.expand?.product
-          return prod && isExactCodeMatch(prod, rawCode)
-        })
-      }
-
-      // Regra 4: Se o produto não estiver relacionado à revendedora, exibir alerta destacado
-      if (!foundStockItem) {
-        setReturnScanAlert(
-          `ALERTA: A peça código "${rawCode}" NÃO pertence ao estoque em poder de ${currentReseller?.name || 'esta revendedora'}! Não foi entregue a ela.`,
-        )
-        toast.error(`Peça "${rawCode}" não pertence a esta revendedora!`)
-        setReturnBarcodeScan('')
-        return
-      }
-
-      const prodId = foundStockItem.product
-      const currentConf = conferenceMap[prodId] || {
-        returned_qty: 0,
-        pending_qty: 0,
-        pending_reason: 'extraviada',
-        pending_notes: '',
-      }
-
-      const newReturnedQty = (currentConf.returned_qty || 0) + 1
-      const totalCount = newReturnedQty + (currentConf.pending_qty || 0)
-
-      if (totalCount > foundStockItem.quantity) {
-        setReturnScanAlert(
-          `A revendedora possui apenas ${foundStockItem.quantity} unidade(s) de "${foundStockItem.expand?.product?.code}". A quantidade devolvida não pode exceder o saldo em poder.`,
-        )
-        toast.warning(
-          `Saldo máximo em mãos atingido (${foundStockItem.quantity} un) para ${foundStockItem.expand?.product?.code}.`,
-        )
-        setReturnBarcodeScan('')
-        return
-      }
-
-      // Incrementa a quantidade devolvida em 1
-      handleItemChange(prodId, 'returned_qty', newReturnedQty)
-      toast.success(
-        `+1 devolvido: ${foundStockItem.expand?.product?.code} (${newReturnedQty} de ${foundStockItem.quantity} un)`,
-      )
-      setReturnScanAlert(null)
-      setReturnBarcodeScan('')
-
-      // Mantém o foco no leitor
-      returnBarcodeInputRef.current?.focus()
-    }
-  }
-
   // Basket handlers
   const handleAddProductToDelivery = (prod: Product) => {
     const existing = deliveryItems.find((it) => it.product.id === prod.id)
@@ -1131,168 +942,6 @@ export default function ResellersUnifiedPage() {
       // Fecha o pad de assinatura para a tela continuar utilizável; os dados
       // da entrega e o card permanecem como estavam.
       setSigningDelivery(null)
-    }
-  }
-
-  // Conference & Return handlers
-  const handleItemChange = (productId: string, field: string, val: any) => {
-    setConferenceMap((prev) => ({
-      ...prev,
-      [productId]: {
-        ...(prev[productId] || {
-          returned_qty: 0,
-          pending_qty: 0,
-          pending_reason: 'extraviada',
-          pending_notes: '',
-        }),
-        [field]: val,
-      },
-    }))
-  }
-
-  const handleSubmitReturn = async () => {
-    if (!currentReseller) {
-      toast.error('Revendedora não identificada.')
-      return
-    }
-
-    const itemsToProcess: Array<{
-      product_id: string
-      returned_qty: number
-      pending_qty: number
-      pending_reason?: 'extraviada' | 'venda_avulsa_sem_pdv' | 'outros'
-      pending_notes?: string
-    }> = []
-
-    for (const it of stockItems) {
-      const conf = conferenceMap[it.product]
-      if (!conf) continue
-
-      const ret = conf.returned_qty || 0
-      const pend = conf.pending_qty || 0
-
-      if (ret < 0 || pend < 0) {
-        toast.error('Quantidades não podem ser negativas.')
-        return
-      }
-
-      if (ret + pend > it.quantity) {
-        toast.error(
-          `A soma devolvida + pendente excede o saldo em poder da revendedora para o item ${it.expand?.product?.code}.`,
-        )
-        return
-      }
-
-      if (ret > 0 || pend > 0) {
-        itemsToProcess.push({
-          product_id: it.product,
-          returned_qty: ret,
-          pending_qty: pend,
-          pending_reason: pend > 0 ? conf.pending_reason : undefined,
-          pending_notes: pend > 0 ? conf.pending_notes : undefined,
-        })
-      }
-    }
-
-    if (itemsToProcess.length === 0) {
-      toast.error('Informe pelo menos uma devolução física ou pendência a registrar.')
-      return
-    }
-
-    // Comissão usada neste fechamento: a escolhida pelo admin/superadmin nos botões
-    // (30% / 35% / 40%) ou, se não escolhida, a taxa cadastrada da revendedora.
-    const effectiveCommission = settlementCommission ?? (currentReseller.commission_rate || 40)
-
-    // Fechamento sem vendas e sem pendências: devolução total — nada a acertar.
-    const isFullReturnClosing = itemsToProcess.every((it) => it.pending_qty === 0)
-
-    setIsSubmittingReturn(true)
-    try {
-      const res = await resellerStockService.processReturn({
-        reseller_id: currentReseller.id,
-        items: itemsToProcess,
-        notes: returnNotes,
-        commission_rate: effectiveCommission,
-        // Rastreio (v0.0.145): devolução fica ligada à entrega em conferência (mais recente em aberto)
-        delivery_id: deliveries[0]?.id,
-        delivery_code: deliveries[0]?.code,
-      })
-
-      if (isFullReturnClosing) {
-        const updatedReseller = await resellerService.getResellerById(currentReseller.id)
-        if (updatedReseller) setCurrentReseller(updatedReseller)
-      }
-
-      if (res.total_pending_value_due > 0) {
-        toast.success(
-          `Conferência ${res.code} processada com sucesso! ${res.total_returned_qty} peças retornaram ao estoque geral da loja e ${res.total_pending_qty} pendências foram geradas.`,
-        )
-      } else {
-        toast.success(
-          `Fechamento ${res.code} concluído: ${res.total_returned_qty} peça(s) devolvida(s) voltaram integralmente ao estoque geral da loja. Nada a acertar com ${currentReseller.name} — nenhuma venda registrada e nenhum valor devido.`,
-          { duration: 8000 },
-        )
-      }
-      setReturnNotes('')
-      setSettlementCommission(null)
-      setIsConferenceModalOpen(false)
-      await loadStock(currentReseller.id)
-      await loadIssues(currentReseller.id)
-      const updatedReturns = await resellerStockService.getReturns({
-        resellerId: currentReseller.id,
-      })
-      setReturnsHistory(updatedReturns)
-      if (canManage) {
-        const allStock = await resellerStockService.getAllResellerStockItems('')
-        setAllStockItems(allStock)
-      }
-
-      // TAREFA 2: Comprovante de fechamento abre automaticamente após finalizar com sucesso
-      const matchedReturn = updatedReturns.find((r) => r.id === res.return_id)
-      const syntheticReturn: ResellerReturn = matchedReturn || {
-        id: res.return_id,
-        code: res.code,
-        reseller: currentReseller.id,
-        operator: user?.id,
-        status: 'completed',
-        items: itemsToProcess.map((it) => {
-          const itemStock = stockItems.find((s) => s.product === it.product_id)
-          const p = itemStock?.expand?.product
-          return {
-            product_id: it.product_id,
-            code: p?.code || '—',
-            description: p?.description || p?.nome_produto || 'Joia',
-            selling_price: p?.selling_price || itemStock?.selling_price || 0,
-            returned_qty: it.returned_qty,
-            pending_qty: it.pending_qty,
-            pending_reason: it.pending_reason,
-          }
-        }),
-        total_returned_qty: res.total_returned_qty,
-        total_pending_qty: res.total_pending_qty,
-        total_pending_value_due: res.total_pending_value_due,
-        commission_rate: res.commission_rate ?? effectiveCommission,
-        // Rastreio: código real da entrega de origem (numeração pura) vindo do backend
-        delivery_code: res.delivery_code || deliveries[0]?.code,
-        notes: returnNotes,
-        created: new Date().toISOString(),
-        updated: new Date().toISOString(),
-        expand: {
-          reseller: {
-            ...currentReseller,
-            commission_rate: effectiveCommission,
-          },
-          operator: user as any,
-        },
-      }
-
-      setSelectedSettlementReceipt(syntheticReturn)
-      setIsSettlementReceiptOpen(true)
-    } catch (err: any) {
-      console.error('Erro na devolução:', err)
-      toast.error(getBackendErrorMessage(err), { duration: 8000 })
-    } finally {
-      setIsSubmittingReturn(false)
     }
   }
 
@@ -1784,12 +1433,14 @@ export default function ResellersUnifiedPage() {
                           className="p-3 bg-[#FDFBF7] border-t border-[#E5DFD5] flex items-center justify-between gap-2 flex-wrap"
                           onClick={(e) => e.stopPropagation()}
                         >
-                          {/* Botão de Conferência & Devolução DENTRO da entrega em aberto */}
+                          {/* Botão de Conferência & Devolução — abre a página dedicada (v0.0.172) */}
                           {canManage && (
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => setIsConferenceModalOpen(true)}
+                              onClick={() =>
+                                navigate('/revendedoras/conferencia?reseller=' + currentReseller.id)
+                              }
                               className="text-xs border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] flex items-center gap-1 flex-1 min-w-[130px]"
                             >
                               <RotateCcw className="h-3.5 w-3.5" />
@@ -2139,17 +1790,6 @@ export default function ResellersUnifiedPage() {
           setSelectedSettlementReceipt(null)
         }}
       />
-
-      {/* Scanner por Câmera no Modal de Conferência & Devolução */}
-      {isConferenceModalOpen && isReturnCameraOpen && (
-        <BarcodeScannerModal
-          isOpen={isReturnCameraOpen}
-          onClose={() => setIsReturnCameraOpen(false)}
-          onScan={handleReturnCameraScan}
-          originTitle={`Devolução — ${currentReseller?.name || 'Revendedora'}`}
-          viaCamera
-        />
-      )}
 
       {/* ------------------------------------------------------------------- */}
       {/* MODAL 1: NOVA ENTREGA DE JOIAS */}
@@ -2607,9 +2247,9 @@ export default function ResellersUnifiedPage() {
             <div className="space-y-4 pt-2">
               {isLoadingStock ? (
                 <div className="p-12 text-center text-[#8C8275] text-xs">
-                  Carregando estoque da revendedora...
+                  Carregando dados da revendedora...
                 </div>
-              ) : stockItems.length === 0 ? (
+              ) : stockItems.length === 0 && resellerSales.length === 0 ? (
                 <div className="border border-[#E5DFD5] p-10 text-center rounded-xl bg-[#FDFBF7]">
                   <Boxes className="h-10 w-10 text-[#C6A664] mx-auto mb-3 opacity-60" />
                   <p className="text-base font-semibold text-[#2D2A26]">
@@ -2622,7 +2262,12 @@ export default function ResellersUnifiedPage() {
                 </div>
               ) : (
                 <div className="border border-[#E5DFD5] rounded-xl overflow-hidden bg-white shadow-xs">
+                  {/* SEÇÃO 1 — NÃO VENDIDAS (peças em posse que não constam em venda */}
+                  {/* completed nem reserva pending do PDV) */}
                   <div className="overflow-x-auto">
+                    <p className="px-4 pt-3 pb-2 text-[11px] uppercase font-bold tracking-wide text-[#7A5C2E]">
+                      Não Vendidas
+                    </p>
                     <table className="w-full text-left text-xs">
                       <thead className="bg-[#F3EAD8]/60 text-[#7A5C2E] uppercase font-semibold border-b border-[#E5DFD5]">
                         <tr>
@@ -2636,64 +2281,184 @@ export default function ResellersUnifiedPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#E5DFD5]">
-                        {stockItems.map((item, idxStock) => {
-                          const prod = item.expand?.product
-                          const photo = prod ? getProductDisplayPhoto(prod) : null
-                          const hasPhoto = Boolean(photo)
-                          const price = item.selling_price || prod?.selling_price || 0
-                          const subtotal = price * item.quantity
-                          return (
+                        {nonSoldStockItems.length === 0 ? (
+                          <tr>
+                            <td
+                              colSpan={7}
+                              className="py-6 px-4 text-center text-[#8C8275] text-xs"
+                            >
+                              Nenhuma peça não vendida em posse — todas foram vendidas ou estão
+                              reservadas no PDV.
+                            </td>
+                          </tr>
+                        ) : (
+                          nonSoldStockItems.map(({ item, remainingQty }, idxStock) => {
+                            const prod = item.expand?.product
+                            const photo = prod ? getProductDisplayPhoto(prod) : null
+                            const hasPhoto = Boolean(photo)
+                            const price = item.selling_price || prod?.selling_price || 0
+                            const subtotal = price * remainingQty
+                            return (
+                              <tr
+                                key={`${item.id || 'sem-id'}-${item.product || 'sem-prod'}-${idxStock}`}
+                                className="hover:bg-[#FDFBF7]"
+                              >
+                                <td className="py-2.5 px-3 text-center">
+                                  <button
+                                    type="button"
+                                    onClick={() => prod && hasPhoto && handleOpenLightbox(prod)}
+                                    disabled={!hasPhoto}
+                                    className={`relative group h-10 w-10 mx-auto rounded-lg bg-neutral-100 border border-[#E5DFD5] overflow-hidden flex items-center justify-center ${
+                                      hasPhoto
+                                        ? 'hover:border-[#C6A664] cursor-pointer'
+                                        : 'cursor-default'
+                                    }`}
+                                    title={hasPhoto ? 'Ampliar foto' : 'Sem foto'}
+                                  >
+                                    {photo ? (
+                                      <img
+                                        src={photo}
+                                        alt={prod?.description || prod?.nome_produto || 'Joia'}
+                                        className="h-full w-full object-cover group-hover:scale-105 transition-transform"
+                                      />
+                                    ) : (
+                                      <Package className="h-4 w-4 text-[#C6A664]" />
+                                    )}
+                                  </button>
+                                </td>
+                                <td className="py-3 px-4 font-mono font-bold text-[#7A5C2E]">
+                                  {prod?.code || '—'}
+                                </td>
+                                <td className="py-3 px-4 font-semibold text-[#2D2A26]">
+                                  {prod?.description || prod?.nome_produto || 'Joia'}
+                                </td>
+                                <td className="py-3 px-4 text-[#6B655E]">
+                                  {prod?.expand?.type?.name || '—'} •{' '}
+                                  {prod?.expand?.material?.name || '—'}
+                                </td>
+                                <td className="py-3 px-4 text-center">
+                                  <span className="inline-block px-2.5 py-1 rounded-md font-bold bg-[#E8D5A3]/30 text-[#7A5C2E]">
+                                    {remainingQty} un
+                                  </span>
+                                </td>
+                                <td className="py-3 px-4 text-right text-[#6B655E]">
+                                  {formatCurrency(price)}
+                                </td>
+                                <td className="py-3 px-4 text-right font-bold text-[#2D2A26]">
+                                  {formatCurrency(subtotal)}
+                                </td>
+                              </tr>
+                            )
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Separador sutil entre as seções */}
+                  <hr className="border-t border-[#E5DFD5] my-1" />
+
+                  {/* SEÇÃO 2 — VENDIDAS (vendas completed no PDV da revendedora) */}
+                  <div className="overflow-x-auto">
+                    <p className="px-4 pt-3 pb-2 text-[11px] uppercase font-bold tracking-wide text-[#2E7D4F]">
+                      Vendidas
+                    </p>
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-emerald-50/70 text-[#2E7D4F] uppercase font-semibold border-b border-[#E5DFD5]">
+                        <tr>
+                          <th className="py-3 px-4">Código</th>
+                          <th className="py-3 px-4">Joia</th>
+                          <th className="py-3 px-4 text-center">Quantidade</th>
+                          <th className="py-3 px-4 text-right">Valor</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#E5DFD5]">
+                        {saleRowsByStatus.sold.length === 0 ? (
+                          <tr>
+                            <td
+                              colSpan={4}
+                              className="py-6 px-4 text-center text-[#8C8275] text-xs"
+                            >
+                              Nenhuma venda realizada no PDV desta revendedora.
+                            </td>
+                          </tr>
+                        ) : (
+                          saleRowsByStatus.sold.map((row, idxSold) => (
                             <tr
-                              key={`${item.id || 'sem-id'}-${item.product || 'sem-prod'}-${idxStock}`}
+                              key={`vendida-${row.code}-${idxSold}`}
                               className="hover:bg-[#FDFBF7]"
                             >
-                              <td className="py-2.5 px-3 text-center">
-                                <button
-                                  type="button"
-                                  onClick={() => prod && hasPhoto && handleOpenLightbox(prod)}
-                                  disabled={!hasPhoto}
-                                  className={`relative group h-10 w-10 mx-auto rounded-lg bg-neutral-100 border border-[#E5DFD5] overflow-hidden flex items-center justify-center ${
-                                    hasPhoto
-                                      ? 'hover:border-[#C6A664] cursor-pointer'
-                                      : 'cursor-default'
-                                  }`}
-                                  title={hasPhoto ? 'Ampliar foto' : 'Sem foto'}
-                                >
-                                  {photo ? (
-                                    <img
-                                      src={photo}
-                                      alt={prod?.description || prod?.nome_produto || 'Joia'}
-                                      className="h-full w-full object-cover group-hover:scale-105 transition-transform"
-                                    />
-                                  ) : (
-                                    <Package className="h-4 w-4 text-[#C6A664]" />
-                                  )}
-                                </button>
-                              </td>
                               <td className="py-3 px-4 font-mono font-bold text-[#7A5C2E]">
-                                {prod?.code || '—'}
+                                {row.code || '—'}
                               </td>
                               <td className="py-3 px-4 font-semibold text-[#2D2A26]">
-                                {prod?.description || prod?.nome_produto || 'Joia'}
-                              </td>
-                              <td className="py-3 px-4 text-[#6B655E]">
-                                {prod?.expand?.type?.name || '—'} •{' '}
-                                {prod?.expand?.material?.name || '—'}
+                                {row.description || 'Joia'}
                               </td>
                               <td className="py-3 px-4 text-center">
-                                <span className="inline-block px-2.5 py-1 rounded-md font-bold bg-[#E8D5A3]/30 text-[#7A5C2E]">
-                                  {item.quantity} un
+                                <span className="inline-block px-2.5 py-1 rounded-md font-bold bg-emerald-100/70 text-[#2E7D4F]">
+                                  {row.quantity} un
                                 </span>
                               </td>
-                              <td className="py-3 px-4 text-right text-[#6B655E]">
-                                {formatCurrency(price)}
-                              </td>
                               <td className="py-3 px-4 text-right font-bold text-[#2D2A26]">
-                                {formatCurrency(subtotal)}
+                                {formatCurrency(row.total)}
                               </td>
                             </tr>
-                          )
-                        })}
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Separador sutil entre as seções */}
+                  <hr className="border-t border-[#E5DFD5] my-1" />
+
+                  {/* SEÇÃO 3 — RESERVADAS NO PDV (vendas pending = reservas em aberto) */}
+                  <div className="overflow-x-auto">
+                    <p className="px-4 pt-3 pb-2 text-[11px] uppercase font-bold tracking-wide text-amber-700">
+                      Reservadas no PDV
+                    </p>
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-amber-50/70 text-amber-700 uppercase font-semibold border-b border-[#E5DFD5]">
+                        <tr>
+                          <th className="py-3 px-4">Código</th>
+                          <th className="py-3 px-4">Joia</th>
+                          <th className="py-3 px-4 text-center">Quantidade</th>
+                          <th className="py-3 px-4 text-right">Valor</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#E5DFD5]">
+                        {saleRowsByStatus.reserved.length === 0 ? (
+                          <tr>
+                            <td
+                              colSpan={4}
+                              className="py-6 px-4 text-center text-[#8C8275] text-xs"
+                            >
+                              Nenhuma reserva em aberto no PDV desta revendedora.
+                            </td>
+                          </tr>
+                        ) : (
+                          saleRowsByStatus.reserved.map((row, idxRes) => (
+                            <tr
+                              key={`reservada-${row.code}-${idxRes}`}
+                              className="hover:bg-[#FDFBF7]"
+                            >
+                              <td className="py-3 px-4 font-mono font-bold text-[#7A5C2E]">
+                                {row.code || '—'}
+                              </td>
+                              <td className="py-3 px-4 font-semibold text-[#2D2A26]">
+                                {row.description || 'Joia'}
+                              </td>
+                              <td className="py-3 px-4 text-center">
+                                <span className="inline-block px-2.5 py-1 rounded-md font-bold bg-amber-100/70 text-amber-700">
+                                  {row.quantity} un
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-right font-bold text-[#2D2A26]">
+                                {formatCurrency(row.total)}
+                              </td>
+                            </tr>
+                          ))
+                        )}
                       </tbody>
                     </table>
                   </div>
@@ -2706,7 +2471,7 @@ export default function ResellersUnifiedPage() {
                     size="sm"
                     onClick={() => {
                       setIsStockModalOpen(false)
-                      setIsConferenceModalOpen(true)
+                      navigate('/revendedoras/conferencia?reseller=' + currentReseller.id)
                     }}
                     className="text-xs bg-[#7A5C2E] hover:bg-[#634923] text-white flex items-center gap-1.5"
                   >
@@ -2715,327 +2480,6 @@ export default function ResellersUnifiedPage() {
                   </Button>
                 </div>
               )}
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
-
-      {/* ------------------------------------------------------------------- */}
-      {/* MODAL 3: CONFERÊNCIA & DEVOLUÇÃO (Dentro da entrega em aberto) */}
-      {/* ------------------------------------------------------------------- */}
-      {currentReseller && (
-        <Dialog open={isConferenceModalOpen} onOpenChange={setIsConferenceModalOpen}>
-          <DialogContent className="max-w-5xl max-h-[88vh] overflow-y-auto p-6 bg-white border-[#E5DFD5]">
-            <DialogHeader className="pb-3 border-b border-[#E5DFD5]">
-              <DialogTitle className="font-serif text-xl font-bold text-[#2D2A26] flex items-center gap-2">
-                <RotateCcw className="h-5 w-5 text-[#7A5C2E]" />
-                Conferência & Devolução de Joias — {currentReseller.name}
-              </DialogTitle>
-              <DialogDescription className="text-xs text-[#6B655E]">
-                Informe a quantidade de peças que retornam fisicamente ao estoque geral da loja e
-                registre eventuais extravios ou pendências com justificativa.
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="space-y-4 pt-2">
-              {/* Leitor de Código de Barras (Ativo e Focado por Padrão) + Câmera do Celular */}
-              <div className="p-3 bg-[#F3EAD8]/50 rounded-xl border border-[#C6A664]/60 space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label className="text-xs font-bold text-[#7A5C2E] flex items-center gap-1.5">
-                    <Barcode className="h-4 w-4 text-[#7A5C2E]" />
-                    Modo Leitor de Código de Barras — Devolução Física
-                    <span className="text-[10px] font-normal text-[#2E7D4F] bg-emerald-100 px-1.5 py-0.5 rounded">
-                      Ativo (Auto-Foco)
-                    </span>
-                  </Label>
-                  <span className="text-[10px] text-[#6B655E]">
-                    Cada leitura = +1 devolução contada
-                  </span>
-                </div>
-
-                {/* Opção 1: Ler pela Câmera do Celular (delay 3s, bip, vibração, lanterna, pergunta duplicado) */}
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setIsReturnCameraOpen(true)}
-                  className="w-full h-9 text-xs font-semibold border-[#7A5C2E] text-[#7A5C2E] hover:bg-[#7A5C2E] hover:text-white bg-white flex items-center justify-center gap-1.5"
-                >
-                  <Camera className="h-4 w-4" />
-                  Ler pela Câmera do Celular
-                </Button>
-
-                {/* Opção 2: Leitor Físico (Enter automático, instantâneo, sem pergunta) */}
-                <div className="relative">
-                  <Barcode className="absolute left-3 top-2.5 h-4 w-4 text-[#7A5C2E]" />
-                  <Input
-                    ref={returnBarcodeInputRef}
-                    placeholder="Escaneie a peça com o leitor físico para registrar retorno (Enter automático)..."
-                    value={returnBarcodeScan}
-                    onChange={(e) => setReturnBarcodeScan(e.target.value)}
-                    onKeyDown={handleReturnBarcodeKeyDown}
-                    className="pl-9 text-xs bg-white border-[#C6A664] focus-visible:ring-[#7A5C2E] font-mono font-medium h-9"
-                  />
-                </div>
-
-                {/* Alerta Destacado (Vermelho bem visível se não pertencer à revendedora) */}
-                {returnScanAlert && (
-                  <div className="p-3 rounded-xl bg-red-600 text-white font-semibold text-xs flex items-center gap-2.5 shadow-md animate-fade-in">
-                    <AlertTriangle className="h-5 w-5 text-amber-200 shrink-0" />
-                    <div className="flex-1 leading-relaxed">
-                      <p className="font-bold uppercase tracking-wider text-[11px] text-amber-200">
-                        Atenção — Peça não autorizada
-                      </p>
-                      <p>{returnScanAlert}</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {isLoadingStock ? (
-                <div className="py-12 text-center text-xs text-[#8C8275]">
-                  Carregando estoque da revendedora...
-                </div>
-              ) : stockItems.length === 0 ? (
-                <div className="py-12 text-center text-xs text-[#8C8275] border border-[#E5DFD5] rounded-xl bg-[#FDFBF7]">
-                  <Boxes className="h-10 w-10 text-[#C6A664] mx-auto mb-2 opacity-60" />
-                  <p className="font-semibold text-sm text-[#2D2A26]">
-                    Nenhuma joia em poder desta revendedora.
-                  </p>
-                  <p className="text-xs text-[#6B655E] mt-1">O saldo em mãos dela é zero.</p>
-                </div>
-              ) : (
-                <div className="border border-[#E5DFD5] rounded-xl overflow-hidden shadow-xs">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead className="bg-[#F3EAD8]/60 text-[#7A5C2E] uppercase font-semibold border-b border-[#E5DFD5]">
-                        <tr>
-                          <th className="py-3 px-3 w-12 text-center">Foto</th>
-                          <th className="py-3 px-3">Código</th>
-                          <th className="py-3 px-3">Descrição da Joia</th>
-                          <th className="py-3 px-3 text-right">Preço Venda</th>
-                          <th className="py-3 px-3 text-center">Saldo em Mãos</th>
-                          <th className="py-3 px-3 text-center bg-emerald-50 text-emerald-800 font-bold">
-                            Qtd Devolvida (Lida)
-                          </th>
-                          <th className="py-3 px-3 text-center bg-amber-50 text-amber-800">
-                            Qtd Faltante / Pendente
-                          </th>
-                          <th className="py-3 px-3 bg-amber-50 text-amber-800">Motivo Pendência</th>
-                          <th className="py-3 px-3 bg-amber-50 text-amber-800">
-                            Obs / Justificativa
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[#E5DFD5]">
-                        {stockItems.map((it, idxConf) => {
-                          const prod = it.expand?.product
-                          const photo = prod ? getProductDisplayPhoto(prod) : null
-                          const hasPhoto = Boolean(photo)
-                          const conf = conferenceMap[it.product] || {
-                            returned_qty: 0,
-                            pending_qty: 0,
-                            pending_reason: 'extraviada',
-                            pending_notes: '',
-                          }
-
-                          return (
-                            <tr
-                              key={`${it.id || 'sem-id'}-${it.product || 'sem-prod'}-${idxConf}`}
-                              className={`hover:bg-[#FDFBF7] transition-colors ${
-                                (conf.returned_qty || 0) > 0 ? 'bg-emerald-50/30' : ''
-                              }`}
-                            >
-                              {/* Foto da Joia */}
-                              <td className="py-2.5 px-3 text-center">
-                                <button
-                                  type="button"
-                                  onClick={() => prod && hasPhoto && handleOpenLightbox(prod)}
-                                  disabled={!hasPhoto}
-                                  className={`relative group h-10 w-10 mx-auto rounded-lg bg-neutral-100 border border-[#E5DFD5] overflow-hidden flex items-center justify-center ${
-                                    hasPhoto
-                                      ? 'hover:border-[#C6A664] cursor-pointer'
-                                      : 'cursor-default'
-                                  }`}
-                                  title={hasPhoto ? 'Ampliar foto' : 'Sem foto'}
-                                >
-                                  {photo ? (
-                                    <img
-                                      src={photo}
-                                      alt={prod?.description || prod?.nome_produto || 'Joia'}
-                                      className="h-full w-full object-cover group-hover:scale-105 transition-transform"
-                                    />
-                                  ) : (
-                                    <Package className="h-4 w-4 text-[#C6A664]" />
-                                  )}
-                                </button>
-                              </td>
-
-                              <td className="py-3 px-3 font-mono font-bold text-[#7A5C2E]">
-                                {prod?.code}
-                                {prod?.variacao ? ` — ${prod.variacao}` : ''}
-                              </td>
-                              <td className="py-3 px-3 font-semibold text-[#2D2A26] max-w-[200px] truncate">
-                                {prod
-                                  ? getProductFullName(prod) ||
-                                    prod.description ||
-                                    prod.nome_produto
-                                  : 'Joia'}
-                              </td>
-                              <td className="py-3 px-3 text-right text-[#6B655E]">
-                                {formatCurrency(prod?.selling_price || it.selling_price || 0)}
-                              </td>
-                              <td className="py-3 px-3 text-center font-bold">
-                                <span className="inline-block px-2 py-0.5 rounded bg-[#E8D5A3]/40 text-[#7A5C2E]">
-                                  {it.quantity} un
-                                </span>
-                              </td>
-
-                              {/* Devolvidas fisicamente */}
-                              <td className="py-3 px-3 text-center bg-emerald-50/50">
-                                <input
-                                  type="number"
-                                  min="0"
-                                  max={it.quantity}
-                                  value={conf.returned_qty || ''}
-                                  placeholder="0"
-                                  onChange={(e) =>
-                                    handleItemChange(
-                                      it.product,
-                                      'returned_qty',
-                                      parseInt(e.target.value, 10) || 0,
-                                    )
-                                  }
-                                  className="w-16 h-8 text-center rounded-md border border-emerald-300 bg-white text-xs font-bold"
-                                  title="Contagem lida ou inserida"
-                                />
-                              </td>
-
-                              {/* Pendente / Extraviada */}
-                              <td className="py-3 px-3 text-center bg-amber-50/50">
-                                <input
-                                  type="number"
-                                  min="0"
-                                  max={it.quantity - (conf.returned_qty || 0)}
-                                  value={conf.pending_qty || ''}
-                                  placeholder="0"
-                                  onChange={(e) =>
-                                    handleItemChange(
-                                      it.product,
-                                      'pending_qty',
-                                      parseInt(e.target.value, 10) || 0,
-                                    )
-                                  }
-                                  className="w-16 h-8 text-center rounded-md border border-amber-300 bg-white text-xs font-bold"
-                                />
-                              </td>
-
-                              {/* Motivo */}
-                              <td className="py-3 px-3 bg-amber-50/50">
-                                <select
-                                  disabled={(conf.pending_qty || 0) === 0}
-                                  value={conf.pending_reason}
-                                  onChange={(e) =>
-                                    handleItemChange(it.product, 'pending_reason', e.target.value)
-                                  }
-                                  className="h-8 rounded-md border border-amber-300 bg-white text-[11px] px-2"
-                                >
-                                  <option value="extraviada">Extraviada / Perdida</option>
-                                  <option value="venda_avulsa_sem_pdv">Venda avulsa sem PDV</option>
-                                  <option value="outros">Outros motivos</option>
-                                </select>
-                              </td>
-
-                              {/* Notas */}
-                              <td className="py-3 px-3 bg-amber-50/50">
-                                <input
-                                  type="text"
-                                  disabled={(conf.pending_qty || 0) === 0}
-                                  placeholder="Detalhes..."
-                                  value={conf.pending_notes}
-                                  onChange={(e) =>
-                                    handleItemChange(it.product, 'pending_notes', e.target.value)
-                                  }
-                                  className="w-full h-8 rounded-md border border-amber-300 bg-white text-[11px] px-2"
-                                />
-                              </td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <Label className="text-xs text-[#6B655E]">Observações gerais da devolução:</Label>
-                <Input
-                  placeholder="Ex: Devolução periódica recebida no balcão da loja..."
-                  value={returnNotes}
-                  onChange={(e) => setReturnNotes(e.target.value)}
-                  className="text-xs mt-1"
-                />
-              </div>
-
-              {/* Comissão aplicada neste fechamento — somente Admin/Superadmin podem alterar */}
-              {isAdmin && (
-                <div className="p-3 rounded-xl bg-[#F3EAD8]/50 border border-[#C6A664]/60">
-                  <Label className="text-xs font-bold text-[#7A5C2E] flex items-center gap-1.5">
-                    <Percent className="h-4 w-4 text-[#7A5C2E]" />
-                    Comissão aplicada neste fechamento
-                  </Label>
-                  <p className="text-[10px] text-[#6B655E] mt-0.5 mb-2">
-                    Escolha o percentual a ser usado no cálculo deste acerto. Se não escolher, usa a
-                    comissão cadastrada da revendedora
-                    {typeof currentReseller.commission_rate === 'number'
-                      ? ` (${currentReseller.commission_rate}%)`
-                      : ''}
-                    . A escolha também atualiza a comissão cadastrada dela.
-                  </p>
-                  <div className="flex gap-2">
-                    {[30, 35, 40].map((pct) => {
-                      const active =
-                        (settlementCommission ?? currentReseller.commission_rate ?? 40) === pct
-                      return (
-                        <button
-                          key={pct}
-                          type="button"
-                          onClick={() => setSettlementCommission(pct)}
-                          className={`h-9 flex-1 rounded-lg text-xs font-bold border transition-colors ${
-                            active
-                              ? 'bg-[#7A5C2E] text-white border-[#7A5C2E] shadow-xs'
-                              : 'bg-white text-[#7A5C2E] border-[#C6A664] hover:bg-[#7A5C2E]/10'
-                          }`}
-                        >
-                          {pct}%
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-
-              <div className="flex justify-end gap-2 pt-2 border-t border-[#E5DFD5]">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setIsConferenceModalOpen(false)}
-                  className="text-xs border-[#E5DFD5]"
-                >
-                  Cancelar
-                </Button>
-                <Button
-                  onClick={handleSubmitReturn}
-                  disabled={isSubmittingReturn || stockItems.length === 0}
-                  className="bg-[#7A5C2E] hover:bg-[#634923] text-white font-medium text-xs h-9 px-6 shadow-xs flex items-center gap-2"
-                >
-                  <CheckCircle2 className="h-4 w-4" />
-                  {isSubmittingReturn
-                    ? 'Processando Devolução...'
-                    : 'Confirmar Devolução e Baixar Estoque'}
-                </Button>
-              </div>
             </div>
           </DialogContent>
         </Dialog>
