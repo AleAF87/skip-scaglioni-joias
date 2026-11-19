@@ -338,13 +338,34 @@ export default function ResellersUnifiedPage() {
   }, [resellerSales])
 
   const nonSoldStockItems = useMemo(() => {
-    return stockItems
-      .map((it) => {
-        const removedQty =
-          (soldQtyByProduct.get(it.product) || 0) + (reservedQtyByProduct.get(it.product) || 0)
-        return { item: it, remainingQty: Math.max(0, it.quantity - removedQty) }
+    // A mesma joia pode existir em mais de um lançamento de estoque. Primeiro
+    // consolida as entradas por produto e só então desconta as vendas/reservas;
+    // descontar em cada linha faria uma única venda abater todas as entradas.
+    const stockByProduct = new Map<string, ResellerStockItem[]>()
+    for (const item of stockItems) {
+      const entries = stockByProduct.get(item.product) || []
+      entries.push(item)
+      stockByProduct.set(item.product, entries)
+    }
+
+    return Array.from(stockByProduct.values()).flatMap((items) => {
+      const totalStock = items.reduce((sum, item) => sum + item.quantity, 0)
+      const productId = items[0].product
+      let remainingQty = Math.max(
+        0,
+        totalStock -
+          (soldQtyByProduct.get(productId) || 0) -
+          (reservedQtyByProduct.get(productId) || 0),
+      )
+
+      // Mantém as linhas originais quando houver preços diferentes, distribuindo
+      // o saldo sem abatê-lo repetidamente em cada uma delas.
+      return items.flatMap((item) => {
+        const quantity = Math.min(item.quantity, remainingQty)
+        remainingQty -= quantity
+        return quantity > 0 ? [{ item, remainingQty: quantity }] : []
       })
-      .filter((r) => r.remainingQty > 0)
+    })
   }, [stockItems, soldQtyByProduct, reservedQtyByProduct])
 
   const saleRowsByStatus = useMemo(() => {
