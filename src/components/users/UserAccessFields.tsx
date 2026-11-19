@@ -2,6 +2,7 @@ import React from 'react'
 import { UserRole, UserStatus } from '@/types'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
+import { PasswordEye } from '@/components/pos/PasswordEye'
 import { Mail, Lock } from 'lucide-react'
 
 interface UserAccessFieldsProps {
@@ -134,17 +135,16 @@ export function UserAccessFields({
         >
           <Lock className="h-3 w-3 text-[#6B655E]" /> Redefinir Senha (opcional)
         </Label>
-        <Input
+        <PasswordEye
           id="edit-user-password"
-          type="password"
           value={newPassword}
-          onChange={(e) => {
-            setNewPassword(e.target.value)
+          onChange={(v) => {
+            setNewPassword(v)
             clearError('newPassword')
           }}
           placeholder="Deixe em branco para manter a senha atual"
-          className={`mt-1 bg-white ${errors.newPassword ? 'border-red-500 focus-visible:ring-red-500' : 'border-[#E5DFD5]'}`}
           autoComplete="new-password"
+          className={`mt-1 ${errors.newPassword ? '[&_input]:border-red-500 [&_input]:focus-visible:ring-red-500' : '[&_input]:border-[#E5DFD5]'}`}
         />
         {errors.newPassword ? (
           <p className="text-xs text-red-600 mt-1">{errors.newPassword}</p>
@@ -163,17 +163,16 @@ export function UserAccessFields({
           >
             <Lock className="h-3 w-3 text-[#6B655E]" /> Senha Atual do Usuário (opcional)
           </Label>
-          <Input
+          <PasswordEye
             id="edit-user-current-password"
-            type="password"
             value={currentPassword ?? ''}
-            onChange={(e) => {
-              setCurrentPassword(e.target.value)
+            onChange={(v) => {
+              setCurrentPassword(v)
               clearError('currentPassword')
             }}
             placeholder="Informe a senha atual deste usuário"
-            className={`mt-1 bg-white ${errors.currentPassword ? 'border-red-500 focus-visible:ring-red-500' : 'border-[#E5DFD5]'}`}
             autoComplete="current-password"
+            className={`mt-1 ${errors.currentPassword ? '[&_input]:border-red-500 [&_input]:focus-visible:ring-red-500' : '[&_input]:border-[#E5DFD5]'}`}
           />
           {errors.currentPassword && (
             <p className="text-xs text-red-600 mt-1">{errors.currentPassword}</p>

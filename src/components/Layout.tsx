@@ -380,7 +380,6 @@ export default function Layout() {
           isRestricted: true,
         },
         { to: '/instalar', label: 'Instalar o App (PWA)', icon: Download, badgeText: 'App' },
-        { to: '/perfil', label: 'Meu Perfil', icon: User },
       ]
     : [
         ...(canManageInternal ? [{ to: '/', label: 'Painel Geral', icon: LayoutDashboard }] : []),
@@ -452,7 +451,6 @@ export default function Layout() {
           : []),
         ...(isAdmin ? [{ to: '/usuarios', label: 'Gestão de Usuários', icon: UserCheck }] : []),
         { to: '/instalar', label: 'Instalar o App (PWA)', icon: Download, badgeText: 'App' },
-        { to: '/perfil', label: 'Meu Perfil', icon: User },
       ]
 
   // Mobile Bottom bar items (focused on mobile-first navigation)
@@ -558,49 +556,6 @@ export default function Layout() {
                   className="h-11 w-auto max-w-[200px] object-contain mx-auto"
                 />
               </NavLink>
-            )}
-          </div>
-
-          {/* User Card info in sidebar */}
-          <div
-            className={cn(
-              'my-3 rounded-xl bg-[#FDFBF7] border border-[#E5DFD5]/80 flex items-center transition-all',
-              sidebarCollapsed ? 'mx-2 p-2 justify-center' : 'mx-4 px-4 py-2.5 gap-3',
-            )}
-          >
-            {sidebarCollapsed ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="h-9 w-9 rounded-full bg-[#C6A664]/25 border border-[#C6A664]/50 flex items-center justify-center text-[#7A5C2E] font-bold text-sm cursor-default">
-                    {user.name.charAt(0).toUpperCase()}
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="right">
-                  <p className="font-semibold">{user.name}</p>
-                  <p className="text-xs text-[#6B655E] capitalize">{user.role}</p>
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <>
-                <div className="h-9 w-9 rounded-full bg-[#C6A664]/20 border border-[#C6A664]/40 flex items-center justify-center text-[#7A5C2E] font-semibold text-sm shrink-0">
-                  {user.name.charAt(0).toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold truncate text-[#2D2A26]">{user.name}</p>
-                  <div className="flex items-center gap-1.5">
-                    <span className="inline-block h-2 w-2 rounded-full bg-[#2E7D4F]" />
-                    <span className="text-xs text-[#6B655E] font-medium">
-                      {user.role === 'superadmin'
-                        ? 'Super Administrador'
-                        : user.role === 'admin'
-                          ? 'Administrador'
-                          : user.role === 'operator'
-                            ? 'Operador'
-                            : 'Revendedor'}
-                    </span>
-                  </div>
-                </div>
-              </>
             )}
           </div>
 
@@ -823,6 +778,55 @@ export default function Layout() {
                 </NavLink>
               )
             })}
+
+            {/* Botão 'Meu Perfil' no FINAL da lista do menu (antigo bloco do rodapé) */}
+            <div className="pt-1 mt-1 border-t border-[#E5DFD5]">
+              {sidebarCollapsed ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => navigate('/perfil')}
+                      className="w-full flex items-center justify-center h-10 rounded-xl text-[#7A5C2E] hover:bg-[#F3EAD8]/70 transition-colors"
+                    >
+                      <User className="h-5 w-5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">
+                    <p className="font-semibold">{user.name}</p>
+                    <p className="text-xs text-[#6B655E] capitalize">{user.role}</p>
+                  </TooltipContent>
+                </Tooltip>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => navigate('/perfil')}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-[#2D2A26] hover:bg-[#F3EAD8]/60 hover:text-[#2D2A26] transition-colors"
+                >
+                  <div className="h-9 w-9 rounded-full bg-[#C6A664]/20 border border-[#C6A664]/40 flex items-center justify-center text-[#7A5C2E] font-semibold text-sm shrink-0">
+                    {user.name.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0 text-left">
+                    <p className="text-sm font-semibold truncate text-[#2D2A26]">{user.name}</p>
+                    <div className="flex items-center gap-1.5">
+                      <span className="inline-block h-2 w-2 rounded-full bg-[#2E7D4F]" />
+                      <span className="text-xs text-[#6B655E] font-medium">
+                        {user.role === 'superadmin'
+                          ? 'Super Administrador'
+                          : user.role === 'admin'
+                            ? 'Administrador'
+                            : user.role === 'operator'
+                              ? 'Operador'
+                              : 'Revendedor'}
+                      </span>
+                    </div>
+                  </div>
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-[#7A5C2E] shrink-0">
+                    Meu Perfil
+                  </span>
+                </button>
+              )}
+            </div>
           </nav>
 
           {/* Sidebar Footer */}

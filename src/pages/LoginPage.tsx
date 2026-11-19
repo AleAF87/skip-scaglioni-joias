@@ -4,7 +4,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Lock, Mail, ArrowRight, AlertCircle, Smartphone } from 'lucide-react'
+import { Lock, Mail, ArrowRight, AlertCircle, Smartphone, Eye, EyeOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { APP_VERSION } from '@/version'
 import { LOGO_FULL_URL } from '@/constants/branding'
@@ -20,6 +20,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [showPassword, setShowPassword] = useState(false)
 
   const { login } = useAuth()
   const navigate = useNavigate()
@@ -129,13 +130,22 @@ export default function LoginPage() {
                   <div className="relative mt-1">
                     <Lock className="absolute left-3 top-2.5 h-4 w-4 text-[#8C8275]" />
                     <Input
-                      type="password"
+                      type={showPassword ? 'text' : 'password'}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       required
                       placeholder="••••••••"
-                      className="pl-9 border-[#3A3A3E] bg-[#1D1D20]/80 text-[#F5EFE3] placeholder:text-[#6B655E] focus-visible:ring-[#C6A664] focus-visible:border-[#C6A664]"
+                      className="pl-9 pr-10 border-[#3A3A3E] bg-[#1D1D20]/80 text-[#F5EFE3] placeholder:text-[#6B655E] focus-visible:ring-[#C6A664] focus-visible:border-[#C6A664]"
                     />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((v) => !v)}
+                      aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                      title={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-[#8C8275] hover:text-[#C6A664] focus:outline-none focus:ring-1 focus:ring-[#C6A664]"
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
                   </div>
                 </div>
 

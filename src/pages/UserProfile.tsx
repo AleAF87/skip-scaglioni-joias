@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { User, Lock, Mail, CheckCircle2, Shield, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
+import { PasswordEye } from '@/components/pos/PasswordEye'
 
 export default function UserProfile() {
   const { user, refreshUser } = useAuth()
@@ -353,10 +354,9 @@ export default function UserProfile() {
               <form onSubmit={handleChangePassword} className="space-y-4">
                 <div>
                   <Label className="text-xs font-semibold">Senha Atual</Label>
-                  <Input
-                    type="password"
+                  <PasswordEye
                     value={oldPassword}
-                    onChange={(e) => setOldPassword(e.target.value)}
+                    onChange={setOldPassword}
                     required
                     className="mt-1"
                   />
@@ -365,24 +365,20 @@ export default function UserProfile() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <Label className="text-xs font-semibold">Nova Senha (mín. 8 caracteres)</Label>
-                    <Input
-                      type="password"
+                    <PasswordEye
                       value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
+                      onChange={setNewPassword}
                       required
-                      minLength={8}
                       className="mt-1"
                     />
                   </div>
 
                   <div>
                     <Label className="text-xs font-semibold">Confirmação da Nova Senha</Label>
-                    <Input
-                      type="password"
+                    <PasswordEye
                       value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      onChange={setConfirmPassword}
                       required
-                      minLength={8}
                       className="mt-1"
                     />
                   </div>

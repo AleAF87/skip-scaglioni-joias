@@ -338,7 +338,9 @@ export default function ResellerPosSale() {
   // Calculations
   const subtotal = cart.reduce((acc, c) => acc + c.quantity * c.unit_price, 0)
   const total = Math.max(0, round2(subtotal - (discount || 0)))
-  const commissionRate = currentReseller?.commission_rate || 40 // default 40%
+  // O lucro da revendedora no PDV é calculado SEMPRE com 30% (decisão de produto),
+  // independentemente da comissão cadastrada (30/35/40% escolhida no fechamento).
+  const commissionRate = 30
   const resellerProfit = round2((total * commissionRate) / 100)
   const scaglioniDue = round2(total - resellerProfit)
 
@@ -1128,9 +1130,7 @@ export default function ResellerPosSale() {
                 {/* Reseller Profit & Scaglioni breakdown */}
                 <div className="pt-2 border-t border-dashed border-[#C6A664]/60 grid grid-cols-2 gap-2 text-[11px]">
                   <div className="bg-emerald-50 border border-emerald-200 p-2 rounded-lg">
-                    <span className="text-emerald-800 font-medium block">
-                      Seu Lucro ({commissionRate}%):
-                    </span>
+                    <span className="text-emerald-800 font-medium block">Seu Lucro (30%):</span>
                     <strong className="text-emerald-900 font-bold text-sm block">
                       {formatCurrency(resellerProfit)}
                     </strong>
