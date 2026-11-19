@@ -20,7 +20,7 @@ import {
 import { resellerService } from '@/services/resellerService'
 import { resellerStockService } from '@/services/resellerStockService'
 import { productService } from '@/services/productService'
-import { Reseller, ResellerStockItem, ResellerSale, Product } from '@/types'
+import { Reseller, ResellerStockItem, ResellerSale, ResellerDelivery, Product } from '@/types'
 import { formatCurrency, getProductDisplayPhoto } from '@/lib/formatters'
 import { getProductFullName } from '@/types/labelContent'
 import { getBackendErrorMessage } from '@/lib/backendErrors'
@@ -81,6 +81,7 @@ export default function ResellerConferencePage() {
   const [reseller, setReseller] = useState<Reseller | null>(null)
   const [stockItems, setStockItems] = useState<ResellerStockItem[]>([])
   const [sales, setSales] = useState<ResellerSale[]>([])
+  const [deliveries, setDeliveries] = useState<ResellerDelivery[]>([])
   const [salesProducts, setSalesProducts] = useState<Record<string, Product>>({})
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -120,12 +121,16 @@ export default function ResellerConferencePage() {
       resellerService.getResellerById(resellerId),
       resellerStockService.getAllResellerStockItems(resellerId),
       resellerStockService.getResellerSales({ resellerId }),
+      // A origem "entregue" é apenas informativa para o rótulo "X de Y".
+      // Falhar aqui não pode esconder a posse atual nem derrubar a conferência.
+      resellerStockService.getDeliveries({ resellerId }).catch(() => [] as ResellerDelivery[]),
     ])
-      .then(async ([r, stock, salesList]) => {
+      .then(async ([r, stock, salesList, deliveryList]) => {
         if (cancelled) return
         setReseller(r)
         setStockItems(stock)
         setSales(salesList)
+        setDeliveries(deliveryList)
         const productIds = Array.from(
           new Set(
             salesList
@@ -180,7 +185,7 @@ export default function ResellerConferencePage() {
   }
 
   const registerOne = (productId: string, label: string) => {
-    const it = stockRef.current.find((s) => s.product === productId)
+    const it = stockRef.current.find((s) => s.product === productId && s.quantity > 0)
     const conf = conferenceRef.current[productId] || emptyEntry()
     const availableQty = (it?.quantity || 0) - (conf.returned_qty || 0) - (conf.pending_qty || 0)
     if (!it || availableQty <= 0) {
@@ -195,13 +200,16 @@ export default function ResellerConferencePage() {
     const digits = digitsOf(raw)
     if (!digits) return
     const found = stockRef.current.find((it) => {
+      if (it.quantity <= 0) return false
       const p = it.expand?.product
       if (!p) return false
       return digitsOf(p.code) === digits
     })
     if (!found) {
-      const p = stockRef.current.find((it) =>
-        getProductFullName(it.expand?.product!)?.toLowerCase().includes(raw.toLowerCase()),
+      const p = stockRef.current.find(
+        (it) =>
+          it.quantity > 0 &&
+          getProductFullName(it.expand?.product!)?.toLowerCase().includes(raw.toLowerCase()),
       )
       if (p) {
         registerOne(
@@ -261,7 +269,7 @@ export default function ResellerConferencePage() {
   const searchResults = useMemo(() => {
     const q = searchText.trim().toLowerCase()
     if (!q) return []
-    return stockItems
+    return possessionItems
       .filter((it) => {
         const p = it.expand?.product
         if (!p) return false
@@ -271,7 +279,7 @@ export default function ResellerConferencePage() {
         return hay.includes(q) || digitsOf(p.code).includes(digitsOf(q))
       })
       .slice(0, 8)
-  }, [searchText, stockItems])
+  }, [searchText, possessionItems])
 
   const soldItems = useMemo(() => {
     const map = new Map<
@@ -321,10 +329,36 @@ export default function ResellerConferencePage() {
     return Array.from(map.entries()).map(([product_id, v]) => ({ product_id, ...v }))
   }, [sales])
 
-  const returningItems = stockItems.filter(
+  // Os totais continuam usando stockItems completo. Esta lista é exclusivamente
+  // a posse atual que ainda pode ser devolvida ou justificada na conferência.
+  const possessionItems = useMemo(
+    () => stockItems.filter((item) => item.quantity > 0),
+    [stockItems],
+  )
+
+  // Soma o que foi originalmente entregue (somente entregas aceitas), sem
+  // inventar uma quantidade quando a origem não estiver disponível.
+  const deliveredQtyByProduct = useMemo(() => {
+    const quantities = new Map<string, number>()
+    deliveries
+      .filter((delivery) => delivery.status === 'accepted')
+      .forEach((delivery) =>
+        (delivery.items || []).forEach((item) => {
+          quantities.set(
+            item.product_id,
+            (quantities.get(item.product_id) || 0) + (item.quantity || 0),
+          )
+        }),
+      )
+    return quantities
+  }, [deliveries])
+
+  const returningItems = possessionItems.filter(
     (it) => (conferenceMap[it.product]?.returned_qty || 0) > 0,
   )
-  const issueItems = stockItems.filter((it) => (conferenceMap[it.product]?.pending_qty || 0) > 0)
+  const issueItems = possessionItems.filter(
+    (it) => (conferenceMap[it.product]?.pending_qty || 0) > 0,
+  )
   const remainingOf = (it: ResellerStockItem) =>
     Math.max(
       0,
@@ -407,7 +441,7 @@ export default function ResellerConferencePage() {
 
   const doSave = async () => {
     if (!reseller) return
-    const unclassifiedQty = stockItems.reduce((total, item) => total + remainingOf(item), 0)
+    const unclassifiedQty = possessionItems.reduce((total, item) => total + remainingOf(item), 0)
     if (unclassifiedQty > 0) {
       toast.error(
         `Há ${unclassifiedQty} peça(s) em posse sem destinação — marque a devolução ou justifique o extravio.`,
@@ -600,7 +634,7 @@ export default function ResellerConferencePage() {
             <div className="py-12 text-center text-xs text-[#8C8275] border border-[#E5DFD5] rounded-xl bg-[#FDFBF7]">
               <Boxes className="h-10 w-10 text-[#C6A664] mx-auto mb-2 opacity-60" />
               <p className="font-semibold text-sm text-[#2D2A26]">
-                Nenhuma joia em poder desta revendedora.
+                Nenhuma peça em posse — todas vendidas ou devolvidas.
               </p>
             </div>
           ) : (
@@ -622,9 +656,16 @@ export default function ResellerConferencePage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#E5DFD5]">
-                        {stockItems.map((it, idx) => {
+                        {possessionItems.length === 0 ? (
+                          <tr>
+                            <td colSpan={5} className="p-6 text-center text-xs text-[#8C8275]">
+                              Nenhuma peça em posse — todas vendidas ou devolvidas.
+                            </td>
+                          </tr>
+                        ) : possessionItems.map((it, idx) => {
                           const p = it.expand?.product
                           const photo = p ? getProductDisplayPhoto(p) : null
+                          const deliveredQty = deliveredQtyByProduct.get(it.product)
                           const remaining = remainingOf(it)
                           const pending = remaining > 0
                           return (
@@ -662,7 +703,11 @@ export default function ResellerConferencePage() {
                                     'Joia'}
                                 </p>
                               </td>
-                              <td className="p-2 text-center font-bold">{it.quantity}</td>
+                              <td className="p-2 text-center font-bold">
+                                {deliveredQty && deliveredQty > it.quantity
+                                  ? `${it.quantity} de ${deliveredQty}`
+                                  : it.quantity}
+                              </td>
                               <td
                                 className={`p-2 text-center font-bold ${pending ? 'text-amber-800' : 'text-emerald-700'}`}
                               >
