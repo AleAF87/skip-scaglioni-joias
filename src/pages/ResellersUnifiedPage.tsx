@@ -82,7 +82,7 @@ import { compressSignatureDataUrl } from '@/lib/signatureCompression'
 import { toast } from 'sonner'
 
 export default function ResellersUnifiedPage() {
-  const { user, isAdmin, isOperator, isReseller } = useAuth()
+  const { user, isSuperAdmin, isAdmin, isOperator, isReseller } = useAuth()
   const canManage = isAdmin || isOperator
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -1259,17 +1259,19 @@ export default function ResellersUnifiedPage() {
               Financeiro
             </button>
 
-            <button
-              onClick={() => setProfileTab('returns')}
-              className={`h-9 px-3.5 rounded-full border text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap transition-colors ${
-                profileTab === 'returns'
-                  ? 'bg-[#7A5C2E] border-[#7A5C2E] text-white shadow-xs'
-                  : 'bg-white border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8]'
-              }`}
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              Devolução &amp; Pendências
-            </button>
+            {isSuperAdmin && (
+              <button
+                onClick={() => setProfileTab('returns')}
+                className={`h-9 px-3.5 rounded-full border text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap transition-colors ${
+                  profileTab === 'returns'
+                    ? 'bg-[#B3261E] border-[#B3261E] text-white shadow-xs'
+                    : 'bg-white border-[#D65B55] text-[#B3261E] hover:bg-red-50'
+                }`}
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                Devolução &amp; Pendências
+              </button>
+            )}
 
             {/* Ações rápidas do perfil, à direita das abas */}
             <div className="ml-auto flex items-center gap-2 flex-wrap">
