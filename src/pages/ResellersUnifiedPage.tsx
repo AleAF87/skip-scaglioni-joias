@@ -498,26 +498,6 @@ export default function ResellersUnifiedPage() {
     try {
       const items = await resellerStockService.getResellerStock(resellerId)
       setStockItems(items)
-
-      // Inicializa o mapa de devolução
-      const initialMap: Record<
-        string,
-        {
-          returned_qty: number
-          pending_qty: number
-          pending_reason: 'extraviada' | 'venda_avulsa_sem_pdv' | 'outros'
-          pending_notes: string
-        }
-      > = {}
-      items.forEach((it) => {
-        initialMap[it.product] = {
-          returned_qty: 0,
-          pending_qty: 0,
-          pending_reason: 'extraviada',
-          pending_notes: '',
-        }
-      })
-      setConferenceMap(initialMap)
     } catch (err) {
       console.error('Erro ao carregar estoque:', err)
     } finally {
