@@ -265,6 +265,30 @@ export default function ResellerConferencePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Os totais continuam usando stockItems completo. Esta lista é exclusivamente
+  // a posse atual que ainda pode ser devolvida ou justificada na conferência.
+  const possessionItems = useMemo(
+    () => stockItems.filter((item) => item.quantity > 0),
+    [stockItems],
+  )
+
+  // Soma o que foi originalmente entregue (somente entregas aceitas), sem
+  // inventar uma quantidade quando a origem não estiver disponível.
+  const deliveredQtyByProduct = useMemo(() => {
+    const quantities = new Map<string, number>()
+    deliveries
+      .filter((delivery) => delivery.status === 'accepted')
+      .forEach((delivery) =>
+        (delivery.items || []).forEach((item) => {
+          quantities.set(
+            item.product_id,
+            (quantities.get(item.product_id) || 0) + (item.quantity || 0),
+          )
+        }),
+      )
+    return quantities
+  }, [deliveries])
+
   // Dropdown ao vivo da busca (mesmo padrão de customerSearch: filtro tolerante)
   const searchResults = useMemo(() => {
     const q = searchText.trim().toLowerCase()
@@ -328,30 +352,6 @@ export default function ResellerConferencePage() {
       )
     return Array.from(map.entries()).map(([product_id, v]) => ({ product_id, ...v }))
   }, [sales])
-
-  // Os totais continuam usando stockItems completo. Esta lista é exclusivamente
-  // a posse atual que ainda pode ser devolvida ou justificada na conferência.
-  const possessionItems = useMemo(
-    () => stockItems.filter((item) => item.quantity > 0),
-    [stockItems],
-  )
-
-  // Soma o que foi originalmente entregue (somente entregas aceitas), sem
-  // inventar uma quantidade quando a origem não estiver disponível.
-  const deliveredQtyByProduct = useMemo(() => {
-    const quantities = new Map<string, number>()
-    deliveries
-      .filter((delivery) => delivery.status === 'accepted')
-      .forEach((delivery) =>
-        (delivery.items || []).forEach((item) => {
-          quantities.set(
-            item.product_id,
-            (quantities.get(item.product_id) || 0) + (item.quantity || 0),
-          )
-        }),
-      )
-    return quantities
-  }, [deliveries])
 
   const returningItems = possessionItems.filter(
     (it) => (conferenceMap[it.product]?.returned_qty || 0) > 0,
