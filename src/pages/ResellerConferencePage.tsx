@@ -15,10 +15,12 @@ import {
   TrendingUp,
   Minus,
   Plus,
+  RefreshCw,
 } from 'lucide-react'
 import { resellerService } from '@/services/resellerService'
 import { resellerStockService } from '@/services/resellerStockService'
-import { Reseller, ResellerStockItem, ResellerSale, ResellerReturnItem } from '@/types'
+import { productService } from '@/services/productService'
+import { Reseller, ResellerStockItem, ResellerSale, Product } from '@/types'
 import { formatCurrency, getProductDisplayPhoto } from '@/lib/formatters'
 import { getProductFullName } from '@/types/labelContent'
 import { getBackendErrorMessage } from '@/lib/backendErrors'
@@ -76,8 +78,10 @@ export default function ResellerConferencePage() {
   const [reseller, setReseller] = useState<Reseller | null>(null)
   const [stockItems, setStockItems] = useState<ResellerStockItem[]>([])
   const [sales, setSales] = useState<ResellerSale[]>([])
-  const [pastReturnItems, setPastReturnItems] = useState<ResellerReturnItem[]>([])
+  const [salesProducts, setSalesProducts] = useState<Record<string, Product>>({})
   const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [loadAttempt, setLoadAttempt] = useState(0)
 
   const [conferenceMap, setConferenceMap] = useState<Record<string, ConferenceEntry>>({})
   const [searchText, setSearchText] = useState('')
@@ -112,26 +116,21 @@ export default function ResellerConferencePage() {
       resellerService.getResellerById(resellerId),
       resellerStockService.getAllResellerStockItems(resellerId),
       resellerStockService.getResellerSales({ resellerId }),
-      resellerStockService.getReturns({ resellerId }),
     ])
-      .then(([r, stock, salesList, returnsList]) => {
+      .then(async ([r, stock, salesList]) => {
         if (cancelled) return
         setReseller(r)
         setStockItems(stock)
         setSales(salesList)
-        const agg: Record<string, ResellerReturnItem> = {}
-        returnsList.forEach((ret) => {
-          ;(ret.items || []).forEach((it) => {
-            if (!it.returned_qty) return
-            const cur = agg[it.product_id]
-            if (cur) cur.returned_qty += it.returned_qty
-            else agg[it.product_id] = { ...it }
-          })
-        })
-        setPastReturnItems(Object.values(agg))
+        const productIds = Array.from(new Set(salesList.flatMap((sale) => (sale.items || []).map((item) => item.product_id)).filter(Boolean)))
+        const products = await Promise.all(productIds.map((id) => productService.getProductById(id).catch(() => null)))
+        if (cancelled) return
+        setSalesProducts(Object.fromEntries(products.filter((product): product is Product => Boolean(product)).map((product) => [product.id, product])))
+        setLoadError(null)
       })
       .catch((err) => {
         console.error('Erro ao carregar conferência:', err)
+        if (!cancelled) setLoadError('Não foi possível carregar os dados da conferência. Verifique a sessão e as permissões de acesso antes de considerar a lista vazia.')
         toast.error('Erro ao carregar dados da conferência.')
       })
       .finally(() => {
@@ -140,7 +139,7 @@ export default function ResellerConferencePage() {
     return () => {
       cancelled = true
     }
-  }, [resellerId])
+  }, [resellerId, loadAttempt])
 
   const handleItemChange = useCallbackLike(
     (productId: string, field: keyof ConferenceEntry, value: any) => {
@@ -162,8 +161,9 @@ export default function ResellerConferencePage() {
   const registerOne = (productId: string, label: string) => {
     const it = stockRef.current.find((s) => s.product === productId)
     const conf = conferenceRef.current[productId] || emptyEntry()
-    if (it && (conf.returned_qty || 0) >= it.quantity) {
-      flashScan('notfound', `${label}: todo o saldo (${it.quantity} un) já está contado.`)
+    const availableQty = (it?.quantity || 0) - (conf.returned_qty || 0) - (conf.pending_qty || 0)
+    if (!it || availableQty <= 0) {
+      flashScan('notfound', `${label}: não há saldo disponível para devolução.`)
       return
     }
     handleItemChange(productId, 'returned_qty', (conf.returned_qty || 0) + 1)
@@ -300,10 +300,15 @@ export default function ResellerConferencePage() {
     return Array.from(map.entries()).map(([product_id, v]) => ({ product_id, ...v }))
   }, [sales])
 
-  const returningItems = stockItems.filter(
-    (it) => (conferenceMap[it.product]?.returned_qty || 0) > 0,
-  )
+  const returningItems = stockItems.filter((it) => (conferenceMap[it.product]?.returned_qty || 0) > 0)
   const issueItems = stockItems.filter((it) => (conferenceMap[it.product]?.pending_qty || 0) > 0)
+  const remainingOf = (it: ResellerStockItem) => Math.max(0, it.quantity - (conferenceMap[it.product]?.returned_qty || 0) - (conferenceMap[it.product]?.pending_qty || 0))
+  const soldSaleRows = useMemo(
+    () => sales.filter((sale) => sale.status !== 'pending' && sale.status !== 'cancelled').flatMap((sale) =>
+      (sale.items || []).map((item) => ({ ...item, saleCode: sale.code || '—', saleCreated: sale.created, product: salesProducts[item.product_id] })),
+    ),
+    [sales, salesProducts],
+  )
 
   const priceOf = (it: ResellerStockItem) =>
     it.selling_price || it.expand?.product?.selling_price || 0
@@ -347,6 +352,17 @@ export default function ResellerConferencePage() {
 
   const doSave = async () => {
     if (!reseller) return
+    const unclassifiedQty = stockItems.reduce((total, item) => total + remainingOf(item), 0)
+    if (unclassifiedQty > 0) {
+      toast.error(`Há ${unclassifiedQty} peça(s) em posse sem destinação — marque a devolução ou justifique o extravio.`)
+      setConfirmAction(null)
+      return
+    }
+    if (issueItems.some((item) => !(conferenceMap[item.product]?.pending_notes || '').trim())) {
+      toast.error('Informe a observação obrigatória para cada peça marcada como extraviada.')
+      setConfirmAction(null)
+      return
+    }
     const items = buildItemsPayload()
     if (items.length === 0) {
       toast.error('Nenhuma peça marcada para devolução ou extravio.')
@@ -435,6 +451,12 @@ export default function ResellerConferencePage() {
         <div className="py-16 text-center text-xs text-[#8C8275]">Carregando conferência...</div>
       ) : (
         <>
+          {loadError && (
+            <div className="p-4 rounded-xl border border-red-300 bg-red-50 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+              <div className="text-xs text-red-800"><strong>Falha ao carregar a conferência.</strong><br />{loadError}</div>
+              <Button type="button" size="sm" variant="outline" onClick={() => setLoadAttempt((attempt) => attempt + 1)} className="border-red-300 text-red-700"><RefreshCw className="h-3.5 w-3.5 mr-1" />Tentar novamente</Button>
+            </div>
+          )}
           {/* Busca com dropdown ao vivo + leitor */}
           <div className="p-3 bg-[#F3EAD8]/50 rounded-xl border border-[#C6A664]/60 space-y-3">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -513,173 +535,19 @@ export default function ResellerConferencePage() {
             </div>
           ) : (
             <>
-              {/* Duas colunas: devolvendo agora | já devolvido */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div className="border border-emerald-200 rounded-xl overflow-hidden bg-white">
-                  <div className="px-3 py-2 bg-emerald-50 border-b border-emerald-200 text-xs font-bold text-emerald-800 flex items-center justify-between">
-                    <span>Sendo devolvido agora</span>
-                    <span>{totalReturningQty} peça(s)</span>
-                  </div>
-                  {returningItems.length === 0 ? (
-                    <p className="p-6 text-center text-xs text-[#8C8275]">
-                      Escaneie ou busque peças para começar a devolução.
-                    </p>
-                  ) : (
-                    <div className="divide-y divide-[#E5DFD5] max-h-72 overflow-y-auto">
-                      {returningItems.map((it, idx) => {
-                        const p = it.expand?.product
-                        const conf = conferenceMap[it.product]
-                        const photo = p ? getProductDisplayPhoto(p) : null
-                        return (
-                          <div
-                            key={`${it.id || 'sem-id'}-${p?.code || it.product || 'sem-cod'}-${idx}`}
-                            className="flex items-center gap-2 px-3 py-2 text-xs"
-                          >
-                            {photo ? (
-                              <img
-                                src={photo}
-                                alt={p?.description || 'Joia'}
-                                className="h-9 w-9 rounded-lg object-cover border border-[#E5DFD5]"
-                              />
-                            ) : (
-                              <div className="h-9 w-9 rounded-lg bg-neutral-100 border border-[#E5DFD5] flex items-center justify-center">
-                                <Package className="h-4 w-4 text-[#C6A664]" />
-                              </div>
-                            )}
-                            <div className="min-w-0 flex-1">
-                              <p className="font-mono font-bold text-[#7A5C2E]">
-                                {p?.code}
-                                {p?.variacao ? ` — ${p.variacao}` : ''}
-                              </p>
-                              <p className="truncate text-[#2D2A26]">
-                                {getProductFullName(p!) || p?.description || p?.nome_produto}
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-1 shrink-0">
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                className="h-7 w-7 p-0"
-                                onClick={() =>
-                                  handleItemChange(
-                                    it.product,
-                                    'returned_qty',
-                                    Math.max(0, (conf.returned_qty || 0) - 1),
-                                  )
-                                }
-                              >
-                                <Minus className="h-3 w-3" />
-                              </Button>
-                              <span className="font-bold w-8 text-center">{conf.returned_qty}</span>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                className="h-7 w-7 p-0"
-                                onClick={() =>
-                                  handleItemChange(
-                                    it.product,
-                                    'returned_qty',
-                                    Math.min(it.quantity, (conf.returned_qty || 0) + 1),
-                                  )
-                                }
-                              >
-                                <Plus className="h-3 w-3" />
-                              </Button>
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-
                 <div className="border border-[#E5DFD5] rounded-xl overflow-hidden bg-white">
-                  <div className="px-3 py-2 bg-[#F3EAD8]/60 border-b border-[#E5DFD5] text-xs font-bold text-[#7A5C2E] flex items-center justify-between">
-                    <span>Já devolvido (devoluções anteriores)</span>
-                    <span>
-                      {pastReturnItems.reduce((acc, it) => acc + (it.returned_qty || 0), 0)} peça(s)
-                    </span>
+                  <div className="px-3 py-2 bg-[#F3EAD8]/60 border-b border-[#E5DFD5] text-xs font-bold text-[#7A5C2E]">Peças em posse</div>
+                  <div className="overflow-x-auto max-h-80 overflow-y-auto">
+                    <table className="w-full text-xs text-left">
+                      <thead className="sticky top-0 bg-[#FDFBF7] text-[#7A5C2E]"><tr><th className="p-2">Foto</th><th className="p-2">Código / Joia</th><th className="p-2 text-center">Posse</th><th className="p-2 text-center">Restante</th><th className="p-2"></th></tr></thead>
+                      <tbody className="divide-y divide-[#E5DFD5]">{stockItems.map((it, idx) => { const p=it.expand?.product; const photo=p?getProductDisplayPhoto(p):null; const remaining=remainingOf(it); const pending=remaining>0; return <tr key={`${it.id || it.product}-${idx}`} className={pending ? 'bg-amber-50/70' : ''}><td className="p-2">{photo ? <img src={photo} alt={getProductFullName(p) || 'Joia'} className="h-9 w-9 rounded-lg object-cover border border-[#E5DFD5]" /> : <div className="h-9 w-9 rounded-lg bg-neutral-100 flex items-center justify-center"><Package className="h-4 w-4 text-[#C6A664]" /></div>}</td><td className="p-2"><p className="font-mono font-bold text-[#7A5C2E]">{p?.code || '—'}</p><p className="text-[#2D2A26]">{getProductFullName(p!) || p?.description || p?.nome_produto || 'Joia'}</p></td><td className="p-2 text-center font-bold">{it.quantity}</td><td className={`p-2 text-center font-bold ${pending ? 'text-amber-800' : 'text-emerald-700'}`}>{remaining}</td><td className="p-2 text-right space-y-1"><Button type="button" size="sm" disabled={remaining === 0} onClick={() => registerOne(it.product, p?.code || 'Joia')} className="h-7 text-[11px] bg-[#7A5C2E] hover:bg-[#634923]">+1 →</Button>{remaining > 0 && <Button type="button" size="sm" variant="outline" onClick={() => { handleItemChange(it.product, 'pending_qty', remaining); handleItemChange(it.product, 'pending_reason', 'extraviada') }} className="h-7 text-[10px] border-amber-300 text-amber-800 block ml-auto">Extraviar</Button>}</td></tr>})}</tbody>
+                    </table>
                   </div>
-                  {pastReturnItems.length === 0 ? (
-                    <p className="p-6 text-center text-xs text-[#8C8275]">
-                      Nenhuma devolução anterior registrada.
-                    </p>
-                  ) : (
-                    <div className="divide-y divide-[#E5DFD5] max-h-72 overflow-y-auto">
-                      {pastReturnItems.map((it, idx) => (
-                        <div
-                          key={`${it.product_id || 'sem-id'}-${it.code || 'sem-cod'}-${idx}`}
-                          className="flex items-center gap-2 px-3 py-2 text-xs"
-                        >
-                          <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
-                          <div className="min-w-0 flex-1">
-                            <p className="font-mono font-bold text-[#7A5C2E]">{it.code}</p>
-                            <p className="truncate text-[#2D2A26]">{it.description}</p>
-                          </div>
-                          <span className="font-bold shrink-0">{it.returned_qty} un</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
-              </div>
-
-              {/* Botão de extravio: mover peça não devolvida para EXTRAVIOS */}
-              <div className="border border-[#E5DFD5] rounded-xl overflow-hidden bg-white">
-                <div className="px-3 py-2 bg-[#FDFBF7] border-b border-[#E5DFD5] text-xs font-bold text-[#6B655E]">
-                  Peças em posse — marcar não devolvida como EXTRAVIO
-                </div>
-                <div className="divide-y divide-[#E5DFD5] max-h-64 overflow-y-auto">
-                  {stockItems
-                    .filter(
-                      (it) =>
-                        (conferenceMap[it.product]?.returned_qty || 0) === 0 &&
-                        (conferenceMap[it.product]?.pending_qty || 0) === 0,
-                    )
-                    .map((it, idx) => {
-                      const p = it.expand?.product
-                      return (
-                        <div
-                          key={`${it.id || 'sem-id'}-${p?.code || it.product || 'sem-cod'}-${idx}`}
-                          className="flex items-center gap-2 px-3 py-2 text-xs"
-                        >
-                          <div className="min-w-0 flex-1">
-                            <p className="font-mono font-bold text-[#7A5C2E]">
-                              {p?.code}
-                              {p?.variacao ? ` — ${p.variacao}` : ''}
-                            </p>
-                            <p className="truncate text-[#2D2A26]">
-                              {getProductFullName(p!) || p?.description || p?.nome_produto}
-                            </p>
-                          </div>
-                          <span className="text-[#6B655E] shrink-0">{it.quantity} un</span>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-7 text-[11px] border-amber-300 text-amber-800 hover:bg-amber-50 shrink-0"
-                            onClick={() => {
-                              handleItemChange(it.product, 'pending_qty', it.quantity)
-                              handleItemChange(it.product, 'pending_reason', 'extraviada')
-                            }}
-                          >
-                            <AlertTriangle className="h-3 w-3 mr-1" />
-                            Extraviar
-                          </Button>
-                        </div>
-                      )
-                    })}
-                  {stockItems.filter(
-                    (it) =>
-                      (conferenceMap[it.product]?.returned_qty || 0) === 0 &&
-                      (conferenceMap[it.product]?.pending_qty || 0) === 0,
-                  ).length === 0 && (
-                    <p className="p-4 text-center text-xs text-[#8C8275]">
-                      Todas as peças já estão classificadas (devolução ou extravio).
-                    </p>
-                  )}
+                <div className="border border-emerald-200 rounded-xl overflow-hidden bg-white">
+                  <div className="px-3 py-2 bg-emerald-50 border-b border-emerald-200 text-xs font-bold text-emerald-800 flex justify-between"><span>Sendo devolvido agora</span><span>{totalReturningQty} peça(s)</span></div>
+                  {returningItems.length === 0 ? <p className="p-6 text-center text-xs text-[#8C8275]">Escaneie, busque ou use “+1 →” para iniciar a devolução.</p> : <div className="overflow-x-auto"><table className="w-full text-xs text-left"><thead className="bg-[#FDFBF7] text-[#7A5C2E]"><tr><th className="p-2">Foto</th><th className="p-2">Código / Joia</th><th className="p-2 text-center">Qtd.</th></tr></thead><tbody className="divide-y divide-[#E5DFD5]">{returningItems.map((it, idx) => { const p=it.expand?.product; const photo=p?getProductDisplayPhoto(p):null; const conf=conferenceMap[it.product]; const canAdd=remainingOf(it)>0; return <tr key={`${it.id || it.product}-${idx}`}><td className="p-2">{photo ? <img src={photo} alt={getProductFullName(p) || 'Joia'} className="h-9 w-9 rounded-lg object-cover border border-[#E5DFD5]" /> : <Package className="h-4 w-4 text-[#C6A664]" />}</td><td className="p-2"><p className="font-mono font-bold text-[#7A5C2E]">{p?.code || '—'}</p><p className="text-[#2D2A26]">{getProductFullName(p!) || p?.description || p?.nome_produto || 'Joia'}</p></td><td className="p-2"><div className="flex items-center justify-center gap-1"><Button type="button" variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => handleItemChange(it.product, 'returned_qty', Math.max(0, (conf.returned_qty || 0) - 1))}><Minus className="h-3 w-3" /></Button><span className="font-bold w-7 text-center">{conf.returned_qty}</span><Button type="button" variant="outline" size="sm" disabled={!canAdd} className="h-7 w-7 p-0" onClick={() => registerOne(it.product, p?.code || 'Joia')}><Plus className="h-3 w-3" /></Button></div></td></tr>})}</tbody></table></div>}
                 </div>
               </div>
 
@@ -711,13 +579,13 @@ export default function ResellerConferencePage() {
                           <input
                             type="number"
                             min="0"
-                            max={it.quantity}
+                            max={Math.max(0, it.quantity - (conf.returned_qty || 0))}
                             value={conf.pending_qty || ''}
                             onChange={(e) =>
                               handleItemChange(
                                 it.product,
                                 'pending_qty',
-                                parseInt(e.target.value, 10) || 0,
+                                Math.min(Math.max(0, parseInt(e.target.value, 10) || 0), Math.max(0, it.quantity - (conf.returned_qty || 0))),
                               )
                             }
                             className="w-16 h-8 text-center rounded-md border border-amber-300 bg-white font-bold"
@@ -759,6 +627,11 @@ export default function ResellerConferencePage() {
                   </div>
                 </div>
               )}
+
+              <div className="border border-[#E5DFD5] rounded-xl overflow-hidden bg-white">
+                <div className="px-3 py-2 bg-emerald-50/70 border-b border-emerald-200 text-xs font-bold text-emerald-800">Vendidas</div>
+                {soldSaleRows.length === 0 ? <p className="p-5 text-center text-xs text-[#8C8275]">Nenhuma venda concluída no PDV desta revendedora.</p> : <div className="overflow-x-auto"><table className="w-full text-xs text-left"><thead className="bg-[#FDFBF7] text-[#7A5C2E]"><tr><th className="p-2">Foto</th><th className="p-2">Código</th><th className="p-2">Nome</th><th className="p-2 text-center">Qtd.</th><th className="p-2">Data da venda</th><th className="p-2">Venda</th></tr></thead><tbody className="divide-y divide-[#E5DFD5]">{soldSaleRows.map((row, idx) => { const photo=row.product?getProductDisplayPhoto(row.product):null; return <tr key={`${row.saleCode}-${row.product_id}-${idx}`}><td className="p-2">{photo ? <img src={photo} alt={getProductFullName(row.product) || row.description || 'Joia'} className="h-9 w-9 rounded-lg object-cover border border-[#E5DFD5]" /> : <Package className="h-4 w-4 text-[#C6A664]" />}</td><td className="p-2 font-mono font-bold text-[#7A5C2E]">{row.code || row.product?.code || '—'}</td><td className="p-2 text-[#2D2A26]">{getProductFullName(row.product!) || row.description || 'Joia'}</td><td className="p-2 text-center font-bold">{row.quantity}</td><td className="p-2 text-[#6B655E]">{row.saleCreated ? new Date(row.saleCreated).toLocaleString('pt-BR') : '—'}</td><td className="p-2 font-mono text-[#7A5C2E]">{row.saleCode}</td></tr>})}</tbody></table></div>}
+              </div>
 
               {/* Percentuais de lucro */}
               <div className="p-3 rounded-xl bg-[#F3EAD8]/50 border border-[#C6A664]/60">
