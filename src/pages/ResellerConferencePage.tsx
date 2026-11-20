@@ -62,9 +62,10 @@ interface StatCardProps {
   qty: number
   icon: React.ReactNode
   tone: string
+  details?: React.ReactNode
 }
 
-function StatCard({ label, value, qty, icon, tone }: StatCardProps) {
+function StatCard({ label, value, qty, icon, tone, details }: StatCardProps) {
   return (
     <div className={`p-4 rounded-xl border shadow-xs ${tone}`}>
       <div className="flex items-center justify-between text-xs font-semibold opacity-80">
@@ -77,6 +78,7 @@ function StatCard({ label, value, qty, icon, tone }: StatCardProps) {
       <p className="text-[11px] opacity-70 mt-0.5">
         {qty} peça{qty === 1 ? '' : 's'}
       </p>
+      {details}
     </div>
   )
 }
@@ -415,7 +417,12 @@ export default function ResellerConferencePage() {
     (acc, it) => acc + (conferenceMap[it.product]?.pending_qty || 0),
     0,
   )
+  // Extraviado mostra o valor físico total; a parte cobrada é usada no acerto.
   const totalIssuedValue = issueItems.reduce(
+    (acc, it) => acc + (conferenceMap[it.product]?.pending_qty || 0) * priceOf(it),
+    0,
+  )
+  const totalIssuedChargedValue = issueItems.reduce(
     (acc, it) =>
       acc +
       (conferenceMap[it.product]?.pending_charge === false
@@ -423,6 +430,7 @@ export default function ResellerConferencePage() {
         : (conferenceMap[it.product]?.pending_qty || 0) * priceOf(it)),
     0,
   )
+  const totalIssuedNotChargedValue = totalIssuedValue - totalIssuedChargedValue
   const totalReturningQty = returningItems.reduce(
     (acc, it) => acc + (conferenceMap[it.product]?.returned_qty || 0),
     0,
@@ -435,7 +443,7 @@ export default function ResellerConferencePage() {
   // No acerto, a empresa recebe o valor das vendas menos a comissão da
   // revendedora. Extravios entram somente quando estiverem marcados para cobrança.
   const totalProfit = (totalSoldValue * activeCommission) / 100
-  const totalSettlementValue = totalSoldValue - totalProfit + totalIssuedValue
+  const totalSettlementValue = totalSoldValue - totalProfit + totalIssuedChargedValue
   // A quantidade deste card representa as peças físicas que serão devolvidas agora.
   const totalSettlementQty = totalReturningQty
   const unclassifiedQty = possessionItems.reduce((total, item) => total + remainingOf(item), 0)
@@ -465,11 +473,6 @@ export default function ResellerConferencePage() {
       toast.error(
         `Há ${unclassifiedQty} peça(s) em posse sem destinação — marque a devolução ou justifique o extravio.`,
       )
-      setConfirmAction(null)
-      return
-    }
-    if (issueItems.some((item) => !(conferenceMap[item.product]?.pending_notes || '').trim())) {
-      toast.error('Informe a observação obrigatória para cada peça marcada como extraviada.')
       setConfirmAction(null)
       return
     }
@@ -559,7 +562,7 @@ export default function ResellerConferencePage() {
           </Link>
           <h2 className="font-serif text-xl font-bold text-[#2D2A26] flex items-center gap-2">
             <RotateCcw className="h-5 w-5 text-[#7A5C2E]" />
-            Conferência &amp; Devolução — {reseller?.name || '...'}
+            Devolução — {reseller?.name || '...'}
           </h2>
           <p className="text-xs text-[#6B655E]">
             Escaneie ou busque as peças para dar baixa, marque extravios e escolha o percentual de
@@ -959,7 +962,7 @@ export default function ResellerConferencePage() {
                           </div>
                           <input
                             type="text"
-                            placeholder="Obs obrigatória..."
+                            placeholder="Observação (opcional)"
                             value={conf.pending_notes}
                             onChange={(e) =>
                               handleItemChange(it.product, 'pending_notes', e.target.value)
@@ -1092,6 +1095,12 @@ export default function ResellerConferencePage() {
                   qty={totalIssuedQty}
                   icon={<AlertTriangle className="h-4 w-4" />}
                   tone="border-amber-200 bg-amber-50/60 text-amber-800"
+                  details={
+                    <div className="mt-1.5 pt-1.5 border-t border-amber-200/80 text-[10px] leading-relaxed">
+                      <p>Cobrado: {formatCurrency(totalIssuedChargedValue)}</p>
+                      <p>Não cobrado: {formatCurrency(totalIssuedNotChargedValue)}</p>
+                    </div>
+                  }
                 />
                 <StatCard
                   label="Total à Devolver"
