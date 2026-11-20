@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-20T02:54:21.606Z",
+  "generatedAt": "2026-11-20T15:24:52.211Z",
   "collections": [
     {
       "name": "users",
@@ -1706,7 +1706,7 @@
         {
           "name": "scaglioni_due_total",
           "type": "number",
-          "required": true,
+          "required": false,
           "system": false
         },
         {
