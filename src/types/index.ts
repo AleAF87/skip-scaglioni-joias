@@ -387,6 +387,7 @@ export interface ResellerSale {
   commission_rate: number
   reseller_profit: number
   scaglioni_due: number
+  settlement_return?: string
   payment_method: 'pix' | 'cash' | 'credit_card' | 'debit_card'
   installments?: number
   notes?: string
@@ -423,6 +424,10 @@ export interface ResellerReturn {
   commission_rate?: number
   // Código da entrega de origem (numeração pura, ex. "1") — v0.0.152
   delivery_code?: string
+  total_financial_due?: number
+  total_paid?: number
+  balance_due?: number
+  financial_status?: 'open' | 'partial' | 'settled'
   notes?: string
   created: string
   updated: string
@@ -608,3 +613,25 @@ export interface ConsignmentDocument {
     created_by?: AppUser
   }
 }
+
+
+export interface ResellerSettlementPayment {
+  id: string
+  reseller: string
+  return_ref: string
+  operator?: string
+  method: SettlementPaymentMethod
+  amount: number
+  notes?: string
+  paid_at: string
+  created: string
+  updated: string
+}
+
+export type SettlementPaymentMethod =
+  | 'pix'
+  | 'cash'
+  | 'credit_card'
+  | 'debit_card'
+  | 'bank_transfer'
+  | 'other'
