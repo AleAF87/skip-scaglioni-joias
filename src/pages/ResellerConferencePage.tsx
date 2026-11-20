@@ -1101,8 +1101,12 @@ export default function ResellerConferencePage() {
                   tone="border-amber-200 bg-amber-50/60 text-amber-800"
                   details={
                     <div className="mt-2 pt-2 border-t border-amber-200/70 text-[10px] leading-relaxed opacity-90">
-                      <p>Cobrado: <strong>{formatCurrency(totalIssuedChargedValue)}</strong></p>
-                      <p>Não cobrado: <strong>{formatCurrency(totalIssuedNotChargedValue)}</strong></p>
+                      <p>
+                        Cobrado: <strong>{formatCurrency(totalIssuedChargedValue)}</strong>
+                      </p>
+                      <p>
+                        Não cobrado: <strong>{formatCurrency(totalIssuedNotChargedValue)}</strong>
+                      </p>
                     </div>
                   }
                 />
