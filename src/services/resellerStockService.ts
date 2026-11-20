@@ -212,6 +212,25 @@ export const resellerStockService = {
     })
   },
 
+  // Registrar uma quitação posterior sem reabrir ou alterar a devolução.
+  async addSettlementPayment(data: {
+    return_id: string
+    method: 'pix' | 'cash' | 'credit_card' | 'debit_card' | 'bank_transfer' | 'other'
+    amount: number
+    notes?: string
+  }) {
+    return pb.send<{
+      success: boolean
+      return_id: string
+      total_paid: number
+      balance_due: number
+      financial_status: 'partial' | 'settled'
+    }>('/backend/v1/reseller-stock/settlement-payment', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
   // 5. Pendências (extraviada / venda avulsa / outros)
   async getIssues(params?: { resellerId?: string; status?: string }) {
     const filters: string[] = []
