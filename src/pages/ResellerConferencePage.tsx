@@ -30,6 +30,14 @@ import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
 import { ImageLightbox } from '@/components/ImageLightbox'
 
+type SettlementPaymentMethod = 'pix' | 'cash' | 'credit_card' | 'debit_card' | 'bank_transfer' | 'other'
+
+interface SettlementPaymentDraft {
+  method: SettlementPaymentMethod
+  amount: string
+  notes: string
+}
+
 interface ConferenceEntry {
   returned_qty: number
   pending_qty: number
@@ -92,6 +100,7 @@ export default function ResellerConferencePage() {
   const [commission, setCommission] = useState<number | null>(30)
   const [lightboxPhoto, setLightboxPhoto] = useState<{ url: string; title: string } | null>(null)
   const [notes, setNotes] = useState('')
+  const [paymentDrafts, setPaymentDrafts] = useState<SettlementPaymentDraft[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [confirmAction, setConfirmAction] = useState<'cancel' | 'save' | null>(null)
 
@@ -305,14 +314,24 @@ export default function ResellerConferencePage() {
       .slice(0, 8)
   }, [searchText, possessionItems])
 
+  // Vendas já vinculadas a um acerto anterior não podem ser cobradas novamente.
+  const unsettledSales = useMemo(
+    () =>
+      sales.filter(
+        (sale) =>
+          sale.status !== 'pending' &&
+          sale.status !== 'cancelled' &&
+          !sale.settlement_return,
+      ),
+    [sales],
+  )
+
   const soldItems = useMemo(() => {
     const map = new Map<
       string,
       { code: string; description: string; quantity: number; unit_price: number }
     >()
-    sales
-      .filter((s) => s.status !== 'pending' && s.status !== 'cancelled')
-      .forEach((s) =>
+    unsettledSales.forEach((s) =>
         (s.items || []).forEach((it) => {
           const cur = map.get(it.product_id)
           if (cur) {
@@ -328,7 +347,7 @@ export default function ResellerConferencePage() {
         }),
       )
     return Array.from(map.entries()).map(([product_id, v]) => ({ product_id, ...v }))
-  }, [sales])
+  }, [unsettledSales])
 
   const reservedItems = useMemo(() => {
     const map = new Map<
@@ -384,8 +403,11 @@ export default function ResellerConferencePage() {
   const priceOf = (it: ResellerStockItem) =>
     it.selling_price || it.expand?.product?.selling_price || 0
 
-  const totalSoldQty = soldItems.reduce((acc, it) => acc + it.quantity, 0)
-  const totalSoldValue = soldItems.reduce((acc, it) => acc + it.quantity * it.unit_price, 0)
+  const totalSoldQty = unsettledSales.reduce(
+    (total, sale) => total + (sale.items || []).reduce((qty, item) => qty + item.quantity, 0),
+    0,
+  )
+  const totalSoldValue = unsettledSales.reduce((total, sale) => total + (sale.total || 0), 0)
   const totalIssuedQty = issueItems.reduce(
     (acc, it) => acc + (conferenceMap[it.product]?.pending_qty || 0),
     0,
@@ -417,6 +439,11 @@ export default function ResellerConferencePage() {
     (total, item) => total + remainingOf(item),
     0,
   )
+  const totalPaidNow = paymentDrafts.reduce(
+    (total, payment) => total + Math.max(0, Number(payment.amount) || 0),
+    0,
+  )
+  const remainingBalance = Math.max(0, totalSettlementValue - totalPaidNow)
 
   const buildItemsPayload = () =>
     Object.entries(conferenceMap)
@@ -445,6 +472,11 @@ export default function ResellerConferencePage() {
       return
     }
     const items = buildItemsPayload()
+    if (totalPaidNow > totalSettlementValue + 0.009) {
+      toast.error('O valor pago não pode ser maior que o valor devido.')
+      setConfirmAction(null)
+      return
+    }
     if (items.length === 0) {
       toast.error('Nenhuma peça marcada para devolução ou extravio.')
       setConfirmAction(null)
@@ -457,10 +489,23 @@ export default function ResellerConferencePage() {
         items,
         notes: notes || undefined,
         commission_rate: commission ?? reseller.commission_rate ?? undefined,
+        sale_ids: unsettledSales.map((sale) => sale.id),
+        payments: paymentDrafts
+          .map((payment) => ({
+            method: payment.method,
+            amount: Math.max(0, Number(payment.amount) || 0),
+            notes: payment.notes || undefined,
+          }))
+          .filter((payment) => payment.amount > 0),
       })
-      toast.success('Devolução salva com sucesso!')
+      toast.success(
+        remainingBalance > 0
+          ? `Devolução salva. Saldo pendente: ${formatCurrency(remainingBalance)}`
+          : 'Devolução e acerto salvos com sucesso!',
+      )
       setConferenceMap({})
       setNotes('')
+      setPaymentDrafts([])
       setConfirmAction(null)
       const fresh = await resellerStockService.getAllResellerStockItems(reseller.id)
       setStockItems(fresh)
@@ -474,6 +519,7 @@ export default function ResellerConferencePage() {
   const doCancel = () => {
     setConferenceMap({})
     setNotes('')
+    setPaymentDrafts([])
     setConfirmAction(null)
     navigate(`/revendedoras?reseller=${resellerId}`)
   }
@@ -1052,6 +1098,92 @@ export default function ResellerConferencePage() {
                   icon={<TrendingUp className="h-4 w-4" />}
                   tone="border-emerald-300 bg-emerald-50 text-emerald-900"
                 />
+              </div>
+
+              <div className="border border-[#C6A664]/60 rounded-xl p-3 bg-[#FDFBF7] space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-bold text-[#7A5C2E]">Acerto financeiro desta devolução</p>
+                    <p className="text-[11px] text-[#6B655E]">
+                      Registre o que foi pago agora. O saldo permanece em aberto para controle.
+                    </p>
+                  </div>
+                  <div className="text-right text-xs">
+                    <p>Pago agora: <strong>{formatCurrency(totalPaidNow)}</strong></p>
+                    <p className={remainingBalance > 0 ? 'text-amber-800 font-bold' : 'text-emerald-800 font-bold'}>
+                      Pendente: {formatCurrency(remainingBalance)}
+                    </p>
+                  </div>
+                </div>
+                {paymentDrafts.map((payment, index) => (
+                  <div key={index} className="grid grid-cols-1 sm:grid-cols-[130px_1fr_1fr_auto] gap-2">
+                    <select
+                      value={payment.method}
+                      onChange={(event) =>
+                        setPaymentDrafts((current) =>
+                          current.map((entry, entryIndex) =>
+                            entryIndex === index
+                              ? { ...entry, method: event.target.value as SettlementPaymentMethod }
+                              : entry,
+                          ),
+                        )
+                      }
+                      className="h-9 rounded-md border border-[#E5DFD5] bg-white px-2 text-xs"
+                    >
+                      <option value="pix">Pix</option>
+                      <option value="cash">Dinheiro</option>
+                      <option value="credit_card">Cartão de crédito</option>
+                      <option value="debit_card">Cartão de débito</option>
+                      <option value="bank_transfer">Transferência</option>
+                      <option value="other">Outro</option>
+                    </select>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="Valor pago"
+                      value={payment.amount}
+                      onChange={(event) =>
+                        setPaymentDrafts((current) =>
+                          current.map((entry, entryIndex) =>
+                            entryIndex === index ? { ...entry, amount: event.target.value } : entry,
+                          ),
+                        )
+                      }
+                      className="text-xs bg-white"
+                    />
+                    <Input
+                      placeholder="Observação / comprovante"
+                      value={payment.notes}
+                      onChange={(event) =>
+                        setPaymentDrafts((current) =>
+                          current.map((entry, entryIndex) =>
+                            entryIndex === index ? { ...entry, notes: event.target.value } : entry,
+                          ),
+                        )
+                      }
+                      className="text-xs bg-white"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setPaymentDrafts((current) => current.filter((_, entryIndex) => entryIndex !== index))}
+                      className="text-[#B3261E]"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPaymentDrafts((current) => [...current, { method: 'pix', amount: '', notes: '' }])}
+                  className="border-[#C6A664] text-[#7A5C2E] text-xs"
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Adicionar forma de pagamento
+                </Button>
               </div>
 
               <div>
