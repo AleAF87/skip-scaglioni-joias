@@ -182,6 +182,12 @@ export const resellerStockService = {
     notes?: string
     // Comissão escolhida pelo admin/superadmin na hora do fechamento (30% / 35% / 40%)
     commission_rate?: number
+    sale_ids?: string[]
+    payments?: Array<{
+      method: 'pix' | 'cash' | 'credit_card' | 'debit_card' | 'bank_transfer' | 'other'
+      amount: number
+      notes?: string
+    }>
     // Entrega de origem (v0.0.144): gravada na devolução p/ rastreio ("Devolução 2 · Entrega 1")
     delivery_id?: string
     delivery_code?: string
