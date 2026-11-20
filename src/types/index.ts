@@ -419,6 +419,7 @@ export interface ResellerReturn {
   items: ResellerReturnItem[]
   total_returned_qty: number
   total_pending_qty: number
+  total_sold_qty?: number
   total_pending_value_due: number
   // Comissão aplicada neste fechamento (escolhida pelo admin: 30% / 35% / 40%)
   commission_rate?: number
