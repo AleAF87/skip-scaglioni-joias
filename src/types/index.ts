@@ -614,7 +614,6 @@ export interface ConsignmentDocument {
   }
 }
 
-
 export interface ResellerSettlementPayment {
   id: string
   reseller: string

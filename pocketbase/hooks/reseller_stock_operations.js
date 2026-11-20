@@ -727,8 +727,7 @@ routerAdd(
           throw new Error('O valor pago não pode ser maior que o valor devido.')
         }
         const balanceDue = Math.round(Math.max(0, totalFinancialDue - totalPaid) * 100) / 100
-        const financialStatus =
-          balanceDue === 0 ? 'settled' : totalPaid > 0 ? 'partial' : 'open'
+        const financialStatus = balanceDue === 0 ? 'settled' : totalPaid > 0 ? 'partial' : 'open'
 
         returnRec.set('items', JSON.stringify(processedItems))
         returnRec.set('total_returned_qty', totalReturnedQty)

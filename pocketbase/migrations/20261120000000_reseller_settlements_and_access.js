@@ -64,8 +64,20 @@ migrate(
           "@request.auth.id != '' && (@request.auth.role = 'superadmin' || @request.auth.role = 'admin' || @request.auth.role = 'operator')",
         deleteRule: "@request.auth.id != '' && @request.auth.role = 'superadmin'",
         fields: [
-          { name: 'reseller', type: 'relation', collectionId: resellers.id, required: true, maxSelect: 1 },
-          { name: 'return_ref', type: 'relation', collectionId: returns.id, required: true, maxSelect: 1 },
+          {
+            name: 'reseller',
+            type: 'relation',
+            collectionId: resellers.id,
+            required: true,
+            maxSelect: 1,
+          },
+          {
+            name: 'return_ref',
+            type: 'relation',
+            collectionId: returns.id,
+            required: true,
+            maxSelect: 1,
+          },
           { name: 'operator', type: 'relation', collectionId: users.id, maxSelect: 1 },
           {
             name: 'method',
