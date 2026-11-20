@@ -484,7 +484,7 @@ routerAdd(
     }
 
     const body = e.requestInfo().body || {}
-    const { reseller_id, items, notes } = body
+    const { reseller_id, items, notes, sale_ids = [], payments = [] } = body
     // Comissão escolhida pelo admin/superadmin na hora do fechamento (30% / 35% / 40%).
     // Quando informada, é usada no cálculo deste fechamento e passa a ser a comissão cadastrada da revendedora.
     let overrideCommissionRate = null
@@ -524,6 +524,7 @@ routerAdd(
 
         const returnsCol = txApp.findCollectionByNameOrId('reseller_returns')
         const issuesCol = txApp.findCollectionByNameOrId('reseller_issues')
+        const paymentsCol = txApp.findCollectionByNameOrId('reseller_settlement_payments')
 
         // Código da devolução (v0.0.152): numeração PURA (1, 2, 3…) do MESMO
         // contador compartilhado com entregas (reseller_movement_seq) — sem
@@ -692,13 +693,75 @@ routerAdd(
           })
         }
 
+        // Vendas incluídas neste fechamento: cada venda só pode compor um acerto.
+        const selectedSaleIds = Array.isArray(sale_ids)
+          ? [...new Set(sale_ids.filter((id) => typeof id === 'string' && id))]
+          : []
+        const selectedSales = []
+        let totalSalesDue = 0
+        for (let i = 0; i < selectedSaleIds.length; i++) {
+          const sale = txApp.findRecordById('reseller_sales', selectedSaleIds[i])
+          if (
+            sale.getString('reseller') !== reseller_id ||
+            sale.getString('status') !== 'completed'
+          ) {
+            throw new Error('Venda inválida para este acerto.')
+          }
+          if (sale.getString('settlement_return')) {
+            throw new Error('Uma das vendas selecionadas já foi incluída em outro acerto.')
+          }
+          selectedSales.push(sale)
+          const due = (sale.getFloat('total') * (100 - commissionRate)) / 100
+          totalSalesDue += Math.round(due * 100) / 100
+        }
+
+        const paymentEntries = Array.isArray(payments) ? payments : []
+        let totalPaid = 0
+        for (let i = 0; i < paymentEntries.length; i++) {
+          const amount = Math.max(0, parseFloat(paymentEntries[i].amount) || 0)
+          if (amount > 0) totalPaid += amount
+        }
+        totalPaid = Math.round(totalPaid * 100) / 100
+        const totalFinancialDue = Math.round((totalSalesDue + totalPendingValueDue) * 100) / 100
+        if (totalPaid > totalFinancialDue + 0.009) {
+          throw new Error('O valor pago não pode ser maior que o valor devido.')
+        }
+        const balanceDue = Math.round(Math.max(0, totalFinancialDue - totalPaid) * 100) / 100
+        const financialStatus =
+          balanceDue === 0 ? 'settled' : totalPaid > 0 ? 'partial' : 'open'
+
         returnRec.set('items', JSON.stringify(processedItems))
         returnRec.set('total_returned_qty', totalReturnedQty)
         returnRec.set('total_pending_qty', totalPendingQty)
         returnRec.set('total_pending_value_due', totalPendingValueDue)
         returnRec.set('commission_rate', commissionRate)
-
+        returnRec.set('total_financial_due', totalFinancialDue)
+        returnRec.set('total_paid', totalPaid)
+        returnRec.set('balance_due', balanceDue)
+        returnRec.set('financial_status', financialStatus)
         txApp.save(returnRec)
+
+        // Vendas já fechadas deixam de entrar nas próximas conferências.
+        for (let i = 0; i < selectedSales.length; i++) {
+          selectedSales[i].set('settlement_return', returnRec.id)
+          txApp.save(selectedSales[i])
+        }
+
+        // Cada forma de pagamento é um registro auditável próprio.
+        for (let i = 0; i < paymentEntries.length; i++) {
+          const entry = paymentEntries[i]
+          const amount = Math.max(0, parseFloat(entry.amount) || 0)
+          if (amount <= 0) continue
+          const paymentRec = new Record(paymentsCol)
+          paymentRec.set('reseller', reseller_id)
+          paymentRec.set('return_ref', returnRec.id)
+          paymentRec.set('operator', authUser.id)
+          paymentRec.set('method', entry.method || 'other')
+          paymentRec.set('amount', amount)
+          paymentRec.set('notes', entry.notes || '')
+          paymentRec.set('paid_at', new Date().toISOString())
+          txApp.save(paymentRec)
+        }
         finalReturnRec = returnRec
       })
 
