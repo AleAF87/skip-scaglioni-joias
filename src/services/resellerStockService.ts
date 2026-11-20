@@ -260,10 +260,11 @@ export const resellerStockService = {
 
   // 6. Resumo Financeiro da Revendedora
   async getFinancialSummary(resellerId: string) {
-    const [sales, issues, stock] = await Promise.all([
+    const [sales, issues, stock, returns] = await Promise.all([
       this.getResellerSales({ resellerId }),
       this.getIssues({ resellerId }),
       this.getResellerStock(resellerId),
+      this.getReturns({ resellerId }),
     ])
 
     // Total de vendas brutas realizadas no PDV dela
@@ -294,6 +295,16 @@ export const resellerStockService = {
       0,
     )
 
+    // Saldo devedor real é controlado pelo fechamento: evita somar novamente
+    // vendas/extravios que já compõem uma devolução registrada.
+    const pendingSettlements = returns.filter(
+      (ret) => ret.financial_status !== 'settled' && (ret.balance_due || 0) > 0,
+    )
+    const totalSettlementBalance = pendingSettlements.reduce(
+      (acc, ret) => acc + (ret.balance_due || 0),
+      0,
+    )
+
     return {
       totalSalesGross,
       totalProfit,
@@ -307,6 +318,8 @@ export const resellerStockService = {
       pendingIssuesCount: pendingIssues.length,
       recentSales: sales.slice(0, 5),
       pendingIssuesList: pendingIssues,
+      totalSettlementBalance,
+      pendingSettlements,
     }
   },
 
