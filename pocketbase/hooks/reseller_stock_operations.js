@@ -484,7 +484,7 @@ routerAdd(
     }
 
     const body = e.requestInfo().body || {}
-    const { reseller_id, items, notes, sale_ids = [], payments = [] } = body
+    const { reseller_id, items, notes, sale_ids = [], payments = [], delivery_id } = body
     // Comissão escolhida pelo admin/superadmin na hora do fechamento (30% / 35% / 40%).
     // Quando informada, é usada no cálculo deste fechamento e passa a ser a comissão cadastrada da revendedora.
     let overrideCommissionRate = null
@@ -585,6 +585,9 @@ routerAdd(
         if (originDeliveryCode) {
           returnRec.set('delivery_code', originDeliveryCode)
         }
+        if (delivery_id) {
+          returnRec.set('delivery_ref', delivery_id)
+        }
 
         for (let i = 0; i < items.length; i++) {
           const it = items[i]
@@ -675,6 +678,7 @@ routerAdd(
             issueRec.set('unit_selling_price', sellingPrice)
             issueRec.set('commission_rate', commissionRate)
             issueRec.set('scaglioni_due_total', scaglioniDueForThisItem)
+            issueRec.set('charged', pendingCharge)
             issueRec.set('status', pendingCharge ? 'pending' : 'forgiven')
             issueRec.set('notes', pendingNotes + (pendingCharge ? '' : ' [Não cobrar]'))
             txApp.save(issueRec)
@@ -835,6 +839,68 @@ routerAdd(
     } catch (err) {
       console.log('Erro ao resolver pendência:', err.message)
       return e.json(400, { error: err.message || 'Falha ao atualizar pendência.' })
+    }
+  },
+  $apis.requireAuth(),
+)
+
+
+// 6. PAGAMENTO POSTERIOR DE UM ACERTO JÁ REGISTRADO
+routerAdd(
+  'POST',
+  '/backend/v1/reseller-stock/settlement-payment',
+  (e) => {
+    const authUser = e.auth
+    if (!authUser) return e.json(401, { error: 'Não autorizado.' })
+    const role = authUser.getString('role')
+    if (role !== 'superadmin' && role !== 'admin' && role !== 'operator') {
+      return e.json(403, { error: 'Apenas a equipe pode registrar pagamentos.' })
+    }
+
+    const body = e.requestInfo().body || {}
+    const returnId = body.return_id
+    const amount = Math.round(Math.max(0, parseFloat(body.amount) || 0) * 100) / 100
+    if (!returnId || amount <= 0) {
+      return e.json(400, { error: 'Informe o acerto e um valor de pagamento maior que zero.' })
+    }
+
+    try {
+      let result = null
+      $app.runInTransaction((txApp) => {
+        const returnRec = txApp.findRecordById('reseller_returns', returnId)
+        const balance = Math.round(Math.max(0, returnRec.getFloat('balance_due')) * 100) / 100
+        if (balance <= 0) throw new Error('Este acerto já está quitado.')
+        if (amount > balance + 0.009) {
+          throw new Error('O pagamento não pode ser maior que o saldo pendente.')
+        }
+
+        const paymentsCol = txApp.findCollectionByNameOrId('reseller_settlement_payments')
+        const paymentRec = new Record(paymentsCol)
+        paymentRec.set('reseller', returnRec.getString('reseller'))
+        paymentRec.set('return_ref', returnRec.id)
+        paymentRec.set('operator', authUser.id)
+        paymentRec.set('method', body.method || 'other')
+        paymentRec.set('amount', amount)
+        paymentRec.set('notes', body.notes || '')
+        paymentRec.set('paid_at', new Date().toISOString())
+        txApp.save(paymentRec)
+
+        const totalPaid = Math.round((returnRec.getFloat('total_paid') + amount) * 100) / 100
+        const newBalance = Math.round(Math.max(0, returnRec.getFloat('total_financial_due') - totalPaid) * 100) / 100
+        returnRec.set('total_paid', totalPaid)
+        returnRec.set('balance_due', newBalance)
+        returnRec.set('financial_status', newBalance === 0 ? 'settled' : 'partial')
+        txApp.save(returnRec)
+        result = {
+          return_id: returnRec.id,
+          total_paid: totalPaid,
+          balance_due: newBalance,
+          financial_status: returnRec.getString('financial_status'),
+        }
+      })
+      return e.json(200, { success: true, ...result })
+    } catch (err) {
+      return e.json(400, { error: err.message || 'Falha ao registrar pagamento.' })
     }
   },
   $apis.requireAuth(),
