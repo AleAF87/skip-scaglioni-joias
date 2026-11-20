@@ -1110,7 +1110,7 @@ export default function ResellerConferencePage() {
                   tone="border-[#C6A664] bg-[#FDFBF7] text-[#7A5C2E]"
                 />
                 <StatCard
-                  label={`Total de Lucro (${activeCommission}%)`}
+                  label="Total de Lucro"
                   value={totalProfit}
                   qty={totalSoldQty}
                   icon={<TrendingUp className="h-4 w-4" />}
