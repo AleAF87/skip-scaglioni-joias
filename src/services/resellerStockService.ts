@@ -201,6 +201,10 @@ export const resellerStockService = {
       total_pending_qty: number
       total_pending_value_due: number
       commission_rate: number
+      total_financial_due: number
+      total_paid: number
+      balance_due: number
+      financial_status: 'open' | 'partial' | 'settled'
       nothing_due: boolean
     }>('/backend/v1/reseller-stock/return', {
       method: 'POST',
