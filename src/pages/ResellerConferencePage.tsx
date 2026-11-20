@@ -30,6 +30,14 @@ import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
 import { ImageLightbox } from '@/components/ImageLightbox'
 
+type SettlementPaymentMethod = 'pix' | 'cash' | 'credit_card' | 'debit_card' | 'bank_transfer' | 'other'
+
+interface SettlementPaymentDraft {
+  method: SettlementPaymentMethod
+  amount: string
+  notes: string
+}
+
 interface ConferenceEntry {
   returned_qty: number
   pending_qty: number
@@ -92,6 +100,10 @@ export default function ResellerConferencePage() {
   const [commission, setCommission] = useState<number | null>(30)
   const [lightboxPhoto, setLightboxPhoto] = useState<{ url: string; title: string } | null>(null)
   const [notes, setNotes] = useState('')
+  const [paymentDrafts, setPaymentDrafts] = useState<SettlementPaymentDraft[]>([
+    { method: 'pix', amount: '', notes: '' },
+  ])
+  const [leaveBalanceOpen, setLeaveBalanceOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [confirmAction, setConfirmAction] = useState<'cancel' | 'save' | null>(null)
 
@@ -305,14 +317,24 @@ export default function ResellerConferencePage() {
       .slice(0, 8)
   }, [searchText, possessionItems])
 
+  // Vendas já incluídas em um acerto anterior não podem ser cobradas de novo.
+  const unsettledSales = useMemo(
+    () =>
+      sales.filter(
+        (sale) =>
+          sale.status !== 'pending' &&
+          sale.status !== 'cancelled' &&
+          !sale.settlement_return,
+      ),
+    [sales],
+  )
+
   const soldItems = useMemo(() => {
     const map = new Map<
       string,
       { code: string; description: string; quantity: number; unit_price: number }
     >()
-    sales
-      .filter((s) => s.status !== 'pending' && s.status !== 'cancelled')
-      .forEach((s) =>
+    unsettledSales.forEach((s) =>
         (s.items || []).forEach((it) => {
           const cur = map.get(it.product_id)
           if (cur) {
@@ -328,7 +350,7 @@ export default function ResellerConferencePage() {
         }),
       )
     return Array.from(map.entries()).map(([product_id, v]) => ({ product_id, ...v }))
-  }, [sales])
+  }, [unsettledSales])
 
   const reservedItems = useMemo(() => {
     const map = new Map<
@@ -384,8 +406,11 @@ export default function ResellerConferencePage() {
   const priceOf = (it: ResellerStockItem) =>
     it.selling_price || it.expand?.product?.selling_price || 0
 
-  const totalSoldQty = soldItems.reduce((acc, it) => acc + it.quantity, 0)
-  const totalSoldValue = soldItems.reduce((acc, it) => acc + it.quantity * it.unit_price, 0)
+  const totalSoldQty = unsettledSales.reduce(
+    (total, sale) => total + (sale.items || []).reduce((qty, item) => qty + item.quantity, 0),
+    0,
+  )
+  const totalSoldValue = unsettledSales.reduce((total, sale) => total + (sale.total || 0), 0)
   const totalIssuedQty = issueItems.reduce(
     (acc, it) => acc + (conferenceMap[it.product]?.pending_qty || 0),
     0,
@@ -414,6 +439,13 @@ export default function ResellerConferencePage() {
   // A quantidade deste card representa as peças físicas que serão devolvidas agora.
   const totalSettlementQty = totalReturningQty
   const unclassifiedQty = possessionItems.reduce((total, item) => total + remainingOf(item), 0)
+  const totalPaidNow = paymentDrafts.reduce(
+    (total, payment) => total + Math.max(0, Number(payment.amount) || 0),
+    0,
+  )
+  const remainingBalance = Math.max(0, totalSettlementValue - totalPaidNow)
+  const needsSettlementDecision =
+    totalSettlementValue > 0 && totalPaidNow === 0 && !leaveBalanceOpen
 
   const buildItemsPayload = () =>
     Object.entries(conferenceMap)
@@ -442,6 +474,16 @@ export default function ResellerConferencePage() {
       return
     }
     const items = buildItemsPayload()
+    if (needsSettlementDecision) {
+      toast.error('Informe um pagamento ou marque que o saldo ficará pendente.')
+      setConfirmAction(null)
+      return
+    }
+    if (totalPaidNow > totalSettlementValue + 0.009) {
+      toast.error('O valor pago não pode ser maior que o valor devido.')
+      setConfirmAction(null)
+      return
+    }
     if (items.length === 0) {
       toast.error('Nenhuma peça marcada para devolução ou extravio.')
       setConfirmAction(null)
@@ -454,10 +496,24 @@ export default function ResellerConferencePage() {
         items,
         notes: notes || undefined,
         commission_rate: commission ?? reseller.commission_rate ?? undefined,
+        sale_ids: unsettledSales.map((sale) => sale.id),
+        payments: paymentDrafts
+          .map((payment) => ({
+            method: payment.method,
+            amount: Math.max(0, Number(payment.amount) || 0),
+            notes: payment.notes || undefined,
+          }))
+          .filter((payment) => payment.amount > 0),
       })
-      toast.success('Devolução salva com sucesso!')
+      toast.success(
+        remainingBalance > 0
+          ? `Devolução salva. Saldo pendente: ${formatCurrency(remainingBalance)}`
+          : 'Devolução e acerto salvos com sucesso!',
+      )
       setConferenceMap({})
       setNotes('')
+      setPaymentDrafts([{ method: 'pix', amount: '', notes: '' }])
+      setLeaveBalanceOpen(false)
       setConfirmAction(null)
       const fresh = await resellerStockService.getAllResellerStockItems(reseller.id)
       setStockItems(fresh)
@@ -1053,6 +1109,71 @@ export default function ResellerConferencePage() {
                 />
               </div>
 
+              <div className="border border-[#C6A664] rounded-xl p-3 bg-[#FDFBF7] space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold text-[#7A5C2E]">Acerto financeiro obrigatório</p>
+                    <p className="text-[11px] text-[#6B655E]">
+                      Informe o pagamento recebido ou declare que o saldo ficará pendente.
+                    </p>
+                  </div>
+                  <div className="text-right text-xs">
+                    <p>Devido: <strong>{formatCurrency(totalSettlementValue)}</strong></p>
+                    <p>Pago agora: <strong>{formatCurrency(totalPaidNow)}</strong></p>
+                    <p className={remainingBalance > 0 ? 'font-bold text-amber-800' : 'font-bold text-emerald-800'}>
+                      Pendente: {formatCurrency(remainingBalance)}
+                    </p>
+                  </div>
+                </div>
+                {paymentDrafts.map((payment, index) => (
+                  <div key={index} className="grid grid-cols-1 sm:grid-cols-[130px_1fr_1fr_auto] gap-2">
+                    <select
+                      value={payment.method}
+                      onChange={(event) => setPaymentDrafts((current) =>
+                        current.map((entry, entryIndex) =>
+                          entryIndex === index ? { ...entry, method: event.target.value as SettlementPaymentMethod } : entry,
+                        ),
+                      )}
+                      className="h-9 rounded-md border border-[#E5DFD5] bg-white px-2 text-xs"
+                    >
+                      <option value="pix">Pix</option><option value="cash">Dinheiro</option>
+                      <option value="credit_card">Cartão de crédito</option><option value="debit_card">Cartão de débito</option>
+                      <option value="bank_transfer">Transferência</option><option value="other">Outro</option>
+                    </select>
+                    <Input type="number" min="0" step="0.01" placeholder="Valor pago" value={payment.amount}
+                      onChange={(event) => {
+                        setLeaveBalanceOpen(false)
+                        setPaymentDrafts((current) => current.map((entry, entryIndex) =>
+                          entryIndex === index ? { ...entry, amount: event.target.value } : entry,
+                        ))
+                      }} className="text-xs bg-white" />
+                    <Input placeholder="Observação / comprovante" value={payment.notes}
+                      onChange={(event) => setPaymentDrafts((current) => current.map((entry, entryIndex) =>
+                        entryIndex === index ? { ...entry, notes: event.target.value } : entry,
+                      ))} className="text-xs bg-white" />
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setPaymentDrafts((current) =>
+                      current.length === 1 ? [{ method: 'pix', amount: '', notes: '' }] : current.filter((_, entryIndex) => entryIndex !== index),
+                    )} className="text-[#B3261E]"><Trash2 className="h-4 w-4" /></Button>
+                  </div>
+                ))}
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={() => setPaymentDrafts((current) =>
+                    [...current, { method: 'pix', amount: '', notes: '' }],
+                  )} className="border-[#C6A664] text-[#7A5C2E] text-xs">
+                    <Plus className="h-3.5 w-3.5 mr-1" /> Adicionar forma
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" onClick={() => setLeaveBalanceOpen((value) => !value)}
+                    className={leaveBalanceOpen ? 'border-amber-600 bg-amber-100 text-amber-900 text-xs' : 'border-[#E5DFD5] text-[#6B655E] text-xs'}>
+                    {leaveBalanceOpen ? 'Saldo ficará pendente' : 'Deixar saldo pendente'}
+                  </Button>
+                </div>
+                {needsSettlementDecision && (
+                  <p className="text-xs font-semibold text-amber-800">
+                    Escolha uma forma de pagamento com valor ou confirme que o saldo ficará pendente.
+                  </p>
+                )}
+              </div>
+
               <div>
                 <Label className="text-xs text-[#6B655E]">Observações gerais da devolução:</Label>
                 <Input
@@ -1112,11 +1233,13 @@ export default function ResellerConferencePage() {
                   </Button>
                   <Button
                     onClick={() => setConfirmAction('save')}
-                    disabled={isSubmitting || stockItems.length === 0 || unclassifiedQty > 0}
+                    disabled={isSubmitting || stockItems.length === 0 || unclassifiedQty > 0 || needsSettlementDecision}
                     title={
                       unclassifiedQty > 0
                         ? 'Classifique todas as peças em posse antes de salvar.'
-                        : undefined
+                        : needsSettlementDecision
+                          ? 'Informe o pagamento ou confirme que o saldo ficará pendente.'
+                          : undefined
                     }
                     className="bg-[#7A5C2E] hover:bg-[#634923] text-white font-medium text-xs h-9 px-6 shadow-xs flex items-center gap-2"
                   >
