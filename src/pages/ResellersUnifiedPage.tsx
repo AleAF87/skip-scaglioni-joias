@@ -1400,18 +1400,18 @@ export default function ResellersUnifiedPage() {
                           className="p-3 bg-[#FDFBF7] border-t border-[#E5DFD5] flex items-center justify-between gap-2 flex-wrap"
                           onClick={(e) => e.stopPropagation()}
                         >
-                          {/* Botão de Conferência & Devolução — abre a página dedicada (v0.0.172) */}
+                          {/* Botão de Devolução — abre a página dedicada (v0.0.172) */}
                           {canManage && (
                             <Button
                               variant="outline"
                               size="sm"
                               onClick={() =>
-                                navigate('/revendedoras/conferencia?reseller=' + currentReseller.id)
+                                navigate('/revendedoras/devolucao?reseller=' + currentReseller.id)
                               }
                               className="text-xs border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] flex items-center gap-1 flex-1 min-w-[130px]"
                             >
                               <RotateCcw className="h-3.5 w-3.5" />
-                              Conferência & Devolução
+                              Devolução
                             </Button>
                           )}
 
@@ -2444,12 +2444,12 @@ export default function ResellersUnifiedPage() {
                     size="sm"
                     onClick={() => {
                       setIsStockModalOpen(false)
-                      navigate('/revendedoras/conferencia?reseller=' + currentReseller.id)
+                      navigate('/revendedoras/devolucao?reseller=' + currentReseller.id)
                     }}
                     className="text-xs bg-[#7A5C2E] hover:bg-[#634923] text-white flex items-center gap-1.5"
                   >
                     <RotateCcw className="h-3.5 w-3.5" />
-                    Abrir Conferência & Devolução
+                    Abrir Devolução
                   </Button>
                 </div>
               )}
