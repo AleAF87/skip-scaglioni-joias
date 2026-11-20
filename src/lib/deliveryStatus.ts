@@ -29,6 +29,8 @@ export function getDeliveryReturnedState(
       returnedQty += item.returned_qty || 0
       accountedQty += (item.returned_qty || 0) + (item.pending_qty || 0)
     }
+    // Vendas PDV vinculadas ao acerto também dão destino definitivo às peças.
+    accountedQty += ret.total_sold_qty || 0
     if ((ret.balance_due || 0) > 0 && ret.financial_status !== 'settled') {
       hasFinancialPending = true
     }
