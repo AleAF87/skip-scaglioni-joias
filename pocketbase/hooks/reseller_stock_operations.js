@@ -775,7 +775,11 @@ routerAdd(
         total_pending_qty: finalReturnRec.getInt('total_pending_qty'),
         total_pending_value_due: finalReturnRec.getFloat('total_pending_value_due'),
         commission_rate: finalReturnRec.getFloat('commission_rate'),
-        nothing_due: finalReturnRec.getFloat('total_pending_value_due') === 0,
+        total_financial_due: finalReturnRec.getFloat('total_financial_due'),
+        total_paid: finalReturnRec.getFloat('total_paid'),
+        balance_due: finalReturnRec.getFloat('balance_due'),
+        financial_status: finalReturnRec.getString('financial_status'),
+        nothing_due: finalReturnRec.getFloat('balance_due') === 0,
       })
     } catch (err) {
       console.log('Erro ao processar devolução/conferência:', err.message)
