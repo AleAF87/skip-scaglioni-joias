@@ -834,6 +834,18 @@ export default function ResellersUnifiedPage() {
       toast.error('Adicione ao menos uma joia para a entrega.')
       return
     }
+    const pendingBalance = returnsHistory.reduce(
+      (total, ret) => total + (ret.financial_status !== 'settled' ? ret.balance_due || 0 : 0),
+      0,
+    )
+    if (
+      pendingBalance > 0 &&
+      !window.confirm(
+        `Esta revendedora possui ${formatCurrency(pendingBalance)} em pendências. Deseja iniciar uma nova entrega mesmo assim?`,
+      )
+    ) {
+      return
+    }
 
     setIsSubmittingDelivery(true)
     try {
@@ -1290,6 +1302,7 @@ export default function ResellersUnifiedPage() {
                     const isAccepted = del.status === 'accepted'
                     const delDisplay = getDeliveryDisplayStatus(del, returnsHistory)
                     const isFullyReturned = delDisplay.isFullyReturned
+                    const isPendingDelivery = delDisplay.label === 'Pendência'
                     return (
                       <Card
                         key={`${del.id}-${del.code}-${idxDel}`}
@@ -1308,12 +1321,14 @@ export default function ResellersUnifiedPage() {
                               className={`text-[10px] ${
                                 isFullyReturned
                                   ? 'bg-slate-200 text-slate-800 hover:bg-slate-200'
-                                  : isAccepted
-                                    ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100'
-                                    : 'bg-amber-100 text-amber-800 hover:bg-amber-100'
+                                  : isPendingDelivery
+                                    ? 'bg-amber-100 text-amber-800 hover:bg-amber-100'
+                                    : isAccepted
+                                      ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100'
+                                      : 'bg-amber-100 text-amber-800 hover:bg-amber-100'
                               }`}
                             >
-                              {isFullyReturned ? (
+                              {isFullyReturned || isPendingDelivery ? (
                                 <span className="flex items-center gap-1">
                                   <CheckCircle2 className="h-3 w-3" /> {delDisplay.label}
                                 </span>
@@ -1406,7 +1421,12 @@ export default function ResellersUnifiedPage() {
                               variant="outline"
                               size="sm"
                               onClick={() =>
-                                navigate('/revendedoras/devolucao?reseller=' + currentReseller.id)
+                                navigate(
+                                  '/revendedoras/devolucao?reseller=' +
+                                    currentReseller.id +
+                                    '&delivery=' +
+                                    del.id,
+                                )
                               }
                               className="text-xs border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] flex items-center gap-1 flex-1 min-w-[130px]"
                             >
