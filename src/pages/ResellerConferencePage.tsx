@@ -20,7 +20,14 @@ import {
 import { resellerService } from '@/services/resellerService'
 import { resellerStockService } from '@/services/resellerStockService'
 import { productService } from '@/services/productService'
-import { Reseller, ResellerStockItem, ResellerSale, ResellerDelivery, Product } from '@/types'
+import {
+  Reseller,
+  ResellerStockItem,
+  ResellerSale,
+  ResellerDelivery,
+  ResellerReturn,
+  Product,
+} from '@/types'
 import { formatCurrency, getProductDisplayPhoto } from '@/lib/formatters'
 import { getProductFullName } from '@/types/labelContent'
 import { getBackendErrorMessage } from '@/lib/backendErrors'
@@ -93,11 +100,13 @@ export default function ResellerConferencePage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const resellerId = searchParams.get('reseller') || ''
+  const deliveryId = searchParams.get('delivery') || ''
 
   const [reseller, setReseller] = useState<Reseller | null>(null)
   const [stockItems, setStockItems] = useState<ResellerStockItem[]>([])
   const [sales, setSales] = useState<ResellerSale[]>([])
   const [deliveries, setDeliveries] = useState<ResellerDelivery[]>([])
+  const [returnsHistory, setReturnsHistory] = useState<ResellerReturn[]>([])
   const [salesProducts, setSalesProducts] = useState<Record<string, Product>>({})
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -112,6 +121,8 @@ export default function ResellerConferencePage() {
     { method: 'pix', amount: '', notes: '' },
   ])
   const [leaveBalanceOpen, setLeaveBalanceOpen] = useState(false)
+  const [settlementAmount, setSettlementAmount] = useState('')
+  const [settlementMethod, setSettlementMethod] = useState<SettlementPaymentMethod>('pix')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [confirmAction, setConfirmAction] = useState<'cancel' | 'save' | null>(null)
 
@@ -141,15 +152,17 @@ export default function ResellerConferencePage() {
       resellerService.getResellerById(resellerId),
       resellerStockService.getAllResellerStockItems(resellerId),
       resellerStockService.getResellerSales({ resellerId }),
+      resellerStockService.getReturns({ resellerId }),
       // A origem "entregue" é apenas informativa para o rótulo "X de Y".
       // Falhar aqui não pode esconder a posse atual nem derrubar a conferência.
       resellerStockService.getDeliveries({ resellerId }).catch(() => [] as ResellerDelivery[]),
     ])
-      .then(async ([r, stock, salesList, deliveryList]) => {
+      .then(async ([r, stock, salesList, returnsList, deliveryList]) => {
         if (cancelled) return
         setReseller(r)
         setStockItems(stock)
         setSales(salesList)
+        setReturnsHistory(returnsList)
         setDeliveries(deliveryList)
         const productIds = Array.from(
           new Set(
@@ -326,6 +339,11 @@ export default function ResellerConferencePage() {
   }, [searchText, possessionItems])
 
   // Vendas já incluídas em um acerto anterior não podem ser cobradas de novo.
+  const lockedReturn = useMemo(() => {
+    if (!deliveryId) return null
+    return returnsHistory.find((item) => item.delivery_ref === deliveryId) || null
+  }, [deliveryId, returnsHistory])
+
   const unsettledSales = useMemo(
     () =>
       sales.filter(
@@ -504,6 +522,7 @@ export default function ResellerConferencePage() {
         notes: notes || undefined,
         commission_rate: commission ?? reseller.commission_rate ?? undefined,
         sale_ids: unsettledSales.map((sale) => sale.id),
+        delivery_id: deliveryId || undefined,
         payments: paymentDrafts
           .map((payment) => ({
             method: payment.method,
@@ -522,10 +541,54 @@ export default function ResellerConferencePage() {
       setPaymentDrafts([{ method: 'pix', amount: '', notes: '' }])
       setLeaveBalanceOpen(false)
       setConfirmAction(null)
-      const fresh = await resellerStockService.getAllResellerStockItems(reseller.id)
-      setStockItems(fresh)
+      navigate(`/revendedoras?reseller=${reseller.id}`)
+      return
     } catch (err: any) {
       toast.error(getBackendErrorMessage(err) || 'Erro ao salvar devolução.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const doSettlementPayment = async () => {
+    if (!lockedReturn) return
+    const amount = Math.max(0, Number(settlementAmount) || 0)
+    if (amount <= 0) {
+      toast.error('Informe um valor de pagamento maior que zero.')
+      return
+    }
+    if (amount > (lockedReturn.balance_due || 0) + 0.009) {
+      toast.error('O pagamento não pode ser maior que o saldo pendente.')
+      return
+    }
+    setIsSubmitting(true)
+    try {
+      const result = await resellerStockService.addSettlementPayment({
+        return_id: lockedReturn.id,
+        amount,
+        method: settlementMethod,
+      })
+      setReturnsHistory((current) =>
+        current.map((item) =>
+          item.id === lockedReturn.id
+            ? {
+                ...item,
+                total_paid: result.total_paid,
+                balance_due: result.balance_due,
+                financial_status: result.financial_status,
+              }
+            : item,
+        ),
+      )
+      setSettlementAmount('')
+      toast.success(
+        result.balance_due > 0
+          ? `Pagamento registrado. Saldo pendente: ${formatCurrency(result.balance_due)}`
+          : 'Acerto quitado com sucesso.',
+      )
+      if (result.balance_due === 0) navigate(`/revendedoras?reseller=${resellerId}`)
+    } catch (err: any) {
+      toast.error(getBackendErrorMessage(err) || 'Não foi possível registrar o pagamento.')
     } finally {
       setIsSubmitting(false)
     }
@@ -549,6 +612,61 @@ export default function ResellerConferencePage() {
           </Link>
           .
         </p>
+      </div>
+    )
+  }
+
+  if (lockedReturn) {
+    const isSettled = lockedReturn.financial_status === 'settled' || (lockedReturn.balance_due || 0) <= 0
+    return (
+      <div className="max-w-3xl mx-auto space-y-5 p-4 md:p-6">
+        <div className="border-b border-[#E5DFD5] pb-4">
+          <Link to={`/revendedoras?reseller=${resellerId}`} className="text-xs text-[#7A5C2E] font-medium flex items-center gap-1.5">
+            <ArrowLeft className="h-3.5 w-3.5" /> Voltar para a ficha da revendedora
+          </Link>
+          <h2 className="font-serif text-xl font-bold text-[#2D2A26] mt-2">Devolução — acerto registrado</h2>
+          <p className="text-xs text-[#6B655E] mt-1">
+            Esta devolução está bloqueada para preservar a auditoria. Apenas a quitação financeira pode ser incluída.
+          </p>
+        </div>
+        <div className="rounded-xl border border-[#E5DFD5] bg-white overflow-hidden">
+          <div className="px-4 py-3 bg-[#FDFBF7] border-b border-[#E5DFD5] text-xs flex justify-between gap-3">
+            <span><strong>Devolução {lockedReturn.code}</strong> · {new Date(lockedReturn.created).toLocaleString('pt-BR')}</span>
+            <span className={isSettled ? 'font-bold text-emerald-700' : 'font-bold text-amber-800'}>
+              {isSettled ? 'Quitada' : 'Pendência financeira'}
+            </span>
+          </div>
+          <div className="p-4 space-y-2 text-xs">
+            {(lockedReturn.items || []).map((item, index) => (
+              <div key={`${item.product_id}-${index}`} className="flex justify-between gap-3 border-b border-[#E5DFD5]/60 pb-2 last:border-0">
+                <span>{item.code} — {item.description}</span>
+                <span className="text-right">
+                  {item.returned_qty > 0 ? `Devolvida: ${item.returned_qty}` : ''}
+                  {item.pending_qty > 0 ? `${item.returned_qty > 0 ? ' · ' : ''}Extravio: ${item.pending_qty}` : ''}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-3 gap-3 p-4 bg-[#FDFBF7] border-t border-[#E5DFD5] text-xs">
+            <div>Devido<br /><strong>{formatCurrency(lockedReturn.total_financial_due || 0)}</strong></div>
+            <div>Pago<br /><strong>{formatCurrency(lockedReturn.total_paid || 0)}</strong></div>
+            <div>Pendente<br /><strong className="text-amber-800">{formatCurrency(lockedReturn.balance_due || 0)}</strong></div>
+          </div>
+        </div>
+        {!isSettled && (
+          <div className="rounded-xl border border-[#C6A664] bg-[#FDFBF7] p-4 space-y-3">
+            <p className="text-xs font-bold text-[#7A5C2E]">Registrar pagamento da pendência</p>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <select value={settlementMethod} onChange={(event) => setSettlementMethod(event.target.value as SettlementPaymentMethod)} className="h-9 rounded-md border border-[#E5DFD5] bg-white px-2 text-xs">
+                <option value="pix">Pix</option><option value="cash">Dinheiro</option><option value="credit_card">Cartão de crédito</option><option value="debit_card">Cartão de débito</option><option value="bank_transfer">Transferência</option><option value="other">Outro</option>
+              </select>
+              <Input type="number" min="0" step="0.01" placeholder="Valor recebido" value={settlementAmount} onChange={(event) => setSettlementAmount(event.target.value)} className="bg-white text-xs" />
+              <Button type="button" disabled={isSubmitting} onClick={doSettlementPayment} className="bg-[#7A5C2E] hover:bg-[#634923] text-white text-xs">
+                Registrar pagamento
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     )
   }
