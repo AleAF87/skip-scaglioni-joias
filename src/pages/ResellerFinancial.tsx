@@ -4,7 +4,7 @@ import pb from '@/lib/pocketbase/client'
 import { useAuth } from '@/contexts/AuthContext'
 import { resellerService } from '@/services/resellerService'
 import { resellerStockService } from '@/services/resellerStockService'
-import { Reseller, ResellerSale, ResellerIssue } from '@/types'
+import { Reseller, ResellerSale, ResellerIssue, ResellerReturn } from '@/types'
 import { formatCurrency, formatDateTime } from '@/lib/formatters'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
@@ -46,6 +46,8 @@ export function ResellerFinancialContent({
     pendingIssuesCount: number
     recentSales: ResellerSale[]
     pendingIssuesList: ResellerIssue[]
+    totalSettlementBalance: number
+    pendingSettlements: ResellerReturn[]
   } | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   // Venda selecionada na tabela "Últimas Vendas Realizadas no PDV" — abre modal com as peças
@@ -242,18 +244,18 @@ export function ResellerFinancialContent({
               </CardContent>
             </Card>
 
-            {/* 3. Pendências / Extravios */}
+            {/* 3. Saldo devedor dos acertos já registrados */}
             <Card className="border-amber-200 bg-amber-50/50 shadow-xs">
               <CardContent className="p-4 space-y-1">
                 <div className="flex items-center justify-between text-amber-800">
-                  <span className="text-xs font-semibold">Pendências / Extravios</span>
+                  <span className="text-xs font-semibold">Saldo devedor</span>
                   <AlertTriangle className="h-4 w-4" />
                 </div>
                 <div className="font-serif text-2xl font-bold text-amber-950">
-                  {formatCurrency(summary.totalPendingIssuesDue)}
+                  {formatCurrency(summary.totalSettlementBalance)}
                 </div>
                 <p className="text-[11px] text-amber-700">
-                  {summary.pendingIssuesCount} pendência(s) aguardando quitação
+                  {summary.pendingSettlements.length} acerto(s) aguardando quitação
                 </p>
               </CardContent>
             </Card>
@@ -274,6 +276,25 @@ export function ResellerFinancialContent({
               </CardContent>
             </Card>
           </div>
+
+          {summary.pendingSettlements.length > 0 && (
+            <Card className="border-amber-200 bg-white">
+              <CardHeader className="p-4 border-b border-amber-100 bg-amber-50/50">
+                <CardTitle className="font-serif text-base font-bold text-amber-900">
+                  Acertos pendentes
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0 divide-y divide-[#E5DFD5]">
+                {summary.pendingSettlements.map((ret) => (
+                  <div key={ret.id} className="p-3 text-xs flex flex-wrap justify-between gap-2">
+                    <span><strong>Devolução {ret.code}</strong> · {formatDateTime(ret.created)}</span>
+                    <span>Devido {formatCurrency(ret.total_financial_due || 0)} · Pago {formatCurrency(ret.total_paid || 0)}</span>
+                    <strong className="text-amber-800">Pendente {formatCurrency(ret.balance_due || 0)}</strong>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Breakdown Explanation */}
           <Card className="border-[#E5DFD5] bg-white">
