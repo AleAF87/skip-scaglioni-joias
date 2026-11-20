@@ -424,6 +424,7 @@ export interface ResellerReturn {
   commission_rate?: number
   // Código da entrega de origem (numeração pura, ex. "1") — v0.0.152
   delivery_code?: string
+  delivery_ref?: string
   total_financial_due?: number
   total_paid?: number
   balance_due?: number
@@ -448,6 +449,8 @@ export interface ResellerIssue {
   commission_rate: number
   scaglioni_due_total: number
   status: 'pending' | 'paid' | 'forgiven'
+  /** Verdadeiro quando o extravio foi incluído na cobrança. */
+  charged?: boolean
   paid_at?: string
   paid_notes?: string
   notes?: string
