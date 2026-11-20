@@ -703,6 +703,7 @@ routerAdd(
           : []
         const selectedSales = []
         let totalSalesDue = 0
+        let totalSoldQty = 0
         for (let i = 0; i < selectedSaleIds.length; i++) {
           const sale = txApp.findRecordById('reseller_sales', selectedSaleIds[i])
           if (
@@ -717,6 +718,10 @@ routerAdd(
           selectedSales.push(sale)
           const due = (sale.getFloat('total') * (100 - commissionRate)) / 100
           totalSalesDue += Math.round(due * 100) / 100
+          try {
+            const saleItems = JSON.parse(sale.getString('items') || '[]')
+            totalSoldQty += saleItems.reduce((total, item) => total + (parseInt(item.quantity, 10) || 0), 0)
+          } catch (_) {}
         }
 
         const paymentEntries = Array.isArray(payments) ? payments : []
@@ -736,6 +741,7 @@ routerAdd(
         returnRec.set('items', JSON.stringify(processedItems))
         returnRec.set('total_returned_qty', totalReturnedQty)
         returnRec.set('total_pending_qty', totalPendingQty)
+        returnRec.set('total_sold_qty', totalSoldQty)
         returnRec.set('total_pending_value_due', totalPendingValueDue)
         returnRec.set('commission_rate', commissionRate)
         returnRec.set('total_financial_due', totalFinancialDue)
