@@ -1,5 +1,3 @@
-Warning: truncated output (original token count: 29096)
-Total output lines: 2527
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'

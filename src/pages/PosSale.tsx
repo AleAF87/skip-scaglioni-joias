@@ -1,5 +1,3 @@
-Warning: truncated output (original token count: 29313)
-Total output lines: 2754
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { salesService } from '@/services/salesService'
