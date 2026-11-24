@@ -59,6 +59,7 @@ routerAdd(
         for (let i = 0; i < items.length; i++) {
           const it = items[i]
           const productId = it.product_id
+          const variationId = it.variation_id || ''
           const qty = parseInt(it.quantity, 10)
 
           if (!productId || isNaN(qty) || qty <= 0) {
@@ -67,6 +68,24 @@ routerAdd(
 
           const product = txApp.findRecordById('products', productId)
           const generalStock = product.getInt('quantity')
+
+          if (variationId) {
+            const variation = txApp.findRecordById('product_variations', variationId)
+            if (variation.getString('product') !== productId) {
+              throw new Error('A variação informada não pertence ao produto da entrega.')
+            }
+            const variationQty = variation.getInt('quantity') || 0
+            if (variationQty < qty) {
+              throw new Error('Estoque insuficiente para a variação selecionada (disponível: ' + variationQty + ').')
+            }
+            variation.set('quantity', variationQty - qty)
+            txApp.save(variation)
+          } else {
+            const vars = txApp.findRecordsByFilter('product_variations', "product = '" + productId + "'", '', 1, 0)
+            if (vars.length > 0) {
+              throw new Error('Este produto possui variações. Informe a variação específica para realizar a entrega.')
+            }
+          }
 
           if (generalStock < qty) {
             throw new Error(
@@ -119,7 +138,9 @@ routerAdd(
 
           processedItems.push({
             product_id: productId,
-            code: product.getString('code'),
+            variation_id: variationId || undefined,
+            variation_sku: it.variation_sku || undefined,
+            code: it.code || product.getString('code'),
             description: product.getString('description'),
             quantity: qty,
             selling_price: sellingPrice,
@@ -353,6 +374,7 @@ routerAdd(
         for (let i = 0; i < items.length; i++) {
           const it = items[i]
           const productId = it.product_id
+          const variationId = it.variation_id || ''
           const qtyToBuy = parseInt(it.quantity, 10)
 
           if (!productId || isNaN(qtyToBuy) || qtyToBuy <= 0) {
@@ -392,6 +414,23 @@ routerAdd(
           txApp.save(stockRec)
 
           const prod = txApp.findRecordById('products', productId)
+          if (variationId) {
+            const variation = txApp.findRecordById('product_variations', variationId)
+            if (variation.getString('product') !== productId) {
+              throw new Error('A variação informada não pertence ao produto da venda.')
+            }
+            const variationQty = variation.getInt('quantity') || 0
+            if (variationQty < qtyToBuy) {
+              throw new Error('Estoque insuficiente para a variação selecionada (disponível: ' + variationQty + ').')
+            }
+            variation.set('quantity', variationQty - qtyToBuy)
+            txApp.save(variation)
+          } else {
+            const vars = txApp.findRecordsByFilter('product_variations', "product = '" + productId + "'", '', 1, 0)
+            if (vars.length > 0) {
+              throw new Error('Este produto possui variações. Informe a variação específica para concluir a venda.')
+            }
+          }
           const unitPrice =
             parseFloat(it.unit_price) ||
             stockRec.getFloat('selling_price') ||
@@ -401,8 +440,10 @@ routerAdd(
 
           processedItems.push({
             product_id: productId,
-            code: prod.getString('code'),
-            description: prod.getString('description'),
+            variation_id: variationId || undefined,
+            variation_sku: it.variation_sku || undefined,
+            code: it.code || prod.getString('code'),
+            description: it.description || prod.getString('description'),
             quantity: qtyToBuy,
             unit_price: unitPrice,
             total: itemTotal,
