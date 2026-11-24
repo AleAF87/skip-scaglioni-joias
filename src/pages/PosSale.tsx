@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 29292)
+Total output lines: 2750
+
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { salesService } from '@/services/salesService'
 import { productService } from '@/services/productService'
@@ -15,7 +18,7 @@ import {
   getProductStockBreakdown,
   ResellerItemDetail,
 } from '@/services/totalStockService'
-import { isExactCodeMatch, matchesProductQuery } from '@/lib/barcodeSearch'
+import { getProductBarcodeValue, isExactCodeMatch, matchesProductQuery } from '@/lib/barcodeSearch'
 import { BarcodeScannerModal } from '@/components/pos/BarcodeScannerModal'
 import { useMemo } from 'react'
 import { filterCustomersLive, getMaskedCustomerLabel } from '@/lib/customerSearch'
@@ -483,6 +486,13 @@ export default function PosSale() {
 
   // Add product to cart
   const addToCart = (product: Product) => {
+    if (
+      !product.selected_variation_id &&
+      (product.expand?.['product_variations(product)'] || []).length > 0
+    ) {
+      toast.info('Este produto possui variações. Leia a etiqueta da variação específica.')
+      return
+    }
     const available = getProductAvailableStock(product)
     if (available <= 0) {
       toast.error('Produto esgotado no estoque.')
@@ -492,7 +502,9 @@ export default function PosSale() {
     const defaultSource = resolveDefaultOrigin(product)
 
     setCart((prev) => {
-      const existing = prev.find((item) => item.product_id === product.id)
+      const existing = prev.find(
+        (item) => item.product_id === product.id && item.variation_id === product.selected_variation_id,
+      )
       if (existing) {
         const maxQty = getMaxQtyForOrigin(
           product,
@@ -517,12 +529,14 @@ export default function PosSale() {
         ]
       } else {
         // Novo item entra na PRIMEIRA linha do carrinho (mais recente no topo).
-        const fullName = getProductFullName(product) || product.description
+        const fullName = getProductFullName(product, product.selected_variation) || product.description
         return [
           {
             cart_item_id: `${product.id}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
             product_id: product.id,
-            code: product.code,
+            code: getProductBarcodeValue(product),
+            variation_id: product.selected_variation_id,
+            variation_sku: product.selected_variation_sku,
             description: fullName,
             quantity: 1,
             unit_price: product.selling_price,
@@ -597,8 +611,10 @@ export default function PosSale() {
       const resolved = await productService.resolveBarcode(raw)
       if (resolved && resolved.matched && resolved.product) {
         // Encontra o produto correspondente no array em memória para ter relations e estoque atualizados
-        product =
-          products.find((p) => p.id === resolved.product!.id) || (resolved.product as Product)
+        product = {
+          ...(products.find((p) => p.id === resolved.product!.id) || {}),
+          ...(resolved.product as Product),
+        }
       } else if (
         resolved &&
         resolved.ambiguous &&
@@ -641,7 +657,9 @@ export default function PosSale() {
 
     // c) Se o produto já está listado na venda atual e não foi explicitamente confirmado pelo modal:
     // Retorna solicitação de confirmação para o scanner de câmera (smartphone)
-    const alreadyInCart = cart.some((item) => item.product_id === product.id)
+    const alreadyInCart = cart.some(
+      (item) => item.product_id === product.id && item.variation_id === product.selected_variation_id,
+    )
     if (alreadyInCart && !options?.forceDuplicate) {
       return {
         requiresDuplicateConfirmation: true,
@@ -651,12 +669,14 @@ export default function PosSale() {
 
     // d) Aprovado -> adicionar UM item à lista com linha individualizada
     const uniqueLineId = `${product.id}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
-    const fullName = getProductFullName(product) || product.description
+    const fullName = getProductFullName(product, product.selected_variation) || product.description
 
     const newItem: PosCartItem = {
       cart_item_id: uniqueLineId,
       product_id: product.id,
-      code: product.code,
+      code: getProductBarcodeValue(product),
+      variation_id: product.selected_variation_id,
+      variation_sku: product.selected_variation_sku,
       description: fullName,
       quantity: 1,
       unit_price: product.selling_price,
@@ -1094,758 +1114,7 @@ export default function PosSale() {
       setCart(items)
       setSelectedCustomerId(pSale.customer || '')
       setCustomerSearchQuery('')
-      setPaymentMethod(pSale.payment_method || 'pix')
-      setInstallments(pSale.installments || 1)
-      setDiscount(pSale.discount ? pSale.discount.toString() : '0')
-      setActivePendingSaleId(pSale.id)
-      setPendingModalOpen(false)
-      toast.info(`Venda retomada: ${pSale.code}`)
-    } catch (err) {
-      toast.error('Erro ao ler itens da venda pendente.')
-    }
-  }
-
-  // Complete Checkout (Atomic backend execution)
-  const handleCompleteSale = async () => {
-    if (cart.length === 0) {
-      toast.error('Adicione pelo menos um item ao carrinho.')
-      return
-    }
-
-    setIsProcessing(true)
-    try {
-      const itemsToCheckout = cart.map((item) => ({
-        product_id: item.product_id,
-        code: item.code,
-        description: item.description,
-        quantity: item.quantity,
-        unit_price: item.unit_price,
-        stock_origin: item.stock_origin || 'general',
-        reseller_id: item.reseller_id || undefined,
-        reseller_name: item.reseller_name || undefined,
-      }))
-
-      const result = await salesService.checkout({
-        customer_id: selectedCustomerId || undefined,
-        items: itemsToCheckout,
-        discount: discountVal,
-        payment_method: paymentMethod,
-        installments: paymentMethod === 'credit_card' ? installments : 1,
-        sale_id: activePendingSaleId || undefined,
-      })
-
-      const cust = customers.find((c) => c.id === selectedCustomerId)
-      const currentCart = [...cart]
-
-      setCompletedSale({
-        ...result,
-        items: currentCart,
-        customer: cust,
-        date: new Date().toISOString(),
-      })
-      setRecipientEmail(cust?.email || '')
-
-      // Verifica se houve itens vendidos de origem externa (e-commerce ou revendedora)
-      const externalItems = currentCart.filter(
-        (it) => it.stock_origin === 'ecommerce' || it.stock_origin === 'reseller',
-      )
-      if (externalItems.length > 0) {
-        setFulfillmentItems(externalItems)
-        setReminderModalOpen(true)
-      } else {
-        setReceiptModalOpen(true)
-      }
-
-      setActiveScreen('products')
-      toast.success('Venda concluída com sucesso! Estoque atualizado.')
-
-      resetSaleForm()
-      loadInitialData()
-      loadPendingSales()
-      loadRecentSales()
-    } catch (err: any) {
-      console.error('Erro ao concluir venda:', err)
-      const msg = err?.data?.error || err?.message || 'Falha ao processar venda.'
-      toast.error(msg)
-    } finally {
-      setIsProcessing(false)
-    }
-  }
-
-  const resetSaleForm = () => {
-    setCart([])
-    setSelectedCustomerId('')
-    setIsNoCustomerFound(false)
-    setCustomerSearchQuery('')
-    setDiscount('0')
-    setDiscountPercent('0')
-    setInstallments(1)
-    setPaymentMethod('pix')
-    setActivePendingSaleId(null)
-    setBarcodeOrSearch('')
-    setActiveScreen('products')
-  }
-
-  // Handle Save / Download Receipt as text/file
-  const handleDownloadReceipt = () => {
-    if (!completedSale) return
-    const textLines = [
-      '========================================',
-      '           SCAGLIONI JOIAS              ',
-      '      ALTA JOALHERIA & CONIGNAÇÃO       ',
-      '========================================',
-      `Venda: ${completedSale.code}`,
-      `Data: ${formatDateTime(completedSale.date)}`,
-      completedSale.customer
-        ? `Cliente: ${completedSale.customer.name}`
-        : 'Cliente: Consumidor Final',
-      '----------------------------------------',
-      'ITENS:',
-      ...completedSale.items.map(
-        (it: any) =>
-          `${it.quantity}x ${it.description} - R$ ${Number(it.total || it.unit_price * it.quantity).toFixed(2)}`,
-      ),
-      '----------------------------------------',
-      `Subtotal: R$ ${Number(completedSale.subtotal || 0).toFixed(2)}`,
-      completedSale.discount > 0
-        ? `Desconto: - R$ ${Number(completedSale.discount).toFixed(2)}`
-        : null,
-      `TOTAL PAGO: R$ ${Number(completedSale.total || 0).toFixed(2)}`,
-      `Forma: ${completedSale.payment_method.toUpperCase()}${completedSale.installments > 1 ? ` (${completedSale.installments}x)` : ''}`,
-      '========================================',
-      '    Obrigado pela preferência!          ',
-      '========================================',
-    ].filter(Boolean)
-
-    const blob = new Blob([textLines.join('\n')], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `comprovante-${completedSale.code}.txt`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(url)
-    toast.success('Comprovante salvo com sucesso!')
-  }
-
-  // Handle Send Receipt by Email
-  const handleSendEmailReceipt = async () => {
-    if (!completedSale) return
-    if (!recipientEmail || !recipientEmail.includes('@')) {
-      toast.warning('Informe um e-mail válido para enviar o comprovante.')
-      return
-    }
-
-    setIsSendingEmail(true)
-    try {
-      const res = await salesService.sendReceiptEmail({
-        email: recipientEmail.trim(),
-        customer_name: completedSale.customer?.name || 'Cliente',
-        sale_code: completedSale.code,
-        total: completedSale.total,
-        items: completedSale.items,
-        payment_method: completedSale.payment_method,
-        date: completedSale.date,
-      })
-
-      if (res.warning) {
-        toast.info(res.warning)
-      } else {
-        toast.success(res.message || 'Comprovante enviado com sucesso!')
-      }
-    } catch (err: any) {
-      console.error(err)
-      toast.error('Erro ao enviar comprovante: ' + (err.message || 'Falha de rede.'))
-    } finally {
-      setIsSendingEmail(false)
-    }
-  }
-
-  // Quick Customer Creation
-  const handleCreateCustomer = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!newCustName.trim()) return
-
-    try {
-      const cust = await salesService.createCustomer({
-        name: newCustName.trim(),
-        phone: newCustPhone.trim() || undefined,
-        email: newCustEmail.trim() || undefined,
-        cpf: newCustCpf.trim() || undefined,
-      })
-      toast.success('Cliente cadastrado!')
-      setCustomers((prev) => [...prev, cust])
-      setSelectedCustomerId(cust.id)
-      setCustomerSearchQuery(getMaskedCustomerLabel(cust))
-      setIsNoCustomerFound(false)
-      setIsCustomerDropdownOpen(false)
-      setNewCustomerModalOpen(false)
-      setNewCustName('')
-      setNewCustPhone('')
-      setNewCustEmail('')
-      setNewCustCpf('')
-    } catch (err) {
-      toast.error('Falha ao cadastrar cliente.')
-    }
-  }
-
-  return (
-    <div className="space-y-4 max-w-7xl mx-auto">
-      {/* Title Bar compacta para tela única */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#E5DFD5] pb-3">
-        <div className="flex items-center gap-2.5">
-          <span className="p-2 rounded-xl bg-gradient-to-tr from-[#7A5C2E]/20 to-[#C6A664]/30 text-[#7A5C2E] shadow-xs">
-            <ShoppingCart className="h-5 w-5" />
-          </span>
-          <div>
-            <h1 className="font-serif text-xl md:text-2xl font-bold text-[#2D2A26]">
-              Ponto de Venda (PDV)
-            </h1>
-            <p className="text-xs text-[#6B655E]">
-              {activeScreen === 'products'
-                ? 'Selecione produtos ou escaneie o código de barras'
-                : 'Conclua o pagamento e confirme a venda'}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {pendingSales.length > 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPendingModalOpen(true)}
-              className="border-[#B26A00] text-[#B26A00] hover:bg-[#B26A00]/10 font-semibold text-xs h-9"
-            >
-              <Clock className="h-3.5 w-3.5 mr-1" />
-              Pendentes ({pendingSales.length})
-            </Button>
-          )}
-
-          {activePendingSaleId && (
-            <Badge className="bg-[#B26A00] text-white text-xs">Retomando Venda</Badge>
-          )}
-        </div>
-      </div>
-
-      {/* Main Single-Screen PDV Container com efeito suave de virar página / flip container */}
-      <div className="relative overflow-hidden min-h-[560px] rounded-2xl">
-        {/* LADO A: Produtos & Carrinho */}
-        <div
-          className={`transition-all duration-500 ease-in-out ${
-            activeScreen === 'products'
-              ? 'opacity-100 scale-100 translate-x-0 relative z-10 pointer-events-auto'
-              : 'opacity-0 scale-95 -translate-x-full absolute inset-0 z-0 pointer-events-none'
-          }`}
-        >
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-            {/* Coluna Esquerda: Busca/Scanner + Tabela de Itens (8 colunas) */}
-            <div className="lg:col-span-8 space-y-3">
-              {/* Barcode / Search Box & Scanner Câmera */}
-              <Card className="border-[#E5DFD5] bg-white shadow-xs">
-                <CardContent className="p-3 space-y-2">
-                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                    <div className="relative flex-1">
-                      <Barcode
-                        className={`absolute left-3.5 top-2.5 h-5 w-5 ${isScannerArmed ? 'text-[#B8860B]' : 'text-[#B8B2A8]'}`}
-                      />
-                      <Input
-                        ref={barcodeInputRef}
-                        value={barcodeOrSearch}
-                        onChange={(e) => setBarcodeOrSearch(e.target.value)}
-                        onKeyDown={handleBarcodeKeyDown}
-                        placeholder={
-                          isScannerArmed
-                            ? 'Pronto para escanear — bipe o produto a qualquer momento...'
-                            : 'Clique para escanear'
-                        }
-                        readOnly={!isScannerArmed}
-                        className={`pl-11 h-10 text-sm font-medium transition-all duration-300 ${
-                          isScannerArmed
-                            ? 'border-2 border-[#C6A664] focus-visible:ring-[#C6A664] bg-[#FFFDF5] pdv-scan-armed'
-                            : 'border border-[#E5DFD5] bg-white text-[#8C8275]'
-                        }`}
-                      />
-                      {barcodeOrSearch && !isGlobalScanBusy && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setBarcodeOrSearch('')
-                            barcodeInputRef.current?.focus()
-                          }}
-                          className="absolute right-2 top-2 h-6 w-6 rounded-md text-[#7A5C2E] hover:bg-[#F3EAD8] flex items-center justify-center"
-                          title="Limpar código ou busca"
-                          aria-label="Limpar código ou busca"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      )}
-                      {isGlobalScanBusy && (
-                        <span className="absolute right-3 top-2.5 text-[11px] font-semibold text-[#7A5C2E]">
-                          lendo...
-                        </span>
-                      )}
-                    </div>
-
-                    <Button
-                      type="button"
-                      onClick={() => setScannerOpen(true)}
-                      className="h-10 px-3 bg-[#7A5C2E] hover:bg-[#634822] text-[#FDFBF7] font-medium text-xs flex items-center justify-center gap-2 shrink-0 shadow-xs"
-                      title="Abrir leitor de código de barras pela câmera do smartphone ou computador"
-                    >
-                      <ScanLine className="h-4 w-4" />
-                      <span>Ler código de barras</span>
-                    </Button>
-                  </div>
-
-                  {/* Autocomplete Dropdown preview com foto e badges */}
-                  {filteredProducts.length > 0 && (
-                    <div className="divide-y divide-[#E5DFD5] border border-[#E5DFD5] rounded-xl bg-[#FDFBF7] overflow-hidden shadow-sm max-h-60 overflow-y-auto">
-                      {filteredProducts.map((p) => {
-                        const photo = getProductDisplayPhoto(p)
-                        const hasPhoto = Boolean(photo)
-
-                        return (
-                          <div
-                            key={p.id}
-                            onClick={() => addToCart(p)}
-                            className="p-2 flex items-center justify-between hover:bg-[#F3EAD8] cursor-pointer transition-colors gap-3"
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <button
-                                type="button"
-                                onMouseDown={(e) => e.stopPropagation()}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  if (hasPhoto) handleOpenLightbox(p)
-                                }}
-                                disabled={!hasPhoto}
-                                className={`relative group h-9 w-9 rounded-lg bg-white border border-[#E5DFD5] shrink-0 overflow-hidden flex items-center justify-center ${
-                                  hasPhoto ? 'hover:border-[#C6A664]' : ''
-                                }`}
-                                title={hasPhoto ? 'Ampliar foto' : 'Sem foto'}
-                              >
-                                {photo ? (
-                                  <>
-                                    <img
-                                      src={photo}
-                                      alt={p.description}
-                                      className="h-full w-full object-cover group-hover:scale-105 transition-transform"
-                                    />
-                                    <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white">
-                                      <ZoomIn className="h-3 w-3" />
-                                    </div>
-                                  </>
-                                ) : (
-                                  <PackageCheck className="h-4 w-4 text-[#C6A664]" />
-                                )}
-                              </button>
-
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="font-mono text-xs font-bold text-[#7A5C2E]">
-                                    {p.code}
-                                  </span>
-                                  <span className="px-1.5 py-0.2 rounded bg-[#E5DFD5]/60 text-[10px] text-[#2D2A26]">
-                                    {p.expand?.type?.name || 'Joia'}
-                                  </span>
-                                  <span className="px-1.5 py-0.2 rounded bg-[#E5DFD5]/60 text-[10px] text-[#2D2A26]">
-                                    {p.expand?.material?.name || '—'}
-                                  </span>
-                                </div>
-                                {(() => {
-                                  const bk = getProductStockBreakdown(
-                                    p,
-                                    resellerStockMap.get(p.id) || [],
-                                  )
-                                  return (
-                                    <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
-                                      <span className="text-[11px] text-[#6B655E] font-medium">
-                                        Disp:{' '}
-                                        <strong>
-                                          {canSellFromExternal ? bk.total : bk.general}
-                                        </strong>
-                                      </span>
-                                      {bk.general > 0 && (
-                                        <Badge
-                                          variant="outline"
-                                          className="text-[9px] px-1 py-0 h-4 border-[#2E7D4F]/40 text-[#2E7D4F] bg-[#2E7D4F]/5"
-                                        >
-                                          Geral: {bk.general}
-                                        </Badge>
-                                      )}
-                                      {bk.reseller > 0 && (
-                                        <Badge
-                                          variant="outline"
-                                          className="text-[9px] px-1 py-0 h-4 border-[#B26A00]/40 text-[#B26A00] bg-[#FEF3C7]"
-                                        >
-                                          <Users className="h-2.5 w-2.5 mr-0.5" /> Revendedora:{' '}
-                                          {bk.reseller}
-                                        </Badge>
-                                      )}
-                                    </div>
-                                  )
-                                })()}
-                                <span className="text-xs font-medium text-[#2D2A26] block whitespace-normal break-words mt-0.5">
-                                  {getProductFullName(p)}
-                                </span>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-2 shrink-0">
-                              <span className="font-bold text-sm text-[#2E7D4F]">
-                                {formatCurrency(p.selling_price)}
-                              </span>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-7 w-7 p-0 text-[#7A5C2E]"
-                              >
-                                <Plus className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Cart Table com descrição completa sem truncar */}
-              <Card className="border-[#E5DFD5] bg-white shadow-xs overflow-hidden">
-                <CardHeader className="p-3 border-b border-[#E5DFD5] flex flex-row items-center justify-between">
-                  <CardTitle className="font-serif text-base text-[#2D2A26] flex items-center gap-2">
-                    <ShoppingCart className="h-4 w-4 text-[#7A5C2E]" />
-                    <span>Itens no Carrinho</span>
-                    <Badge variant="secondary" className="bg-[#F3EAD8] text-[#7A5C2E] ml-1">
-                      {cart.length}
-                    </Badge>
-                  </CardTitle>
-
-                  {cart.length > 0 && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setCart([])}
-                      className="text-xs text-[#B3261E] hover:bg-[#B3261E]/10 h-7 px-2"
-                    >
-                      <Trash2 className="h-3 w-3 mr-1" /> Limpar Carrinho
-                    </Button>
-                  )}
-                </CardHeader>
-
-                <div className="overflow-x-auto max-h-[360px] overflow-y-auto">
-                  <table className="w-full text-left border-collapse text-xs">
-                    <thead className="sticky top-0 bg-[#F3EAD8] text-[#2D2A26] border-b border-[#E5DFD5] font-semibold z-10">
-                      <tr>
-                        <th className="py-2.5 px-3">Código</th>
-                        <th className="py-2.5 px-3 min-w-[200px]">Categoria — Nome do produto</th>
-                        <th className="py-2.5 px-3 text-center">Qtd</th>
-                        <th className="py-2.5 px-3 text-right">Unitário</th>
-                        <th className="py-2.5 px-3 text-right">Subtotal</th>
-                        <th className="py-2.5 px-2 w-8 text-center"></th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#E5DFD5]">
-                      {cart.length === 0 ? (
-                        <tr>
-                          <td colSpan={6} className="py-12 text-center text-[#6B655E]">
-                            <ShoppingCart className="h-8 w-8 mx-auto text-[#C6A664] opacity-40 mb-2" />
-                            <p className="font-medium text-[#2D2A26] text-sm">Carrinho vazio</p>
-                            <p className="text-xs text-[#6B655E] mt-0.5">
-                              Busque joias ou escaneie o código de barras acima.
-                            </p>
-                          </td>
-                        </tr>
-                      ) : (
-                        cart.map((item, itemIdx) => {
-                          const itemKey = item.cart_item_id || `${item.product_id}_${itemIdx}`
-
-                          return (
-                            <tr key={itemKey} className="hover:bg-[#FDFBF7]">
-                              <td className="py-2 px-3 font-mono font-bold text-[#7A5C2E]">
-                                {item.code}
-                              </td>
-
-                              {/* Descrição completa sem truncamento + Badge de Origem */}
-                              <td className="py-2 px-3">
-                                <div className="space-y-1">
-                                  {(() => {
-                                    const prod = products.find((p) => p.id === item.product_id)
-                                    const photo =
-                                      item.photo || (prod ? getProductDisplayPhoto(prod) : null)
-                                    const hasPhoto = Boolean(photo)
-
-                                    return (
-                                      <div className="flex items-start gap-2.5">
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation()
-                                            if (prod && hasPhoto) handleOpenLightbox(prod)
-                                          }}
-                                          disabled={!hasPhoto || !prod}
-                                          className={`relative group h-10 w-10 rounded-lg bg-white border border-[#E5DFD5] shrink-0 overflow-hidden flex items-center justify-center ${
-                                            hasPhoto
-                                              ? 'hover:border-[#C6A664] cursor-pointer'
-                                              : 'cursor-default'
-                                          }`}
-                                          title={hasPhoto ? 'Ampliar foto da joia' : 'Sem foto'}
-                                        >
-                                          {hasPhoto ? (
-                                            <>
-                                              <img
-                                                src={photo!}
-                                                alt={item.description}
-                                                className="h-full w-full object-cover group-hover:scale-105 transition-transform"
-                                              />
-                                              <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white">
-                                                <ZoomIn className="h-3 w-3" />
-                                              </div>
-                                            </>
-                                          ) : (
-                                            <PackageCheck className="h-5 w-5 text-[#C6A664]" />
-                                          )}
-                                        </button>
-
-                                        <div className="pt-0.5">
-                                          <span className="font-medium text-[#2D2A26] whitespace-normal break-words block leading-relaxed">
-                                            {item.description}
-                                          </span>
-                                          {(() => {
-                                            const varBadge = prod
-                                              ? getProductVariationBadge(prod)
-                                              : null
-                                            if (!varBadge) return null
-                                            return (
-                                              <Badge
-                                                variant="outline"
-                                                className="mt-1 text-[10px] px-1.5 py-0 border-[#C6A664] text-[#7A5C2E] bg-[#FBF8F2] font-semibold"
-                                              >
-                                                Variação: {varBadge}
-                                              </Badge>
-                                            )
-                                          })()}
-                                        </div>
-                                      </div>
-                                    )
-                                  })()}
-
-                                  {/* Badge de origem (estoque único: sem E-commerce, sem seletor) */}
-                                  {item.stock_origin === 'reseller' && (
-                                    <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                                      <Badge className="text-[10px] px-1.5 py-0 bg-[#FEF3C7] text-[#B26A00] border border-[#B26A00]/40 hover:bg-[#FDE68A] font-bold flex items-center gap-1">
-                                        <Users className="h-3 w-3" />
-                                        <span>
-                                          Com Revendedora: {item.reseller_name || 'Designada'}
-                                        </span>
-                                      </Badge>
-                                    </div>
-                                  )}
-                                </div>
-                              </td>
-
-                              <td className="py-2 px-3 text-center">
-                                <div className="inline-flex items-center gap-1">
-                                  <button
-                                    type="button"
-                                    onClick={() => updateCartQty(itemKey, item.quantity - 1)}
-                                    className="h-6 w-6 rounded bg-[#F3EAD8] hover:bg-[#E5DFD5] flex items-center justify-center text-[#2D2A26]"
-                                  >
-                                    <Minus className="h-3 w-3" />
-                                  </button>
-                                  <span className="w-6 text-center font-bold text-[#2D2A26]">
-                                    {item.quantity}
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => updateCartQty(itemKey, item.quantity + 1)}
-                                    className="h-6 w-6 rounded bg-[#F3EAD8] hover:bg-[#E5DFD5] flex items-center justify-center text-[#2D2A26]"
-                                  >
-                                    <Plus className="h-3 w-3" />
-                                  </button>
-                                </div>
-                              </td>
-
-                              <td className="py-2 px-3 text-right text-[#6B655E]">
-                                {formatCurrency(item.unit_price)}
-                              </td>
-
-                              <td className="py-2 px-3 text-right font-bold text-[#2D2A26]">
-                                {formatCurrency(item.total)}
-                              </td>
-
-                              <td className="py-2 px-2 text-right">
-                                <button
-                                  type="button"
-                                  onClick={() => removeFromCart(itemKey)}
-                                  className="p-1 rounded text-[#B3261E] hover:bg-[#B3261E]/10"
-                                  title="Remover item"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </button>
-                              </td>
-                            </tr>
-                          )
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </Card>
-            </div>
-
-            {/* Coluna Direita: Resumo Rápido da Venda + Botões só com ícone (4 colunas) */}
-            <div className="lg:col-span-4 space-y-3">
-              {/* Cliente Rápido com Busca Interativa ao Vivo */}
-              <Card className="border-[#E5DFD5] bg-white shadow-xs">
-                <CardHeader className="p-3 pb-1">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-[11px] font-semibold text-[#6B655E] uppercase tracking-wider">
-                      Cliente
-                    </Label>
-                    <button
-                      type="button"
-                      onClick={() => setNewCustomerModalOpen(true)}
-                      className="text-xs font-semibold text-[#7A5C2E] hover:underline flex items-center gap-1"
-                    >
-                      <UserPlus className="h-3 w-3" /> Novo
-                    </button>
-                  </div>
-                </CardHeader>
-                <CardContent className="p-3 pt-1">
-                  <div ref={customerSearchContainerRef} className="relative">
-                    <div className="relative">
-                      <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-[#8C8275]" />
-                      <Input
-                        type="text"
-                        placeholder="Digite nome, CPF, e-mail ou telefone..."
-                        value={customerSearchQuery}
-                        onChange={(e) => {
-                          setCustomerSearchQuery(e.target.value)
-                          setIsCustomerDropdownOpen(true)
-                          if (selectedCustomerId) {
-                            setSelectedCustomerId('')
-                          }
-                          if (!e.target.value.trim()) {
-                            setIsNoCustomerFound(false)
-                          }
-                        }}
-                        onKeyDown={handleCustomerInputKeyDown}
-                        onFocus={() => setIsCustomerDropdownOpen(true)}
-                        className="pl-8 pr-7 h-9 text-xs border-[#E5DFD5] bg-white focus:ring-[#C6A664]"
-                      />
-                      {(customerSearchQuery || selectedCustomerId) && (
-                        <button
-                          type="button"
-                          onClick={clearCustomerSelection}
-                          className="absolute right-2 top-2.5 text-[#8C8275] hover:text-[#2D2A26]"
-                          title="Limpar cliente"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Lista suspensa filtrada ao vivo conforme digita (rolável) */}
-                    {isCustomerDropdownOpen && (
-                      <div className="absolute left-0 right-0 top-full mt-1 z-50 rounded-lg border border-[#E5DFD5] bg-white shadow-lg divide-y divide-[#E5DFD5]">
-                        <div
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={clearCustomerSelection}
-                          className={`p-2 text-xs cursor-pointer hover:bg-[#F3EAD8] transition-colors ${
-                            !selectedCustomerId
-                              ? 'bg-[#F3EAD8]/60 font-semibold text-[#7A5C2E]'
-                              : 'text-[#2D2A26]'
-                          }`}
-                        >
-                          Não informar cliente — Consumidor Final (Sem cadastro)
-                        </div>
-
-                        {/* Clientes filtrados ao vivo: nome, CPF, e-mail ou telefone */}
-                        {filteredCustomers.length === 0 ? (
-                          <div className="p-3 text-xs text-center text-[#8C8275]">
-                            {isNoCustomerFound
-                              ? 'Nenhum cliente encontrado com o que foi digitado.'
-                              : 'Nenhum cliente cadastrado ainda.'}{' '}
-                            <button
-                              type="button"
-                              onMouseDown={(e) => e.preventDefault()}
-                              onClick={() => {
-                                setIsCustomerDropdownOpen(false)
-                                setNewCustomerModalOpen(true)
-                              }}
-                              className="text-[#7A5C2E] underline font-semibold ml-1"
-                            >
-                              Cadastrar novo
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="max-h-48 overflow-y-auto">
-                            {filteredCustomers.map((c) => (
-                              <div
-                                key={c.id}
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => selectCustomer(c)}
-                                className={`p-2 text-xs cursor-pointer hover:bg-[#F3EAD8] transition-colors flex items-center justify-between ${
-                                  selectedCustomerId === c.id
-                                    ? 'bg-[#F3EAD8]/60 font-semibold text-[#7A5C2E]'
-                                    : 'text-[#2D2A26]'
-                                }`}
-                              >
-                                <div className="min-w-0 pr-2">
-                                  <div className="font-medium truncate">{c.name}</div>
-                                  <div className="text-[10px] text-[#6B655E] flex items-center gap-1.5 truncate">
-                                    {c.phone && <span>Tel: {formatPhone(c.phone)}</span>}
-                                    {c.cpf && <span>CPF: {formatCpf(c.cpf)}</span>}
-                                    {c.email && <span>{c.email}</span>}
-                                  </div>
-                                </div>
-                                {selectedCustomerId === c.id && (
-                                  <CheckCircle2 className="h-3.5 w-3.5 text-[#2E7D4F] shrink-0" />
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {selectedCustomerId ? (
-                    <div className="mt-1.5 flex items-center justify-between text-[11px] text-[#2E7D4F]">
-                      <span className="truncate">
-                        ✓ Cliente selecionado:{' '}
-                        <strong>{customers.find((c) => c.id === selectedCustomerId)?.name}</strong>
-                      </span>
-                    </div>
-                  ) : (
-                    <p className="mt-1 text-[10px] text-[#8C8275]">
-                      Consumidor Final (Sem cadastro)
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Resumo Financeiro */}
-              <Card className="border-[#C6A664] bg-gradient-to-br from-[#FFFFFF] to-[#FDFBF7] shadow-sm">
-                <CardContent className="p-4 space-y-3">
-                  <div className="space-y-1.5 border-b border-[#E5DFD5] pb-3 text-xs">
-                    <div className="flex justify-between text-[#6B655E]">
-                      <span>
-                        Subtotal ({cart.reduce((sum, it) => sum + it.quantity, 0)} itens):
-                      </span>
-                      <span>{formatCurrency(subtotal)}</span>
-                    </div>
-
-                    {/* Desconto R$ e Percentual sincronizados bidirecionalmente */}
-                    <div className="space-y-1 pt-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <Label htmlFor="disc" className="text-xs text-[#6B655E]">
-                          Desconto (R$):
-                        </Label>
+      setPayme…9292 tokens truncated…          </Label>
                         <Input
                           id="disc"
                           type="number"
