@@ -4,6 +4,7 @@
 // Sem zeros à esquerda: o código é gravado e exibido como número puro
 // Válido para TODOS os caminhos de criação (importadores Tecson/Scaglioni e produto manual),
 // independentemente de limpeza do banco.
+// A SKU e-commerce usa a NOVA REGRA compartilhada ($app_skuRule, products_sku_rule.js).
 // All helper logic is declared inline inside callbacks to avoid JSVM top-level scoping errors.
 
 // 1. Endpoint para preview do próximo código numérico sequencial (somente leitura / consulta prévia)
@@ -110,56 +111,31 @@ onRecordCreateRequest((e) => {
     if (rawCodTecson && /^\d+$/.test(rawCodTecson))
       record.set('codigo_barras_tecson', stripZeros(rawCodTecson))
 
-    // SKU alfabética do e-commerce (ex.: BRPFD01) — DISTINTA do código numérico.
-    // Regra do usuário: iniciais de CADA palavra do nome completo + contador de
-    // 2 dígitos por grupo de iniciais, começando em 01, incrementando quando um
-    // novo produto tem as mesmas iniciais. Se o chamador já enviou um
-    // sku_ecommerce explícito (ex.: importador com SKU da planilha), preserva.
-    const genEcommerceSku = () => {
-      const rawName =
-        (record.getString('nome_produto') || '').trim() ||
-        (record.getString('description') || '').trim()
-      if (!rawName) return
-
-      // Remove acentos e mantém apenas letras; pega a 1ª letra de cada palavra
-      const asciiName = rawName
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .toUpperCase()
-      const words = asciiName.split(/[^A-Z]+/).filter(Boolean)
-      if (words.length === 0) return
-
-      let prefix = ''
-      for (let w = 0; w < words.length; w++) {
-        prefix += words[w].charAt(0)
-        if (prefix.length >= 8) break
-      }
-      if (!prefix) return
-
-      // Procura o próximo contador de 2 dígitos livre para este grupo de iniciais
-      let n = 1
-      while (n < 100) {
-        const candidate = prefix + String(n).padStart(2, '0')
-        let occupied = false
-        try {
-          $app.findFirstRecordByFilter('products', "sku_ecommerce = '" + candidate + "'")
-          occupied = true
-        } catch (_) {}
-        if (!occupied) {
-          record.set('sku_ecommerce', candidate)
-          console.log('SKU e-commerce gerada por iniciais:', candidate)
-          return
-        }
-        n++
-      }
-      // Não achou livre em 99 tentativas: deixa vazio (o índice único ignora '')
-      console.log('Não foi possível gerar SKU e-commerce livre para prefixo:', prefix)
-    }
-
+    // SKU alfabética do e-commerce — NOVA REGRA (v0.0.215):
+    // TIPO (2 letras) + METAL (2 letras) + inicial de cada palavra do NOME LIVRE
+    // + numerador de 2 dígitos por combinação repetida, começando em 01.
+    // Ex.: BRINCO + OURO + "Liso com pedras vermelhas" -> BROULCPV01.
+    // Se o chamador já enviou um sku_ecommerce explícito (ex.: importador com
+    // SKU da planilha), preserva. Dicas de tipo/metal/nome livre podem vir nos
+    // campos internos sku_ecommerce_*_hint (nunca persistidos — zerados abaixo).
     const incomingEcommerceSku = (record.getString('sku_ecommerce') || '').trim()
     if (!incomingEcommerceSku) {
-      genEcommerceSku()
+      const tipoHint = record.getString('sku_ecommerce_tipo_hint') || ''
+      const metalHint = record.getString('sku_ecommerce_metal_hint') || ''
+      const nomeLivreHint = record.getString('sku_ecommerce_nome_livre_hint') || ''
+      const skuGerada = $app_skuRule.generateForRecord(
+        record,
+        tipoHint,
+        metalHint,
+        nomeLivreHint,
+        $app,
+      )
+      console.log('SKU e-commerce gerada pela nova regra:', skuGerada || '(não gerada)')
     }
+    // Hints nunca persistem no banco
+    record.set('sku_ecommerce_tipo_hint', '')
+    record.set('sku_ecommerce_metal_hint', '')
+    record.set('sku_ecommerce_nome_livre_hint', '')
 
     const incomingSkuNovo = (record.getString('sku_novo') || '').trim()
     const incomingCode = (record.getString('code') || '').trim()
