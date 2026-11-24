@@ -1114,7 +1114,590 @@ export default function PosSale() {
         ? pSale.items
         : JSON.parse((pSale.items as any) || '[]')
       setCart(items)
-      setSelect…9313 tokens truncated…          </Label>
+      setSelectedCustomerId(pSale.customer || '')
+      setCustomerSearchQuery(
+        pSale.expand?.customer ? getMaskedCustomerLabel(pSale.expand.customer) : '',
+      )
+      setPaymentMethod((pSale.payment_method as 'pix' | 'cash' | 'credit_card' | 'debit_card') || 'pix')
+      setInstallments(pSale.installments || 1)
+      setDiscount(String(pSale.discount || 0))
+      setDiscountPercent(
+        pSale.subtotal > 0 && pSale.discount > 0
+          ? ((pSale.discount / pSale.subtotal) * 100).toFixed(2).replace(/\.00$/, '')
+          : '0',
+      )
+      setActivePendingSaleId(pSale.id)
+      setPendingModalOpen(false)
+      setActiveScreen('products')
+      toast.success(
+        `Venda pendente ${pSale.code} retomada. Conclua o pagamento ou atualize a reserva.`,
+      )
+    } catch (err: any) {
+      toast.error('Erro ao retomar venda pendente: ' + (err.message || ''))
+    }
+  }
+
+  // Concluir a venda: checkout atômico via hook do backend (baixa estoque e grava a venda)
+  const handleCompleteSale = async () => {
+    if (cart.length === 0) {
+      toast.error('O carrinho está vazio.')
+      return
+    }
+
+    setIsProcessing(true)
+    try {
+      const result = await salesService.checkout({
+        customer_id: selectedCustomerId || undefined,
+        items: cart.map((item) => ({
+          product_id: item.product_id,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          code: item.code,
+          description: item.description,
+          stock_origin: item.stock_origin,
+          reseller_id: item.reseller_id,
+          reseller_name: item.reseller_name,
+        })),
+        discount: discountVal,
+        payment_method: paymentMethod,
+        installments,
+        sale_id: activePendingSaleId || undefined,
+      })
+
+      const completed = {
+        ...result,
+        items: cart,
+        customer: customers.find((c) => c.id === selectedCustomerId) || null,
+        date: new Date().toISOString(),
+      }
+      setCompletedSale(completed)
+      const selectedCustomer = customers.find((c) => c.id === selectedCustomerId)
+      setRecipientEmail((selectedCustomer as any)?.email || '')
+
+      // Itens baixados do mostruário de revendedora geram lembrete de separação/recolhimento
+      const externalItems = cart.filter((i) => i.stock_origin === 'reseller')
+      if (externalItems.length > 0) {
+        setFulfillmentItems(externalItems)
+        setReminderModalOpen(true)
+      } else {
+        setReceiptModalOpen(true)
+      }
+
+      resetSaleForm()
+      loadPendingSales()
+      loadRecentSales()
+      loadInitialData()
+    } catch (err: any) {
+      toast.error('Erro ao concluir a venda: ' + (err?.message || 'tente novamente.'))
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  const resetSaleForm = () => {
+    setCart([])
+    setBarcodeOrSearch('')
+    setSelectedCustomerId('')
+    setCustomerSearchQuery('')
+    setIsCustomerDropdownOpen(false)
+    setIsNoCustomerFound(false)
+    setPaymentMethod('pix')
+    setInstallments(1)
+    setDiscount('0')
+    setDiscountPercent('0')
+    setActivePendingSaleId(null)
+    setActiveScreen('products')
+  }
+
+  // Baixar o comprovante da venda como arquivo de texto
+  const handleDownloadReceipt = () => {
+    if (!completedSale) return
+    const lines = [
+      'SCAGLIONI JOIAS',
+      `Venda: ${completedSale.code}`,
+      `Data: ${formatDateTime(completedSale.date)}`,
+      completedSale.customer
+        ? `Cliente: ${completedSale.customer.name}`
+        : 'Cliente: Consumidor Final',
+      '',
+      ...completedSale.items.map(
+        (item: any) => `${item.quantity}x ${item.description} - ${formatCurrency(item.total)}`,
+      ),
+      '',
+      `Subtotal: ${formatCurrency(completedSale.subtotal)}`,
+      completedSale.discount > 0 ? `Desconto: - ${formatCurrency(completedSale.discount)}` : '',
+      `TOTAL: ${formatCurrency(completedSale.total)}`,
+      `Pagamento: ${String(completedSale.payment_method).toUpperCase()}${
+        completedSale.installments > 1 ? ` (${completedSale.installments}x)` : ''
+      }`,
+      '',
+      'Obrigado pela preferência!',
+    ].filter(Boolean)
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `comprovante-${completedSale.code}.txt`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
+  // Enviar o comprovante por e-mail (hook send-receipt no backend)
+  const handleSendEmailReceipt = async () => {
+    if (!completedSale) return
+    const email = recipientEmail.trim()
+    if (!email) {
+      toast.error('Informe o e-mail do cliente para enviar o comprovante.')
+      return
+    }
+    setIsSendingEmail(true)
+    try {
+      const res = await salesService.sendReceiptEmail({
+        email,
+        customer_name: completedSale.customer?.name || 'Consumidor Final',
+        sale_code: completedSale.code,
+        total: completedSale.total,
+        items: completedSale.items,
+        payment_method: completedSale.payment_method,
+        date: completedSale.date,
+      })
+      if (res.success) {
+        toast.success('Comprovante enviado por e-mail com sucesso!')
+      } else {
+        toast.error(res.message || 'Não foi possível enviar o comprovante.')
+      }
+    } catch (err: any) {
+      toast.error('Erro ao enviar o comprovante: ' + (err.message || ''))
+    } finally {
+      setIsSendingEmail(false)
+    }
+  }
+
+  // Cadastro rápido de cliente direto do PDV
+  const handleCreateCustomer = async (e: React.FormEvent) => {
+    e.preventDefault()
+    try {
+      const created = await salesService.createCustomer({
+        name: newCustName.trim(),
+        phone: formatPhone(newCustPhone.trim()) || undefined,
+        email: newCustEmail.trim() || undefined,
+        cpf: formatCpf(newCustCpf.trim()) || undefined,
+      } as Partial<Customer>)
+      setCustomers((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)))
+      selectCustomer(created)
+      setNewCustomerModalOpen(false)
+      setNewCustName('')
+      setNewCustPhone('')
+      setNewCustEmail('')
+      setNewCustCpf('')
+      toast.success('Cliente cadastrado com sucesso!')
+    } catch (err: any) {
+      toast.error('Erro ao cadastrar cliente: ' + (err.message || ''))
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-[#F7F4EF]">
+      <div className="max-w-7xl mx-auto p-4 space-y-4">
+        {/* Cabeçalho do PDV */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span className="p-2.5 rounded-xl bg-[#C6A664]/15 text-[#7A5C2E]">
+              <ShoppingCart className="h-6 w-6" />
+            </span>
+            <div>
+              <h1 className="font-serif text-2xl font-bold text-[#2D2A26]">Frente de Caixa (PDV)</h1>
+              <p className="text-xs text-[#6B655E]">
+                Bipe o código de barras ou busque a joia para iniciar a venda.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setPendingModalOpen(true)}
+              className="border-[#B26A00] text-[#B26A00] hover:bg-[#FEF3C7]/50 text-xs h-9"
+            >
+              <Clock className="h-4 w-4 mr-1.5" />
+              Pendentes ({pendingSales.length})
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={resetSaleForm}
+              disabled={cart.length === 0 && !activePendingSaleId}
+              className="border-[#E5DFD5] text-[#6B655E] hover:bg-[#FDFBF7] text-xs h-9"
+            >
+              <RotateCcw className="h-4 w-4 mr-1.5" />
+              Nova Venda
+            </Button>
+            <Button
+              type="button"
+              onClick={() => setScannerOpen(true)}
+              className="bg-[#7A5C2E] hover:bg-[#634A24] text-white text-xs h-9"
+            >
+              <ScanLine className="h-4 w-4 mr-1.5" />
+              Ler com a Câmera
+            </Button>
+          </div>
+        </div>
+
+        {isGlobalScanBusy && (
+          <div className="flex items-center gap-2 text-xs font-semibold text-[#7A5C2E] bg-[#C6A664]/10 border border-[#C6A664]/30 rounded-lg px-3 py-2 w-fit">
+            <Sparkles className="h-4 w-4 animate-pulse" />
+            Lendo código de barras...
+          </div>
+        )}
+
+        {/* Container do efeito 'virar página' entre lista de produtos e pagamento */}
+        <div className="relative overflow-hidden">
+          {/* LADO A: Lista de produtos + carrinho */}
+          <div
+            className={`transition-all duration-500 ease-in-out ${
+              activeScreen === 'products'
+                ? 'opacity-100 scale-100 translate-x-0 relative z-10 pointer-events-auto'
+                : 'opacity-0 scale-95 -translate-x-full absolute inset-0 z-0 pointer-events-none'
+            }`}
+          >
+            <div className="grid lg:grid-cols-[1fr_360px] gap-4 items-start">
+              {/* Coluna esquerda: busca e carrinho */}
+              <div className="space-y-3">
+                {/* Busca por código de barras / texto */}
+                <Card className="border-[#E5DFD5] bg-white shadow-xs">
+                  <CardContent className="p-3 space-y-3">
+                    <div className="relative">
+                      <Barcode className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#8C8275]" />
+                      <Input
+                        ref={barcodeInputRef}
+                        value={barcodeOrSearch}
+                        onChange={(e) => setBarcodeOrSearch(e.target.value)}
+                        onKeyDown={handleBarcodeKeyDown}
+                        placeholder="Bipe o código de barras ou digite código / nome da joia..."
+                        className="pl-9 pr-9 h-11 border-[#E5DFD5]"
+                      />
+                      {barcodeOrSearch && (
+                        <button
+                          type="button"
+                          onClick={() => setBarcodeOrSearch('')}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8C8275] hover:text-[#B3261E]"
+                          aria-label="Limpar busca"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+
+                    {barcodeOrSearch.trim() &&
+                      (filteredProducts.length === 0 ? (
+                        <p className="text-xs text-[#8C8275] text-center py-2">
+                          Nenhuma joia encontrada com "{barcodeOrSearch}".
+                        </p>
+                      ) : (
+                        <div className="divide-y divide-[#E5DFD5]/70 border border-[#E5DFD5] rounded-xl overflow-hidden max-h-72 overflow-y-auto">
+                          {filteredProducts.map((p) => {
+                            const available = getProductAvailableStock(p)
+                            return (
+                              <div
+                                key={p.id}
+                                className="p-2.5 flex items-center gap-3 hover:bg-[#FDFBF7]"
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenLightbox(p, 0)}
+                                  className="relative shrink-0 group"
+                                  title="Ampliar foto"
+                                >
+                                  <img
+                                    src={getProductDisplayPhoto(p) || undefined}
+                                    alt={p.description}
+                                    className="h-12 w-12 rounded-lg object-cover border border-[#E5DFD5] bg-[#FDFBF7]"
+                                  />
+                                  <span className="absolute inset-0 rounded-lg bg-black/0 group-hover:bg-black/30 flex items-center justify-center transition-colors">
+                                    <ZoomIn className="h-4 w-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                                  </span>
+                                </button>
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-xs font-semibold text-[#2D2A26] truncate">
+                                    {getProductFullName(p, p.selected_variation) || p.description}
+                                  </p>
+                                  <p className="text-[10px] text-[#6B655E] font-mono">
+                                    {p.code}
+                                    {getProductVariationBadge(p)
+                                      ? ` · ${getProductVariationBadge(p)}`
+                                      : ''}
+                                  </p>
+                                </div>
+                                <div className="text-right shrink-0">
+                                  <span className="text-xs font-bold text-[#2D2A26] block">
+                                    {formatCurrency(p.selling_price)}
+                                  </span>
+                                  <span
+                                    className={`text-[10px] ${
+                                      available > 0 ? 'text-[#2E7D4F]' : 'text-[#B3261E]'
+                                    }`}
+                                  >
+                                    {available} em estoque
+                                  </span>
+                                </div>
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  disabled={available <= 0}
+                                  onClick={() => addToCart(p)}
+                                  className="h-8 w-8 min-w-8 bg-[#7A5C2E] hover:bg-[#634A24] text-white rounded-lg"
+                                  title="Adicionar ao carrinho"
+                                >
+                                  <Plus className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      ))}
+
+                    {barcodeOrSearch.trim() && filteredProducts.length > 0 && (
+                      <p className="text-[10px] text-[#8C8275] text-center">
+                        {filteredProducts.length} joia(s) encontrada(s) — clique no + para adicionar
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Carrinho da venda */}
+                <Card className="border-[#E5DFD5] bg-white shadow-xs">
+                  <CardHeader className="p-3 pb-2 border-b border-[#E5DFD5]">
+                    <CardTitle className="font-serif text-xs font-bold text-[#2D2A26] flex items-center gap-1.5">
+                      <ShoppingCart className="h-3.5 w-3.5 text-[#7A5C2E]" />
+                      <span>Itens da Venda</span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-3 pt-2">
+                    {cart.length === 0 ? (
+                      <div className="text-center py-10 space-y-2">
+                        <Sparkles className="h-8 w-8 text-[#C6A664] mx-auto" />
+                        <p className="text-sm font-semibold text-[#2D2A26]">Carrinho vazio</p>
+                        <p className="text-xs text-[#8C8275]">
+                          Bipe um código de barras ou busque a joia acima para começar.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {cart.map((item) => {
+                          const key = item.cart_item_id || item.product_id
+                          const prod = products.find((p) => p.id === item.product_id)
+                          return (
+                            <div
+                              key={key}
+                              className="p-2.5 rounded-xl border border-[#E5DFD5] bg-[#FDFBF7] flex items-start gap-3"
+                            >
+                              <button
+                                type="button"
+                                onClick={() => prod && handleOpenLightbox(prod, 0)}
+                                className="relative shrink-0 group"
+                                title="Ampliar foto"
+                              >
+                                <img
+                                  src={
+                                    item.photo || (prod ? getProductDisplayPhoto(prod) : '') || undefined
+                                  }
+                                  alt={item.description}
+                                  className="h-14 w-14 rounded-lg object-cover border border-[#E5DFD5] bg-white"
+                                />
+                                <span className="absolute inset-0 rounded-lg bg-black/0 group-hover:bg-black/30 flex items-center justify-center transition-colors">
+                                  <ZoomIn className="h-4 w-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                                </span>
+                              </button>
+
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs font-semibold text-[#2D2A26] line-clamp-2">
+                                  {item.description}
+                                </p>
+                                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                  <span className="text-[10px] text-[#6B655E] font-mono">
+                                    {item.code}
+                                  </span>
+                                  {item.stock_origin === 'reseller' ? (
+                                    <Badge className="bg-[#FEF3C7] text-[#B26A00] border border-[#B26A00]/30 text-[9px] px-1 py-0 h-4 flex items-center gap-1">
+                                      <Users className="h-2.5 w-2.5" />
+                                      {item.reseller_name || 'Revendedora'}
+                                    </Badge>
+                                  ) : item.stock_origin === 'ecommerce' ? (
+                                    <Badge className="bg-[#E0F2FE] text-[#0369A1] border border-[#0369A1]/30 text-[9px] px-1 py-0 h-4 flex items-center gap-1">
+                                      <Globe className="h-2.5 w-2.5" />
+                                      E-commerce
+                                    </Badge>
+                                  ) : (
+                                    <Badge className="bg-[#F3EAD8] text-[#7A5C2E] border border-[#7A5C2E]/30 text-[9px] px-1 py-0 h-4 flex items-center gap-1">
+                                      <Building2 className="h-2.5 w-2.5" />
+                                      Loja
+                                    </Badge>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center justify-between mt-2">
+                                  <div className="flex items-center gap-1.5">
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="icon"
+                                      onClick={() => updateCartQty(key, item.quantity - 1)}
+                                      className="h-7 w-7 min-w-7 border-[#E5DFD5] text-[#6B655E]"
+                                      title="Diminuir quantidade"
+                                    >
+                                      <Minus className="h-3 w-3" />
+                                    </Button>
+                                    <span className="text-xs font-bold text-[#2D2A26] w-6 text-center">
+                                      {item.quantity}
+                                    </span>
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="icon"
+                                      onClick={() => updateCartQty(key, item.quantity + 1)}
+                                      className="h-7 w-7 min-w-7 border-[#E5DFD5] text-[#6B655E]"
+                                      title="Aumentar quantidade"
+                                    >
+                                      <Plus className="h-3 w-3" />
+                                    </Button>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm font-bold text-[#2D2A26]">
+                                      {formatCurrency(item.total)}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => removeFromCart(key)}
+                                      className="p-1 text-[#8C8275] hover:text-[#B3261E] hover:bg-[#FEE2E2]/60 rounded transition-colors"
+                                      title="Remover item"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Coluna direita: cliente, resumo e ações de checkout */}
+              <div className="space-y-3">
+                {/* Cliente da venda */}
+                <Card className="border-[#E5DFD5] bg-white shadow-xs">
+                  <CardHeader className="p-3 pb-2 border-b border-[#E5DFD5]">
+                    <CardTitle className="font-serif text-xs font-bold text-[#2D2A26] flex items-center gap-1.5">
+                      <FileText className="h-3.5 w-3.5 text-[#7A5C2E]" />
+                      <span>Cliente</span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-3 pt-2">
+                    <div className="space-y-2" ref={customerSearchContainerRef}>
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#8C8275]" />
+                        <Input
+                          value={customerSearchQuery}
+                          onChange={(e) => {
+                            setCustomerSearchQuery(e.target.value)
+                            setSelectedCustomerId('')
+                            setIsCustomerDropdownOpen(true)
+                          }}
+                          onFocus={() => setIsCustomerDropdownOpen(true)}
+                          onKeyDown={handleCustomerInputKeyDown}
+                          placeholder="Nome, CPF, e-mail ou telefone..."
+                          className="pl-9 pr-8 h-10 text-xs border-[#E5DFD5]"
+                        />
+                        {(selectedCustomerId || customerSearchQuery) && (
+                          <button
+                            type="button"
+                            onClick={clearCustomerSelection}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8C8275] hover:text-[#B3261E]"
+                            title="Limpar cliente (Consumidor Final)"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+
+                      {isCustomerDropdownOpen && customerSearchQuery.trim() && (
+                        <div className="border border-[#E5DFD5] rounded-xl overflow-hidden bg-white max-h-56 overflow-y-auto shadow-sm">
+                          {filteredCustomers.length === 0 ? (
+                            <p className="p-3 text-xs text-[#8C8275] text-center">
+                              Nenhum cliente encontrado.
+                            </p>
+                          ) : (
+                            filteredCustomers.map((c) => (
+                              <button
+                                key={c.id}
+                                type="button"
+                                onClick={() => selectCustomer(c)}
+                                className="w-full text-left px-3 py-2 hover:bg-[#FDFBF7] border-b border-[#E5DFD5]/60 last:border-0"
+                              >
+                                <span className="text-xs font-semibold text-[#2D2A26] block truncate">
+                                  {c.name}
+                                </span>
+                                <span className="text-[10px] text-[#6B655E]">
+                                  {[formatCpf((c as any).cpf || ''), formatPhone((c as any).phone || '')]
+                                    .filter(Boolean)
+                                    .join(' · ') || 'Sem documento/telefone'}
+                                </span>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
+
+                      {isNoCustomerFound && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => setNewCustomerModalOpen(true)}
+                          className="w-full border-[#7A5C2E] text-[#7A5C2E] hover:bg-[#F3EAD8] text-xs h-9"
+                        >
+                          <UserPlus className="h-4 w-4 mr-1.5" />
+                          Cadastrar novo cliente
+                        </Button>
+                      )}
+
+                      {!selectedCustomerId && (
+                        <p className="text-[10px] text-[#8C8275] text-center">
+                          Sem cliente selecionado = Consumidor Final
+                        </p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Resumo da venda (subtotal, desconto, total e ações de checkout) */}
+                <Card className="border-[#E5DFD5] bg-white shadow-xs">
+                  <CardHeader className="p-3 pb-2 border-b border-[#E5DFD5]">
+                    <CardTitle className="font-serif text-xs font-bold text-[#2D2A26] flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <PackageCheck className="h-3.5 w-3.5 text-[#7A5C2E]" />
+                        <span>Resumo da Venda</span>
+                      </span>
+                      <Badge variant="outline" className="text-[10px] font-normal text-[#6B655E]">
+                        {cart.length} {cart.length === 1 ? 'item' : 'itens'}
+                      </Badge>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-3 pt-2 space-y-3">
+                    <div className="flex justify-between items-baseline">
+                      <span className="text-xs text-[#6B655E]">Subtotal:</span>
+                      <span className="font-serif text-lg font-bold text-[#2D2A26]">
+                        {formatCurrency(subtotal)}
+                      </span>
+                    </div>
+
+                    <div className="space-y-2 pt-2 border-t border-[#E5DFD5]/60">
+                      <div className="flex items-center justify-between gap-2">
+                        <Label htmlFor="disc" className="text-xs text-[#6B655E]">
+                          Desconto (R$):          </Label>
                         <Input
                           id="disc"
                           type="number"
