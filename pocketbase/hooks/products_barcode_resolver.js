@@ -31,16 +31,35 @@ routerAdd(
       fornecedor: record.getString('fornecedor'),
     })
 
+    // Normalização tolerante para comparação: minúsculas, sem acentos,
+    // espaços/traços/underscores colapsados em um único espaço.
+    const normalizeForCompare = (s) =>
+      String(s)
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[\s\-_]+/g, ' ')
+        .trim()
+
     const resolveInDb = (rawInput) => {
+      // Normaliza espaços múltiplos e também aceita hífen/underscore como
+      // separador quando o prefixo é numérico (ex.: "1106-V1" = "1106 V1").
       const normalized = String(rawInput).trim().replace(/\s+/g, ' ')
-      const firstSpace = normalized.indexOf(' ')
       let numPart = normalized
       let varPart = ''
 
-      if (firstSpace !== -1) {
-        numPart = normalized.slice(0, firstSpace).trim()
-        varPart = normalized.slice(firstSpace + 1).trim()
+      const spaceSplit = normalized.indexOf(' ')
+      if (spaceSplit !== -1) {
+        numPart = normalized.slice(0, spaceSplit).trim()
+        varPart = normalized.slice(spaceSplit + 1).trim()
+      } else {
+        const hyphenSplit = normalized.match(/^(\d+)[\-_](.+)$/)
+        if (hyphenSplit) {
+          numPart = hyphenSplit[1].trim()
+          varPart = hyphenSplit[2].trim()
+        }
       }
+      const varPartNorm = normalizeForCompare(varPart)
 
       const cleanNum = numPart.replace(/^0+/, '') || (numPart ? '0' : '')
       const fullBarcodeClean = varPart ? cleanNum + ' ' + varPart : cleanNum
@@ -99,17 +118,37 @@ routerAdd(
             try {
               attrs = JSON.parse(manual.getString('attributes') || '{}')
             } catch (_) {}
-            const values = Object.keys(attrs).map((k) => String(attrs[k]).trim())
-            const label = values.join(' / ') || manual.getString('sku')
-            const fullCode = (cleanNum + ' ' + label).trim().toLowerCase()
-            if (
-              label.toLowerCase() === varPart.toLowerCase() ||
-              fullCode === fullBarcodeClean.toLowerCase() ||
-              manual.getString('sku').toLowerCase() === fullBarcodeClean.toLowerCase()
-            ) {
+            // Rótulo canônico no MESMO formato impresso na etiqueta
+            // (formatVariationAttributeLabel): "Chave Valor" por atributo,
+            // " / " entre atributos. Ex.: {"Tamanho":"p"} -> "Tamanho p".
+            const entries = Object.keys(attrs)
+              .filter((k) => String(attrs[k]).trim() !== '')
+              .map((k) => [String(k).trim(), String(attrs[k]).trim()])
+            const labelValue = entries.map((en) => en[1]).join(' / ')
+            const labelKv = entries
+              .map((en) => {
+                const keyNorm = normalizeForCompare(en[0])
+                if (!en[0] || keyNorm === 'variacao') return en[1]
+                if (en[1].toLowerCase().indexOf(en[0].toLowerCase()) !== -1) return en[1]
+                return en[0] + ' ' + en[1]
+              })
+              .join(' / ')
+            const label = labelValue || manual.getString('sku')
+            const canonicalLabel = labelKv || label
+            const skuField = manual.getString('sku')
+            const skuSuffix = skuField.replace(new RegExp('^' + cleanNum + '[\\s\\-_]+'), '')
+            // Formas aceitas na leitura (todas case/acento/espaço-tolerantes):
+            // "1106 p" (valor), "1106 Tamanho p" (rótulo), "1106 V1" / "1106-V1" (sufixo/SKU).
+            const suffixCandidates = [labelValue, labelKv, skuField, skuSuffix]
+            const isSuffixMatch = suffixCandidates.some(
+              (c) => c && normalizeForCompare(c) === varPartNorm,
+            )
+            const isFullSkuMatch =
+              skuField && normalizeForCompare(skuField) === normalizeForCompare(fullBarcodeClean)
+            if (isSuffixMatch || isFullSkuMatch) {
               const selected = sanitizeProduct(parent)
-              selected.variacao = label
-              selected.codigo_barras = cleanNum + ' ' + label
+              selected.variacao = canonicalLabel
+              selected.codigo_barras = cleanNum + ' ' + canonicalLabel
               selected.quantity = manual.getInt('quantity')
               selected.selling_price = manual.getFloat('price') || selected.selling_price
               selected.selected_variation_id = manual.id
@@ -293,16 +332,35 @@ routerAdd(
       fornecedor: record.getString('fornecedor'),
     })
 
+    // Normalização tolerante para comparação: minúsculas, sem acentos,
+    // espaços/traços/underscores colapsados em um único espaço.
+    const normalizeForCompare = (s) =>
+      String(s)
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[\s\-_]+/g, ' ')
+        .trim()
+
     const resolveInDb = (rawInput) => {
+      // Normaliza espaços múltiplos e também aceita hífen/underscore como
+      // separador quando o prefixo é numérico (ex.: "1106-V1" = "1106 V1").
       const normalized = String(rawInput).trim().replace(/\s+/g, ' ')
-      const firstSpace = normalized.indexOf(' ')
       let numPart = normalized
       let varPart = ''
 
-      if (firstSpace !== -1) {
-        numPart = normalized.slice(0, firstSpace).trim()
-        varPart = normalized.slice(firstSpace + 1).trim()
+      const spaceSplit = normalized.indexOf(' ')
+      if (spaceSplit !== -1) {
+        numPart = normalized.slice(0, spaceSplit).trim()
+        varPart = normalized.slice(spaceSplit + 1).trim()
+      } else {
+        const hyphenSplit = normalized.match(/^(\d+)[\-_](.+)$/)
+        if (hyphenSplit) {
+          numPart = hyphenSplit[1].trim()
+          varPart = hyphenSplit[2].trim()
+        }
       }
+      const varPartNorm = normalizeForCompare(varPart)
 
       const cleanNum = numPart.replace(/^0+/, '') || (numPart ? '0' : '')
       const fullBarcodeClean = varPart ? cleanNum + ' ' + varPart : cleanNum
@@ -357,17 +415,37 @@ routerAdd(
             try {
               attrs = JSON.parse(manual.getString('attributes') || '{}')
             } catch (_) {}
-            const values = Object.keys(attrs).map((k) => String(attrs[k]).trim())
-            const label = values.join(' / ') || manual.getString('sku')
-            const fullCode = (cleanNum + ' ' + label).trim().toLowerCase()
-            if (
-              label.toLowerCase() === varPart.toLowerCase() ||
-              fullCode === fullBarcodeClean.toLowerCase() ||
-              manual.getString('sku').toLowerCase() === fullBarcodeClean.toLowerCase()
-            ) {
+            // Rótulo canônico no MESMO formato impresso na etiqueta
+            // (formatVariationAttributeLabel): "Chave Valor" por atributo,
+            // " / " entre atributos. Ex.: {"Tamanho":"p"} -> "Tamanho p".
+            const entries = Object.keys(attrs)
+              .filter((k) => String(attrs[k]).trim() !== '')
+              .map((k) => [String(k).trim(), String(attrs[k]).trim()])
+            const labelValue = entries.map((en) => en[1]).join(' / ')
+            const labelKv = entries
+              .map((en) => {
+                const keyNorm = normalizeForCompare(en[0])
+                if (!en[0] || keyNorm === 'variacao') return en[1]
+                if (en[1].toLowerCase().indexOf(en[0].toLowerCase()) !== -1) return en[1]
+                return en[0] + ' ' + en[1]
+              })
+              .join(' / ')
+            const label = labelValue || manual.getString('sku')
+            const canonicalLabel = labelKv || label
+            const skuField = manual.getString('sku')
+            const skuSuffix = skuField.replace(new RegExp('^' + cleanNum + '[\\s\\-_]+'), '')
+            // Formas aceitas na leitura (todas case/acento/espaço-tolerantes):
+            // "1106 p" (valor), "1106 Tamanho p" (rótulo), "1106 V1" / "1106-V1" (sufixo/SKU).
+            const suffixCandidates = [labelValue, labelKv, skuField, skuSuffix]
+            const isSuffixMatch = suffixCandidates.some(
+              (c) => c && normalizeForCompare(c) === varPartNorm,
+            )
+            const isFullSkuMatch =
+              skuField && normalizeForCompare(skuField) === normalizeForCompare(fullBarcodeClean)
+            if (isSuffixMatch || isFullSkuMatch) {
               const selected = sanitizeProduct(parent)
-              selected.variacao = label
-              selected.codigo_barras = cleanNum + ' ' + label
+              selected.variacao = canonicalLabel
+              selected.codigo_barras = cleanNum + ' ' + canonicalLabel
               selected.quantity = manual.getInt('quantity')
               selected.selling_price = manual.getFloat('price') || selected.selling_price
               selected.selected_variation_id = manual.id
