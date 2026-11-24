@@ -34,12 +34,13 @@ import {
   DEFAULT_LABEL_CONTENT,
   LabelContentOptions,
   getProductFullName,
+  formatVariationAttributeLabel,
 } from '@/types/labelContent'
 import { LabelPrintModal, PrintQueueItem } from '@/components/LabelPrintModal'
 import { productService } from '@/services/productService'
 import { fetchResellerStockQuantityMap, getProductTotalStock } from '@/services/totalStockService'
 import { getProductDisplayPhoto, formatCurrency, formatDate } from '@/lib/formatters'
-import { stripLeadingZeros, matchesProductQuery } from '@/lib/barcodeSearch'
+import { getProductBarcodeValue, matchesProductQuery } from '@/lib/barcodeSearch'
 import pb from '@/lib/pocketbase/client'
 
 export const LabelGenerationPage: React.FC = () => {
@@ -116,9 +117,29 @@ export const LabelGenerationPage: React.FC = () => {
     loadData()
   }, [loadData])
 
+  // Para produtos com variações, cada variação é uma linha/etiqueta independente.
+  // O produto-pai nunca gera uma etiqueta genérica que poderia movimentar estoque errado.
+  const productsForLabels = useMemo(() => {
+    return products.flatMap((product) => {
+      const variations = product.expand?.['product_variations(product)'] || []
+      if (variations.length === 0) return [product]
+      return variations.map((variation) => ({
+        ...product,
+        id: `${product.id}:${variation.id}`,
+        quantity: Number(variation.quantity) || 0,
+        qtde_inicial: Number(variation.quantity) || 0,
+        selling_price: Number(variation.price) || product.selling_price,
+        variacao: formatVariationAttributeLabel(variation.attributes) || variation.sku,
+        selected_variation_id: variation.id,
+        selected_variation_sku: variation.sku,
+        selected_variation: variation,
+      }))
+    })
+  }, [products])
+
   // Produtos filtrados (ordenados do mais recente para o mais antigo por padrão)
   const filteredProducts = useMemo(() => {
-    return products.filter((p) => {
+    return productsForLabels.filter((p) => {
       // Filtro de marca
       if (selectedBrand !== 'all' && p.marca_id !== selectedBrand) {
         return false
@@ -138,7 +159,7 @@ export const LabelGenerationPage: React.FC = () => {
 
       return true
     })
-  }, [products, selectedBrand, selectedCategory, searchTerm])
+  }, [productsForLabels, selectedBrand, selectedCategory, searchTerm])
 
   // Paginação da tabela de produtos
   const paginatedProducts = useMemo(() => {
@@ -150,13 +171,7 @@ export const LabelGenerationPage: React.FC = () => {
 
   // Código de barras formatado de um produto (SEM zeros à esquerda)
   const getProductDisplayBarcode = (p: Product): { code: string; barcodeValue: string } => {
-    // Prioridade do código numérico sem zeros à esquerda:
-    // 1. codigo_barras cadastrado (se houver)
-    // 2. sku_novo
-    // 3. code legado
-    // 4. codigo_barras_tecson
-    const rawCode = (p.codigo_barras || p.sku_novo || p.code || p.codigo_barras_tecson || '').trim()
-    const cleanCode = stripLeadingZeros(rawCode) || '0'
+    const cleanCode = getProductBarcodeValue(p) || '0'
     return {
       code: cleanCode,
       barcodeValue: cleanCode,
@@ -169,7 +184,7 @@ export const LabelGenerationPage: React.FC = () => {
     const initialQty = p.qtde_inicial && p.qtde_inicial > 0 ? Math.floor(p.qtde_inicial) : 1
     const price = typeof p.selling_price === 'number' ? p.selling_price : 0
     const photo = getProductDisplayPhoto(p)
-    const fullName = getProductFullName(p)
+    const fullName = getProductFullName(p, p.selected_variation)
 
     // Se já estiver na fila, incrementa ou atualiza
     setPrintQueue((prev) => {
@@ -716,7 +731,7 @@ export const LabelGenerationPage: React.FC = () => {
                             {p.produto_id || '—'}
                           </td>
                           <td className="p-3 font-mono text-xs font-semibold text-[#2D2A26]">
-                            {p.sku_novo || p.code || '—'}
+                            {getProductDisplayBarcode(p).code || '—'}
                           </td>
                           <td className="p-3 font-medium text-[#2D2A26] max-w-[240px] truncate">
                             {p.nome_produto || p.description || 'Sem nome'}
