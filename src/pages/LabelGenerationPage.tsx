@@ -37,9 +37,8 @@ import {
 import { LabelPrintModal, PrintQueueItem } from '@/components/LabelPrintModal'
 import { productService } from '@/services/productService'
 import { fetchResellerStockQuantityMap, getProductTotalStock } from '@/services/totalStockService'
-import { formatCurrency, formatDate } from '@/lib/formatters'
+import { formatCurrency, formatDate, getProductDisplayPhoto } from '@/lib/formatters'
 import { stripLeadingZeros, matchesProductQuery } from '@/lib/barcodeSearch'
-import { BarcodeSvg } from '@/components/BarcodeSvg'
 import pb from '@/lib/pocketbase/client'
 
 export const LabelGenerationPage: React.FC = () => {
@@ -184,6 +183,18 @@ export const LabelGenerationPage: React.FC = () => {
       code: full,
       barcodeValue: full,
     }
+  }
+
+  // Foto de exibição da linha da tabela/fila: cobre photos[] E image_url (produtos
+  // importados Scaglioni têm photos=[] e só image_url). Variações (id composto
+  // "produtoId:variaçãoId") herdam a foto do produto-pai, removendo o sufixo do id.
+  const getProductRowPhoto = (p: Product): string => {
+    const parentId = p.id.includes(':') ? p.id.split(':')[0] : p.id
+    if (parentId !== p.id) {
+      const parent = products.find((prod) => prod.id === parentId)
+      if (parent) return getProductDisplayPhoto(parent)
+    }
+    return getProductDisplayPhoto(p)
   }
   // Ação 2: Adicionar produto à fila
   const handleAddProduct = (p: Product) => {
@@ -651,8 +662,8 @@ export const LabelGenerationPage: React.FC = () => {
               <table className="w-full text-left text-xs sm:text-sm">
                 <thead className="bg-[#F7F4EE] text-[#5A544A] border-b border-[#E5DFD5] font-semibold text-xs">
                   <tr>
-                    <th scope="col" className="p-3 w-28 text-center">
-                      Código de barras
+                    <th scope="col" className="p-3 w-20 text-center">
+                      Foto
                     </th>
                     <th scope="col" className="p-3">
                       Data cadastro
@@ -706,11 +717,23 @@ export const LabelGenerationPage: React.FC = () => {
                       return (
                         <tr key={p.id} className="hover:bg-[#FCFAF6] transition-colors">
                           <td className="p-2 text-center">
-                            <BarcodeSvg
-                              value={getProductDisplayBarcode(p).code || p.code}
-                              className="h-8 w-24 text-[#2D2A26]"
-                              showText={false}
-                            />
+                            {getProductRowPhoto(p) ? (
+                              <img
+                                src={getProductRowPhoto(p)}
+                                alt={`Foto de ${p.nome_produto || p.description || 'produto'}`}
+                                width={48}
+                                height={48}
+                                loading="lazy"
+                                className="h-12 w-12 mx-auto rounded object-cover border border-[#E5DFD5] bg-[#F7F4EE]"
+                              />
+                            ) : (
+                              <div
+                                aria-hidden="true"
+                                className="h-12 w-12 mx-auto rounded bg-[#F3EAD8] flex items-center justify-center"
+                              >
+                                <Tag className="h-5 w-5 text-[#A8A196]" />
+                              </div>
+                            )}
                           </td>
                           <td className="p-3 text-[#6B655E] whitespace-nowrap">
                             {formatDate(p.created)}
@@ -873,8 +896,8 @@ export const LabelGenerationPage: React.FC = () => {
                 <table className="w-full text-left text-xs sm:text-sm">
                   <thead className="bg-[#F7F4EE] text-[#5A544A] border-b border-[#E5DFD5] font-semibold text-xs">
                     <tr>
-                      <th scope="col" className="p-3 w-28 text-center">
-                        Código de barras
+                      <th scope="col" className="p-3 w-20 text-center">
+                        Foto
                       </th>
                       <th scope="col" className="p-3 w-28">
                         Código
@@ -912,12 +935,34 @@ export const LabelGenerationPage: React.FC = () => {
                                 VAZIA
                               </div>
                             ) : (
-                              <div className="h-10 w-10 mx-auto flex items-center justify-center py-1 text-[#2D2A26]">
-                                <BarcodeSvg
-                                  value={item.barcodeValue || item.code}
-                                  className="h-8 w-24"
-                                  showText={false}
-                                />
+                              <div className="h-10 w-10 mx-auto flex items-center justify-center py-1">
+                                {(() => {
+                                  const photo = getProductRowPhoto(
+                                    products.find((prod) => prod.id === item.productId) ||
+                                      ({
+                                        id: item.productId,
+                                        photos: [],
+                                        image_url: '',
+                                      } as Product),
+                                  )
+                                  return photo ? (
+                                    <img
+                                      src={photo}
+                                      alt={`Foto de ${item.description || 'produto'}`}
+                                      width={40}
+                                      height={40}
+                                      loading="lazy"
+                                      className="h-10 w-10 rounded object-cover border border-[#E5DFD5] bg-[#F7F4EE]"
+                                    />
+                                  ) : (
+                                    <div
+                                      aria-hidden="true"
+                                      className="h-10 w-10 rounded bg-[#F3EAD8] flex items-center justify-center"
+                                    >
+                                      <Tag className="h-4 w-4 text-[#A8A196]" />
+                                    </div>
+                                  )
+                                })()}
                               </div>
                             )}
                           </td>

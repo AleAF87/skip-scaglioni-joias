@@ -1,4 +1,5 @@
 import React from 'react'
+import { createPortal } from 'react-dom'
 import { Printer, X, ZoomIn, ZoomOut, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -129,7 +130,10 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
     window.print()
   }
 
-  return (
+  // O overlay vai via portal direto para <body>: na impressão, o CSS esconde com
+  // display:none todo irmão do overlay (#root incluído), evitando que o conteúdo
+  // da página (sidebar, tabelas) ocupe fluxo e gere páginas em branco no início.
+  return createPortal(
     <div className="print-overlay fixed inset-0 z-50 flex flex-col bg-black/85 backdrop-blur-xs text-white">
       {/* Barra superior de controles (oculta na impressão) */}
       <header className="no-print shrink-0 flex flex-wrap items-center justify-between gap-4 px-6 py-3.5 bg-[#1F1D1A] border-b border-[#3D3833]">
@@ -372,13 +376,21 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
       {/* Estilos dedicados para impressão limpa em folhas pautadas */}
       <style>{`
       @media print {
-        /* Oculta tudo que estiver fora da área das folhas */
-        body * {
-          visibility: hidden !important;
+        html,
+        body {
+          height: auto !important;
+          min-height: 0 !important;
+          overflow: visible !important;
+          background: #ffffff !important;
+          margin: 0 !important;
+          padding: 0 !important;
         }
-        #print-sheets-container,
-        #print-sheets-container * {
-          visibility: visible !important;
+        /* Remove do fluxo impresso TUDO que não for o overlay do modal.
+           visibility:hidden mantinha o espaço ocupado (páginas em branco);
+           display:none tira os elementos do layout de vez. O overlay é filho
+           direto de <body> (portal), então #root e demais irmãos somem. */
+        body > *:not(.print-overlay) {
+          display: none !important;
         }
         /* O overlay fixed do modal vira bloco estático na impressão: elementos
            fixed repetem a prévia em TODAS as páginas impressas
@@ -433,6 +445,7 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
         }
       }
     `}</style>
-    </div>
+    </div>,
+    document.body,
   )
 }
