@@ -235,7 +235,9 @@ onRecordCreateRequest((e) => {
         )
       })
     } catch (seqErr) {
+      // Não salva produto sem código: recusa a criação para o cliente tentar de novo
       console.log('Erro ao gerar código numérico sequencial atômico:', seqErr.message)
+      throw new BadRequestError('Não foi possível reservar o código do produto. Tente novamente.')
     }
   }
   e.next()

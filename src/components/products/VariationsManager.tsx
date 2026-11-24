@@ -9,7 +9,6 @@ interface VariationsManagerProps {
   variations: ProductVariationInput[]
   onChange: (variations: ProductVariationInput[]) => void
   resellers?: Reseller[]
-  baseSku: string
   basePrice: number
   isEcommercePublished?: boolean
 }
@@ -19,18 +18,15 @@ const ATTRIBUTE_PRESETS = ['Tamanho', 'Aro', 'Cor', 'Modelo', 'Material', 'Banho
 export function VariationsManager({
   variations,
   onChange,
-  baseSku,
   basePrice,
   isEcommercePublished = false,
 }: VariationsManagerProps) {
   const handleAddVariation = () => {
-    const nextIdx = variations.length + 1
-    const varSku = baseSku ? `${baseSku}-V${nextIdx}` : `VAR-${Date.now().toString().slice(-4)}`
-
+    // SKU da variação é composto ao salvar, com o código final do produto (ex.: 1107-V1)
     const newVar: ProductVariationInput = {
       attributeName: 'Aro',
       attributeValue: '',
-      sku: varSku,
+      sku: '',
       price: basePrice || 0,
       initialQuantity: 1,
     }
@@ -145,7 +141,7 @@ export function VariationsManager({
                       SKU da Variação (bloqueado)
                     </label>
                     <Input
-                      value={variation.sku}
+                      value={variation.sku || 'Gerado ao salvar'}
                       readOnly
                       disabled
                       className="h-9 text-xs bg-[#F3EAD8]/40 font-mono text-[#7A5C2E] font-semibold"

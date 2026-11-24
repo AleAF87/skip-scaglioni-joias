@@ -35,7 +35,6 @@ export interface GalleryImageItem {
 export interface CreateProductPayload {
   produto_id: string
   nome_produto: string
-  codigo_barras?: string
   marca_id?: string
   fornecedor?: string
   categoria_ids: string[]
@@ -205,12 +204,7 @@ export const productCreationService = {
     formData.append('produto_id', payload.produto_id)
     formData.append('nome_produto', payload.nome_produto.trim())
     formData.append('description', payload.description.trim() || payload.nome_produto.trim())
-    if (payload.codigo_barras?.trim()) {
-      const cbTrim = payload.codigo_barras.trim()
-      const cleanCb = /^\d+$/.test(cbTrim) ? cbTrim.replace(/^0+/, '') || '0' : cbTrim
-      formData.append('codigo_barras', cleanCb)
-      formData.append('code', cleanCb)
-    }
+    // Código (code / sku_novo / codigo_barras / sku_interno) NÃO é enviado: o hook do servidor gera na criação
     if (payload.marca_id) {
       formData.append('marca_id', payload.marca_id)
     }
@@ -262,9 +256,41 @@ export const productCreationService = {
       formData.append('photos', principalImage.file)
     }
 
-    // Criar o produto (o hook backend products_code_sequence irá gerar sku_novo e code sequencial atômico caso não especificado)
-    const createdProduct = await pb.collection('products').create<Product>(formData)
+    // Criar o produto. O código é gerado SOMENTE pelo hook do servidor (products_code_sequence.js),
+    // de forma transacional, no ato da criação. Se outro cadastro pegar o mesmo código ao mesmo tempo,
+    // o servidor recusa com 400: tenta de novo (o hook então atribui o próximo código livre).
+    const MAX_CREATE_ATTEMPTS = 3
+    let productRecord: Product | null = null
+    let lastError: any = null
+    for (let attempt = 1; attempt <= MAX_CREATE_ATTEMPTS; attempt++) {
+      try {
+        productRecord = await pb.collection('products').create<Product>(formData)
+        break
+      } catch (err: any) {
+        lastError = err
+        if (err?.status !== 400 || attempt === MAX_CREATE_ATTEMPTS) break
+        await new Promise((resolve) =>
+          setTimeout(resolve, 150 * attempt + Math.floor(Math.random() * 200)),
+        )
+      }
+    }
+    if (!productRecord) {
+      if (lastError?.status === 400) {
+        throw new Error(
+          'Não foi possível salvar o produto: o código foi disputado por outro cadastro ao mesmo tempo. Tente salvar novamente.',
+        )
+      }
+      throw lastError
+    }
+    const createdProduct = productRecord
     const productId = createdProduct.id
+
+    // Variações: SKU filho derivado do código FINAL atribuído pelo servidor (ex.: 1107-V1)
+    const finalCode = createdProduct.code || createdProduct.sku_novo || ''
+    const variations = payload.variations.map((v, idx) => ({
+      ...v,
+      sku: `${finalCode}-V${idx + 1}`,
+    }))
 
     // 2. Vínculos de Categorias (product_category_links)
     if (payload.categoria_ids.length > 0) {
@@ -307,7 +333,7 @@ export const productCreationService = {
     try {
       if (payload.has_variations && payload.variations.length > 0) {
         // Registra estoque inicial detalhado por variação (estoque único)
-        for (const variation of payload.variations) {
+        for (const variation of variations) {
           const varDistDetails: any = {
             loja_fisica: variation.initialQuantity || 0,
             expedicao: 0,
@@ -375,7 +401,7 @@ export const productCreationService = {
 
     // 5. Salvar Variações se houver
     if (payload.has_variations && payload.variations.length > 0) {
-      for (const v of payload.variations) {
+      for (const v of variations) {
         try {
           const varPayload: any = {
             product: productId,

@@ -6,7 +6,6 @@ import {
   ProductVariationInput,
   GalleryImageItem,
 } from '@/services/productCreationService'
-import { productService } from '@/services/productService'
 import { Brand, Reseller, ProductCategory, Product } from '@/types'
 import { formatCurrency } from '@/lib/formatters'
 import { GalleryManager } from './GalleryManager'
@@ -68,7 +67,7 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
   // 1. Identificação
   const [produtoId, setProdutoId] = useState('')
   const [nomeProduto, setNomeProduto] = useState('')
-  const [skuNovoPreview, setSkuNovoPreview] = useState('')
+
   const [marcaId, setMarcaId] = useState('')
   const [fornecedor, setFornecedor] = useState('')
   const [categoriaIds, setCategoriaIds] = useState<string[]>([])
@@ -118,10 +117,6 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
       // Gera Produto ID único
       const generatedProdId = productCreationService.generateProductIdentifier()
       setProdutoId(generatedProdId)
-
-      // Preview do SKU Novo sequencial atômico do sistema (10000...)
-      const nextSku = await productService.getNextProductCode()
-      setSkuNovoPreview(nextSku)
 
       // Carrega auxiliares
       const [brandList, resList, catList, supList] = await Promise.all([
@@ -363,7 +358,7 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
         {isLoadingMeta ? (
           <div className="py-20 flex flex-col items-center justify-center text-[#6B655E] gap-2">
             <Loader2 className="h-7 w-7 animate-spin text-[#C6A664]" />
-            <span className="text-sm font-medium">Preparando formulário e gerando códigos...</span>
+            <span className="text-sm font-medium">Preparando formulário...</span>
           </div>
         ) : (
           <form onSubmit={handleSave} className="p-6 space-y-8">
@@ -376,29 +371,7 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
                 </h3>
               </div>
 
-              <div className="grid grid-cols-1 gap-4">
-                {/* SKU Novo / Código sequencial */}
-                <div>
-                  <label className="text-xs font-semibold text-[#2D2A26] flex items-center gap-1 mb-1">
-                    <Lock className="h-3 w-3 text-[#8C8275]" /> SKU novo / Código de barras
-                    (bloqueado)
-                  </label>
-                  <Input
-                    value={
-                      skuNovoPreview
-                        ? `${skuNovoPreview} (código sequencial gerado ao salvar)`
-                        : 'Gerando...'
-                    }
-                    readOnly
-                    disabled
-                    className="h-10 text-xs bg-[#F3EAD8]/40 font-mono text-[#7A5C2E] font-bold"
-                  />
-                  <span className="text-[10px] text-[#8C8275]">
-                    Código numérico e código de barras sequenciais (10000+), gerados automaticamente
-                    e com segurança atômica no ato de salvar
-                  </span>
-                </div>
-              </div>
+              <div className="grid grid-cols-1 gap-4"></div>
 
               {/* Categorias (Multi-select agrupado com Tipo antes de Metal) */}
               <div>
@@ -989,7 +962,6 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
                     setVariations(newVariations)
                   }}
                   resellers={resellers}
-                  baseSku={skuNovoPreview || '10000'}
                   basePrice={Number(precoVenda) || 0}
                 />
               )}
