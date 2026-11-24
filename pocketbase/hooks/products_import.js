@@ -629,6 +629,42 @@ routerAdd(
         return String(cand)
       }
 
+      // SKU alfabética do e-commerce (ex.: BRPFD01) — DISTINTA do código numérico.
+      // Regra do usuário: iniciais de cada palavra do nome (acentos removidos) +
+      // contador de 2 dígitos por grupo de iniciais, começando em 01.
+      const genEcommerceSku = (prodRecord) => {
+        const rawName =
+          (prodRecord.getString('nome_produto') || '').trim() ||
+          (prodRecord.getString('description') || '').trim()
+        if (!rawName) return
+        const asciiName = rawName
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toUpperCase()
+        const words = asciiName.split(/[^A-Z]+/).filter(Boolean)
+        if (words.length === 0) return
+        let prefix = ''
+        for (let w = 0; w < words.length; w++) {
+          prefix += words[w].charAt(0)
+          if (prefix.length >= 8) break
+        }
+        if (!prefix) return
+        let n = 1
+        while (n < 100) {
+          const candidate = prefix + String(n).padStart(2, '0')
+          let occupied = false
+          try {
+            $app.findFirstRecordByFilter('products', "sku_ecommerce = '" + candidate + "'")
+            occupied = true
+          } catch (_) {}
+          if (!occupied) {
+            prodRecord.set('sku_ecommerce', candidate)
+            return
+          }
+          n++
+        }
+      }
+
       // Processamento LINHA A LINHA sem transação de lote:
       // Cada item possui seu próprio try/catch e grava independentemente.
       for (let i = 0; i < items.length; i++) {

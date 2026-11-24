@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-24T12:18:56.934Z",
+  "generatedAt": "2026-11-24T13:02:10.055Z",
   "collections": [
     {
       "name": "users",
@@ -852,6 +852,12 @@
           "type": "text",
           "required": false,
           "system": false
+        },
+        {
+          "name": "sku_ecommerce",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -861,7 +867,8 @@
         "CREATE INDEX idx_products_quantity ON products (quantity)",
         "CREATE UNIQUE INDEX idx_products_code_variacao ON products (code, variacao)",
         "CREATE INDEX idx_products_code_search ON products (code)",
-        "CREATE INDEX idx_products_variacao ON products (variacao)"
+        "CREATE INDEX idx_products_variacao ON products (variacao)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_products_sku_ecommerce_unique ON products (nullif(sku_ecommerce, ''))"
       ]
     },
     {

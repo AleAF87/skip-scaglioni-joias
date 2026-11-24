@@ -110,6 +110,57 @@ onRecordCreateRequest((e) => {
     if (rawCodTecson && /^\d+$/.test(rawCodTecson))
       record.set('codigo_barras_tecson', stripZeros(rawCodTecson))
 
+    // SKU alfabética do e-commerce (ex.: BRPFD01) — DISTINTA do código numérico.
+    // Regra do usuário: iniciais de CADA palavra do nome completo + contador de
+    // 2 dígitos por grupo de iniciais, começando em 01, incrementando quando um
+    // novo produto tem as mesmas iniciais. Se o chamador já enviou um
+    // sku_ecommerce explícito (ex.: importador com SKU da planilha), preserva.
+    const genEcommerceSku = () => {
+      const rawName =
+        (record.getString('nome_produto') || '').trim() ||
+        (record.getString('description') || '').trim()
+      if (!rawName) return
+
+      // Remove acentos e mantém apenas letras; pega a 1ª letra de cada palavra
+      const asciiName = rawName
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toUpperCase()
+      const words = asciiName.split(/[^A-Z]+/).filter(Boolean)
+      if (words.length === 0) return
+
+      let prefix = ''
+      for (let w = 0; w < words.length; w++) {
+        prefix += words[w].charAt(0)
+        if (prefix.length >= 8) break
+      }
+      if (!prefix) return
+
+      // Procura o próximo contador de 2 dígitos livre para este grupo de iniciais
+      let n = 1
+      while (n < 100) {
+        const candidate = prefix + String(n).padStart(2, '0')
+        let occupied = false
+        try {
+          $app.findFirstRecordByFilter('products', "sku_ecommerce = '" + candidate + "'")
+          occupied = true
+        } catch (_) {}
+        if (!occupied) {
+          record.set('sku_ecommerce', candidate)
+          console.log('SKU e-commerce gerada por iniciais:', candidate)
+          return
+        }
+        n++
+      }
+      // Não achou livre em 99 tentativas: deixa vazio (o índice único ignora '')
+      console.log('Não foi possível gerar SKU e-commerce livre para prefixo:', prefix)
+    }
+
+    const incomingEcommerceSku = (record.getString('sku_ecommerce') || '').trim()
+    if (!incomingEcommerceSku) {
+      genEcommerceSku()
+    }
+
     const incomingSkuNovo = (record.getString('sku_novo') || '').trim()
     const incomingCode = (record.getString('code') || '').trim()
 
@@ -268,6 +319,11 @@ onRecordUpdateRequest((e) => {
         }
       }
     }
+
+    // SKU e-commerce: normaliza vazio para string vazia (não geramos SKU na edição,
+    // nem sobrescrevemos a SKU enviada pelo importador/usuário)
+    const rawEcomSku = (record.getString('sku_ecommerce') || '').trim()
+    record.set('sku_ecommerce', rawEcomSku)
   }
   e.next()
 }, 'products')
