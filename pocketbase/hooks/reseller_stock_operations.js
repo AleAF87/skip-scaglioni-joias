@@ -717,6 +717,21 @@ routerAdd(
             }
             txApp.save(product)
             totalReturnedQty += returnedQty
+
+            // 2b. Devolver também na variação específica (v0.0.228): a entrega
+            // baixou a quantity da variação em product_variations junto com o
+            // estoque geral — a devolução restaura os dois saldos.
+            const variationId = (it.variation_id || '').toString().trim()
+            if (variationId) {
+              const variation = txApp.findRecordById('product_variations', variationId)
+              if (variation.getString('product') !== productId) {
+                throw new Error(
+                  'A variação informada (' + variationId + ') não pertence ao produto ' + productId,
+                )
+              }
+              variation.set('quantity', (variation.getInt('quantity') || 0) + returnedQty)
+              txApp.save(variation)
+            }
           }
 
           // 3. Se houve pendência (extraviada / venda avulsa sem PDV / outros), cria pendência a cobrar
