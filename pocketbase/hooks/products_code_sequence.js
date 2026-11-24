@@ -1,6 +1,9 @@
 // Helper e Hooks para geração atômica e sequencial de código numérico crescente
-// Regra do negócio (v0.0.204): a sequência inicia em 1 (primeiro código = 1; 1, 2, 3... 9999, 10000...)
+// Regra do negócio (v0.0.206): a sequência inicia em 1001 (piso 1000; 1001, 1002, 1003...)
+// Se o próximo número já estiver ocupado por outro produto, pula e segue a sequência.
 // Sem zeros à esquerda: o código é gravado e exibido como número puro
+// Válido para TODOS os caminhos de criação (importadores Tecson/Scaglioni e produto manual),
+// independentemente de limpeza do banco.
 // All helper logic is declared inline inside callbacks to avoid JSVM top-level scoping errors.
 
 // 1. Endpoint para preview do próximo código numérico sequencial (somente leitura / consulta prévia)
@@ -8,8 +11,8 @@ routerAdd(
   'GET',
   '/backend/v1/products/next-code',
   (e) => {
-    // Piso inicial obrigatório: 0 (para que o próximo seja 1) — v0.0.204
-    let currentVal = 0
+    // Piso inicial obrigatório: 1000 (para que o próximo seja 1001) — v0.0.206
+    let currentVal = 1000
 
     try {
       const seqRecord = $app.findFirstRecordByFilter(
@@ -64,7 +67,7 @@ routerAdd(
 
     // Encontra o próximo candidato livre pulando números já ocupados
     let candidate = currentVal + 1
-    if (candidate < 1) candidate = 1
+    if (candidate < 1001) candidate = 1001
 
     while (usedNumericSet[candidate]) {
       candidate++
@@ -139,8 +142,8 @@ onRecordCreateRequest((e) => {
     // Gerar próximo número com lock/transação atômica em app_sequences
     try {
       $app.runInTransaction((txApp) => {
-        // Piso inicial da sequência: 0 (próximo é 1) — v0.0.204
-        let currentSeq = 0
+        // Piso inicial da sequência: 1000 (próximo é 1001) — v0.0.206
+        let currentSeq = 1000
         let seqRec = null
         try {
           seqRec = txApp.findFirstRecordByFilter('app_sequences', "name = 'product_numeric_code'")
@@ -193,7 +196,7 @@ onRecordCreateRequest((e) => {
 
         // Encontra o próximo candidato livre a partir de currentSeq + 1
         let candidate = currentSeq + 1
-        if (candidate < 1) candidate = 1
+        if (candidate < 1001) candidate = 1001
 
         while (usedNumericSet[candidate]) {
           candidate++

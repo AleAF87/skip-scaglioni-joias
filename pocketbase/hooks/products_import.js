@@ -565,8 +565,8 @@ routerAdd(
       }
 
       // Carrega sequência atual de produtos para geração numérica sequencial contínua linha a linha
-      // Piso obrigatório: 0 (para que o primeiro item receba 1) — v0.0.204
-      let currentSeq = 0
+      // Piso obrigatório: 1000 (para que o primeiro item receba 1001) — v0.0.206
+      let currentSeq = 1000
       try {
         const seqRecord = $app.findFirstRecordByFilter(
           'app_sequences',
@@ -620,7 +620,7 @@ routerAdd(
       // Função auxiliar interna para obter o próximo código numérico livre pulando ocupados
       const getNextFreeSeq = () => {
         let cand = currentSeq + 1
-        if (cand < 1) cand = 1
+        if (cand < 1001) cand = 1001
         while (usedNumericSet[cand]) {
           cand++
         }
@@ -1304,15 +1304,26 @@ routerAdd(
       }
 
       // Atualiza a sequência persistida caso não seja dry-run
+      // Upsert: garante que a linha de app_sequences exista (se a base foi limpa,
+      // o registro foi apagado e o piso 1000/1001 seria perdido entre lotes)
       if (!isDryRun) {
         try {
-          const seqRecToUpdate = $app.findFirstRecordByFilter(
-            'app_sequences',
-            "name = 'product_numeric_code'",
-          )
+          let seqRecToUpdate = null
+          try {
+            seqRecToUpdate = $app.findFirstRecordByFilter(
+              'app_sequences',
+              "name = 'product_numeric_code'",
+            )
+          } catch (_) {}
           if (seqRecToUpdate) {
             seqRecToUpdate.set('current_value', currentSeq)
             $app.save(seqRecToUpdate)
+          } else {
+            const seqCol = $app.findCollectionByNameOrId('app_sequences')
+            const newSeqRec = new Record(seqCol)
+            newSeqRec.set('name', 'product_numeric_code')
+            newSeqRec.set('current_value', currentSeq)
+            $app.save(newSeqRec)
           }
         } catch (_) {}
       }
