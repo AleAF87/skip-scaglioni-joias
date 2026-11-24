@@ -62,6 +62,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState(true)
   const lastRefreshAtRef = useRef(0)
   const refreshInFlightRef = useRef(false)
+  const wasHiddenRef = useRef(false)
+  // userRef: espelho do estado `user` para uso dentro de efeitos com closure
+  // estável (o effect só depende de refreshSession, que nunca muda).
+  const userRef = useRef<AppUser | null>(null)
+  userRef.current = user
 
   const syncUser = () => {
     if (pb.authStore.isValid && pb.authStore.model) {
@@ -99,21 +104,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       lastRefreshAtRef.current = Date.now()
       return true
     } catch (err: unknown) {
-      if (isNetworkError(err)) {
-        // Sem conexão: mantém a sessão com o token atual, tenta novamente depois.
-        console.warn('authRefresh falhou por rede — sessão mantida.', err)
-        return false
+      // Renovação de sessão em background NUNCA deve propagar erro para
+      // captura global/console como alerta de runtime — trata silenciosamente.
+      if (!isNetworkError(err)) {
+        const anyErr = err as { status?: number }
+        if (anyErr?.status === 401 || anyErr?.status === 403) {
+          // Token realmente inválido/expirado ou usuário desativado: limpa sessão.
+          pb.authStore.clear()
+          setUser(null)
+        }
+        // Qualquer outro erro: mantém a sessão e tenta novamente depois.
       }
-      const anyErr = err as { status?: number }
-      if (anyErr.status === 401 || anyErr.status === 403) {
-        // Token realmente inválido/expirado ou usuário desativado: limpa sessão.
-        console.error('Sessão inválida — encerrando autenticação.', err)
-        pb.authStore.clear()
-        setUser(null)
-        return false
-      }
-      // Outro erro inesperado do servidor: mantém a sessão e tenta depois.
-      console.warn('authRefresh falhou (mantendo sessão):', err)
+      // Erro de rede: mantém a sessão com o token atual, tenta novamente depois.
       return false
     } finally {
       refreshInFlightRef.current = false
@@ -131,22 +133,43 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       void refreshSession()
     }, REFRESH_INTERVAL_MS)
 
-    // (b) Refresh ao recuperar o foco da aba (throttle 1x por minuto)
+    // (b) Refresh ao recuperar o foco da aba (throttle 1x por minuto).
+    //     Guardas: só roda com usuário efetivamente logado (estado + authStore),
+    //     ignora foco de elemento interno (modais Radix disparam window focus),
+    //     e evita reentrância enquanto há refresh em andamento.
     const onVisibilityChange = () => {
       if (document.visibilityState !== 'visible') return
-      if (!pb.authStore.isValid) return
+      if (!pb.authStore.isValid || !pb.authStore.model?.id) return
+      const u = userRef.current
+      if (!u || u.status !== 'active') return
+      if (refreshInFlightRef.current) return
+      // Foco de elemento interno (modal/dropdown) não troca de aba: se o
+      // documento já estava visível, nada mudou — só visibilitychange real
+      // (hidden → visible) deve acionar a renovação.
+      if (!wasHiddenRef.current) return
+      wasHiddenRef.current = false
       const elapsed = Date.now() - lastRefreshAtRef.current
       if (elapsed < VISIBILITY_THROTTLE_MS) return
       lastRefreshAtRef.current = Date.now()
-      void refreshSession()
+      void refreshSession().catch(() => {
+        /* silencioso — nunca propaga para captura global */
+      })
     }
-    document.addEventListener('visibilitychange', onVisibilityChange)
+
+    // wasHiddenRef: true quando o documento ficou oculto (aba trocou/minimizou).
+    // Só uma transição real hidden → visible autoriza o refresh no retorno.
+    wasHiddenRef.current = document.visibilityState === 'hidden'
+    const onDocVisibility = () => {
+      wasHiddenRef.current = document.visibilityState === 'hidden'
+      onVisibilityChange()
+    }
+    document.addEventListener('visibilitychange', onDocVisibility)
     window.addEventListener('focus', onVisibilityChange)
 
     return () => {
       unsubscribe()
       window.clearInterval(intervalId)
-      document.removeEventListener('visibilitychange', onVisibilityChange)
+      document.removeEventListener('visibilitychange', onDocVisibility)
       window.removeEventListener('focus', onVisibilityChange)
     }
   }, [refreshSession])
@@ -160,8 +183,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const fresh = await pb.collection('users').getOne(pb.authStore.model.id)
         pb.authStore.save(pb.authStore.token, fresh)
         syncUser()
-      } catch (err) {
-        console.error('Erro ao atualizar usuário:', err)
+      } catch (_err) {
+        // Silencioso: falha ao re-sincronizar dados do usuário não é alerta.
       }
     }
   }, [refreshSession])
