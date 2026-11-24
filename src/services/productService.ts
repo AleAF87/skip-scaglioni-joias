@@ -862,6 +862,9 @@ export const productService = {
         id: string
         code: string
         variacao: string
+        attributes?: Record<string, string | number>
+        variation_id?: string
+        variation_sku?: string
         description: string
         selling_price: number
         quantity: number
