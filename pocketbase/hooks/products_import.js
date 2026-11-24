@@ -565,8 +565,8 @@ routerAdd(
       }
 
       // Carrega sequência atual de produtos para geração numérica sequencial contínua linha a linha
-      // Piso obrigatório: 9999 (para que o primeiro item receba 10000)
-      let currentSeq = 9999
+      // Piso obrigatório: 0 (para que o primeiro item receba 1) — v0.0.204
+      let currentSeq = 0
       try {
         const seqRecord = $app.findFirstRecordByFilter(
           'app_sequences',
@@ -620,7 +620,7 @@ routerAdd(
       // Função auxiliar interna para obter o próximo código numérico livre pulando ocupados
       const getNextFreeSeq = () => {
         let cand = currentSeq + 1
-        if (cand < 10000) cand = 10000
+        if (cand < 1) cand = 1
         while (usedNumericSet[cand]) {
           cand++
         }

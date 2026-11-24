@@ -720,7 +720,10 @@ routerAdd(
           totalSalesDue += Math.round(due * 100) / 100
           try {
             const saleItems = JSON.parse(sale.getString('items') || '[]')
-            totalSoldQty += saleItems.reduce((total, item) => total + (parseInt(item.quantity, 10) || 0), 0)
+            totalSoldQty += saleItems.reduce(
+              (total, item) => total + (parseInt(item.quantity, 10) || 0),
+              0,
+            )
           } catch (_) {}
         }
 
@@ -850,7 +853,6 @@ routerAdd(
   $apis.requireAuth(),
 )
 
-
 // 6. PAGAMENTO POSTERIOR DE UM ACERTO JÁ REGISTRADO
 routerAdd(
   'POST',
@@ -892,7 +894,8 @@ routerAdd(
         txApp.save(paymentRec)
 
         const totalPaid = Math.round((returnRec.getFloat('total_paid') + amount) * 100) / 100
-        const newBalance = Math.round(Math.max(0, returnRec.getFloat('total_financial_due') - totalPaid) * 100) / 100
+        const newBalance =
+          Math.round(Math.max(0, returnRec.getFloat('total_financial_due') - totalPaid) * 100) / 100
         returnRec.set('total_paid', totalPaid)
         returnRec.set('balance_due', newBalance)
         returnRec.set('financial_status', newBalance === 0 ? 'settled' : 'partial')

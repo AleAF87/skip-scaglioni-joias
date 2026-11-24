@@ -1,5 +1,5 @@
 // Helper e Hooks para geração atômica e sequencial de código numérico crescente
-// Regra do negócio: a sequência inicia em 10000 (primeiro código = 10000; 10000, 10001... 99999, 100000...)
+// Regra do negócio (v0.0.204): a sequência inicia em 1 (primeiro código = 1; 1, 2, 3... 9999, 10000...)
 // Sem zeros à esquerda: o código é gravado e exibido como número puro
 // All helper logic is declared inline inside callbacks to avoid JSVM top-level scoping errors.
 
@@ -8,8 +8,8 @@ routerAdd(
   'GET',
   '/backend/v1/products/next-code',
   (e) => {
-    // Piso inicial obrigatório: 9999 (para que o próximo seja 10000)
-    let currentVal = 9999
+    // Piso inicial obrigatório: 0 (para que o próximo seja 1) — v0.0.204
+    let currentVal = 0
 
     try {
       const seqRecord = $app.findFirstRecordByFilter(
@@ -64,7 +64,7 @@ routerAdd(
 
     // Encontra o próximo candidato livre pulando números já ocupados
     let candidate = currentVal + 1
-    if (candidate < 10000) candidate = 10000
+    if (candidate < 1) candidate = 1
 
     while (usedNumericSet[candidate]) {
       candidate++
@@ -139,8 +139,8 @@ onRecordCreateRequest((e) => {
     // Gerar próximo número com lock/transação atômica em app_sequences
     try {
       $app.runInTransaction((txApp) => {
-        // Piso inicial da sequência: 9999 (próximo é 10000)
-        let currentSeq = 9999
+        // Piso inicial da sequência: 0 (próximo é 1) — v0.0.204
+        let currentSeq = 0
         let seqRec = null
         try {
           seqRec = txApp.findFirstRecordByFilter('app_sequences', "name = 'product_numeric_code'")
@@ -193,7 +193,7 @@ onRecordCreateRequest((e) => {
 
         // Encontra o próximo candidato livre a partir de currentSeq + 1
         let candidate = currentSeq + 1
-        if (candidate < 10000) candidate = 10000
+        if (candidate < 1) candidate = 1
 
         while (usedNumericSet[candidate]) {
           candidate++

@@ -287,9 +287,16 @@ export function ResellerFinancialContent({
               <CardContent className="p-0 divide-y divide-[#E5DFD5]">
                 {summary.pendingSettlements.map((ret) => (
                   <div key={ret.id} className="p-3 text-xs flex flex-wrap justify-between gap-2">
-                    <span><strong>Devolução {ret.code}</strong> · {formatDateTime(ret.created)}</span>
-                    <span>Devido {formatCurrency(ret.total_financial_due || 0)} · Pago {formatCurrency(ret.total_paid || 0)}</span>
-                    <strong className="text-amber-800">Pendente {formatCurrency(ret.balance_due || 0)}</strong>
+                    <span>
+                      <strong>Devolução {ret.code}</strong> · {formatDateTime(ret.created)}
+                    </span>
+                    <span>
+                      Devido {formatCurrency(ret.total_financial_due || 0)} · Pago{' '}
+                      {formatCurrency(ret.total_paid || 0)}
+                    </span>
+                    <strong className="text-amber-800">
+                      Pendente {formatCurrency(ret.balance_due || 0)}
+                    </strong>
                   </div>
                 ))}
               </CardContent>

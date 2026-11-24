@@ -8,7 +8,12 @@ import { ResellerDelivery, ResellerReturn } from '@/types'
 export function getDeliveryReturnedState(
   delivery: ResellerDelivery,
   returns: ResellerReturn[],
-): { isFullyReturned: boolean; returnedQty: number; accountedQty: number; hasFinancialPending: boolean } {
+): {
+  isFullyReturned: boolean
+  returnedQty: number
+  accountedQty: number
+  hasFinancialPending: boolean
+} {
   const totalPieces = delivery.total_items_count || 0
   if (totalPieces <= 0) {
     return { isFullyReturned: false, returnedQty: 0, accountedQty: 0, hasFinancialPending: false }
@@ -22,7 +27,9 @@ export function getDeliveryReturnedState(
     const belongsToDelivery =
       (ret.delivery_ref && ret.delivery_ref === delivery.id) ||
       (!ret.delivery_ref && ret.delivery_code === delivery.code) ||
-      (!ret.delivery_ref && !ret.delivery_code && new Date(ret.created) >= new Date(delivery.created))
+      (!ret.delivery_ref &&
+        !ret.delivery_code &&
+        new Date(ret.created) >= new Date(delivery.created))
     if (!belongsToDelivery) continue
 
     for (const item of ret.items || []) {

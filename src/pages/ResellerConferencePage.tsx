@@ -617,51 +617,106 @@ export default function ResellerConferencePage() {
   }
 
   if (lockedReturn) {
-    const isSettled = lockedReturn.financial_status === 'settled' || (lockedReturn.balance_due || 0) <= 0
+    const isSettled =
+      lockedReturn.financial_status === 'settled' || (lockedReturn.balance_due || 0) <= 0
     return (
       <div className="max-w-3xl mx-auto space-y-5 p-4 md:p-6">
         <div className="border-b border-[#E5DFD5] pb-4">
-          <Link to={`/revendedoras?reseller=${resellerId}`} className="text-xs text-[#7A5C2E] font-medium flex items-center gap-1.5">
+          <Link
+            to={`/revendedoras?reseller=${resellerId}`}
+            className="text-xs text-[#7A5C2E] font-medium flex items-center gap-1.5"
+          >
             <ArrowLeft className="h-3.5 w-3.5" /> Voltar para a ficha da revendedora
           </Link>
-          <h2 className="font-serif text-xl font-bold text-[#2D2A26] mt-2">Devolução — acerto registrado</h2>
+          <h2 className="font-serif text-xl font-bold text-[#2D2A26] mt-2">
+            Devolução — acerto registrado
+          </h2>
           <p className="text-xs text-[#6B655E] mt-1">
-            Esta devolução está bloqueada para preservar a auditoria. Apenas a quitação financeira pode ser incluída.
+            Esta devolução está bloqueada para preservar a auditoria. Apenas a quitação financeira
+            pode ser incluída.
           </p>
         </div>
         <div className="rounded-xl border border-[#E5DFD5] bg-white overflow-hidden">
           <div className="px-4 py-3 bg-[#FDFBF7] border-b border-[#E5DFD5] text-xs flex justify-between gap-3">
-            <span><strong>Devolução {lockedReturn.code}</strong> · {new Date(lockedReturn.created).toLocaleString('pt-BR')}</span>
+            <span>
+              <strong>Devolução {lockedReturn.code}</strong> ·{' '}
+              {new Date(lockedReturn.created).toLocaleString('pt-BR')}
+            </span>
             <span className={isSettled ? 'font-bold text-emerald-700' : 'font-bold text-amber-800'}>
               {isSettled ? 'Quitada' : 'Pendência financeira'}
             </span>
           </div>
           <div className="p-4 space-y-2 text-xs">
             {(lockedReturn.items || []).map((item, index) => (
-              <div key={`${item.product_id}-${index}`} className="flex justify-between gap-3 border-b border-[#E5DFD5]/60 pb-2 last:border-0">
-                <span>{item.code} — {item.description}</span>
+              <div
+                key={`${item.product_id}-${index}`}
+                className="flex justify-between gap-3 border-b border-[#E5DFD5]/60 pb-2 last:border-0"
+              >
+                <span>
+                  {item.code} — {item.description}
+                </span>
                 <span className="text-right">
                   {item.returned_qty > 0 ? `Devolvida: ${item.returned_qty}` : ''}
-                  {item.pending_qty > 0 ? `${item.returned_qty > 0 ? ' · ' : ''}Extravio: ${item.pending_qty}` : ''}
+                  {item.pending_qty > 0
+                    ? `${item.returned_qty > 0 ? ' · ' : ''}Extravio: ${item.pending_qty}`
+                    : ''}
                 </span>
               </div>
             ))}
           </div>
           <div className="grid grid-cols-3 gap-3 p-4 bg-[#FDFBF7] border-t border-[#E5DFD5] text-xs">
-            <div>Devido<br /><strong>{formatCurrency(lockedReturn.total_financial_due || 0)}</strong></div>
-            <div>Pago<br /><strong>{formatCurrency(lockedReturn.total_paid || 0)}</strong></div>
-            <div>Pendente<br /><strong className="text-amber-800">{formatCurrency(lockedReturn.balance_due || 0)}</strong></div>
+            <div>
+              Devido
+              <br />
+              <strong>{formatCurrency(lockedReturn.total_financial_due || 0)}</strong>
+            </div>
+            <div>
+              Pago
+              <br />
+              <strong>{formatCurrency(lockedReturn.total_paid || 0)}</strong>
+            </div>
+            <div>
+              Pendente
+              <br />
+              <strong className="text-amber-800">
+                {formatCurrency(lockedReturn.balance_due || 0)}
+              </strong>
+            </div>
           </div>
         </div>
         {!isSettled && (
           <div className="rounded-xl border border-[#C6A664] bg-[#FDFBF7] p-4 space-y-3">
             <p className="text-xs font-bold text-[#7A5C2E]">Registrar pagamento da pendência</p>
             <div className="flex flex-col sm:flex-row gap-2">
-              <select value={settlementMethod} onChange={(event) => setSettlementMethod(event.target.value as SettlementPaymentMethod)} className="h-9 rounded-md border border-[#E5DFD5] bg-white px-2 text-xs">
-                <option value="pix">Pix</option><option value="cash">Dinheiro</option><option value="credit_card">Cartão de crédito</option><option value="debit_card">Cartão de débito</option><option value="bank_transfer">Transferência</option><option value="other">Outro</option>
+              <select
+                value={settlementMethod}
+                onChange={(event) =>
+                  setSettlementMethod(event.target.value as SettlementPaymentMethod)
+                }
+                className="h-9 rounded-md border border-[#E5DFD5] bg-white px-2 text-xs"
+              >
+                <option value="pix">Pix</option>
+                <option value="cash">Dinheiro</option>
+                <option value="credit_card">Cartão de crédito</option>
+                <option value="debit_card">Cartão de débito</option>
+                <option value="bank_transfer">Transferência</option>
+                <option value="other">Outro</option>
               </select>
-              <Input type="number" min="0" step="0.01" placeholder="Valor recebido" value={settlementAmount} onChange={(event) => setSettlementAmount(event.target.value)} className="bg-white text-xs" />
-              <Button type="button" disabled={isSubmitting} onClick={doSettlementPayment} className="bg-[#7A5C2E] hover:bg-[#634923] text-white text-xs">
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="Valor recebido"
+                value={settlementAmount}
+                onChange={(event) => setSettlementAmount(event.target.value)}
+                className="bg-white text-xs"
+              />
+              <Button
+                type="button"
+                disabled={isSubmitting}
+                onClick={doSettlementPayment}
+                className="bg-[#7A5C2E] hover:bg-[#634923] text-white text-xs"
+              >
                 Registrar pagamento
               </Button>
             </div>
