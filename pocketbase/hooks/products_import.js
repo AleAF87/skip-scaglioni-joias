@@ -128,6 +128,30 @@ routerAdd(
         // 14. Produtos principais
         const resProducts = txApp.db().newQuery('DELETE FROM products').execute()
         deletedCounts.products = resProducts?.rowsAffected ? resProducts.rowsAffected() : 0
+
+        // 15. Reinicia o contador de códigos numéricos de produto (v0.0.214):
+        // com a base zerada, o próximo produto criado/importado deve receber 1001.
+        // Regra do usuário: piso 1000, sequencial, pulando códigos já existentes.
+        try {
+          let seqRec = null
+          try {
+            seqRec = txApp.findFirstRecordByFilter('app_sequences', "name = 'product_numeric_code'")
+          } catch (_) {}
+
+          if (seqRec) {
+            seqRec.set('current_value', 1000)
+            txApp.save(seqRec)
+          } else {
+            const seqCol = txApp.findCollectionByNameOrId('app_sequences')
+            const newSeqRec = new Record(seqCol)
+            newSeqRec.set('name', 'product_numeric_code')
+            newSeqRec.set('current_value', 1000)
+            txApp.save(newSeqRec)
+          }
+          console.log('Contador de códigos de produto reiniciado em 1000 (próximo: 1001).')
+        } catch (seqErr) {
+          console.log('Aviso: falha ao reiniciar contador de códigos:', seqErr.message)
+        }
       })
 
       return e.json(200, {
