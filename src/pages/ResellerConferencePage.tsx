@@ -229,7 +229,38 @@ export default function ResellerConferencePage() {
     flashScan('ok', `+1 devolvida: ${label}`)
   }
 
-  const handleScannedCode = (raw: string) => {
+  const handleScannedCode = async (raw: string) => {
+    // A conferência deve obedecer à mesma regra dos PDVs: código-pai de um
+    // produto com variações não identifica uma peça física.
+    try {
+      const resolved = await productService.resolveBarcode(raw)
+      if (resolved.ambiguous) {
+        flashScan(
+          'notfound',
+          resolved.message || 'Este código possui variações. Leia a etiqueta da variação específica.',
+        )
+        return
+      }
+      if (resolved.matched && resolved.product) {
+        const stock = stockRef.current.find(
+          (it) => it.quantity > 0 && it.product === resolved.product!.id,
+        )
+        if (!stock) {
+          flashScan('notfound', `Código ${raw} não está na lista em poder desta revendedora.`)
+          return
+        }
+        const product = stock.expand?.product
+        registerOne(
+          stock.product,
+          resolved.product.variacao
+            ? `${resolved.product.code} — ${resolved.product.variacao}`
+            : getProductFullName(product!) || resolved.product.code,
+        )
+        return
+      }
+    } catch {
+      // Mantém a busca por nome/código legado abaixo apenas se o endpoint falhar.
+    }
     const digits = digitsOf(raw)
     if (!digits) return
     const found = stockRef.current.find((it) => {
