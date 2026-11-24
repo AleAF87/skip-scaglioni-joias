@@ -113,12 +113,46 @@ export const productCreationService = {
   },
 
   /**
-   * SKU alfabética de e-commerce (v0.0.213): DISTINTA do código numérico/código de barras.
+   * SKU alfabética de e-commerce (v0.0.215, NOVA REGRA): DISTINTA do código numérico.
    * Gerada SOMENTE pelo hook do servidor (products_code_sequence.js) na criação:
-   * iniciais do nome sem acentos + contador de 2 dígitos (ex.: BRPFD01).
+   * TIPO + METAL + iniciais do nome livre + numerador de 2 dígitos (ex.: BROULCPV01).
    * Aqui é apenas espelho da última SKU retornada pela criação, para exibição pós-salvar.
    */
   lastGeneratedEcommerceSku: '' as string,
+
+  /**
+   * Cache das categorias carregadas (para derivar tipo/metal da SKU e-commerce).
+   */
+  categoriesCache: [] as ProductCategory[],
+
+  /**
+   * NOVA REGRA de SKU e-commerce (v0.0.215): deriva dicas de TIPO e METAL
+   * a partir das categorias selecionadas no cadastro manual. O TIPO é a
+   * categoria não-metal e o METAL a categoria de grupo 'metal' (quando houver).
+   * Enviadas ao backend como query params (skuTipo/skuMetal) — o backend é a
+   * fonte da geração.
+   */
+  deriveSkuHints(
+    payload: CreateProductPayload,
+    categories: ProductCategory[],
+  ): { tipo: string; metal: string } {
+    const hints = { tipo: '', metal: '' }
+    if (!payload.categoria_ids || payload.categoria_ids.length === 0) return hints
+    for (const catId of payload.categoria_ids) {
+      const cat = categories.find((c) => c.id === catId)
+      if (!cat) continue
+      const group = (cat.group || '').trim()
+      const isMetal =
+        group === 'metal' ||
+        (!group && /^(PRATA|OURO|RODIO|RÓDIO|AÇO|ACO|INOX|BANHO|DOURAD)/i.test(cat.name || ''))
+      if (isMetal && !hints.metal) {
+        hints.metal = (cat.name || '').trim()
+      } else if (!isMetal && !hints.tipo) {
+        hints.tipo = (cat.name || '').trim()
+      }
+    }
+    return hints
+  },
 
   /**
    * SKU alfabética de e-commerce do último produto criado nesta sessão do modal
@@ -183,10 +217,13 @@ export const productCreationService = {
    */
   async getCategories(includeArchived = false): Promise<ProductCategory[]> {
     const filter = includeArchived ? undefined : 'archived != true'
-    return pb.collection('product_categories').getFullList<ProductCategory>({
+    const cats = await pb.collection('product_categories').getFullList<ProductCategory>({
       filter,
       sort: 'name',
     })
+    // Cache para derivar dicas de tipo/metal da SKU e-commerce no saveFullProduct
+    this.categoriesCache = cats
+    return cats
   },
 
   /**
@@ -275,12 +312,19 @@ export const productCreationService = {
     // Criar o produto. O código é gerado SOMENTE pelo hook do servidor (products_code_sequence.js),
     // de forma transacional, no ato da criação. Se outro cadastro pegar o mesmo código ao mesmo tempo,
     // o servidor recusa com 400: tenta de novo (o hook então atribui o próximo código livre).
+    // NOVA REGRA de SKU e-commerce (v0.0.215): dicas de tipo/metal vão como QUERY PARAMS
+    // (skuTipo/skuMetal) para o hook gerar TIPO+METAL+iniciais+numerador no backend.
+    const skuHints = this.deriveSkuHints(payload, this.categoriesCache)
+    const createOptions: any = { query: {} as Record<string, string> }
+    if (skuHints.tipo) createOptions.query.skuTipo = skuHints.tipo
+    if (skuHints.metal) createOptions.query.skuMetal = skuHints.metal
+
     const MAX_CREATE_ATTEMPTS = 3
     let productRecord: Product | null = null
     let lastError: any = null
     for (let attempt = 1; attempt <= MAX_CREATE_ATTEMPTS; attempt++) {
       try {
-        productRecord = await pb.collection('products').create<Product>(formData)
+        productRecord = await pb.collection('products').create<Product>(formData, createOptions)
         break
       } catch (err: any) {
         lastError = err
@@ -300,8 +344,9 @@ export const productCreationService = {
     }
     const createdProduct = productRecord
     const productId = createdProduct.id
-    // SKU alfabética de e-commerce (v0.0.213): gerada pelo hook do servidor na criação
-    // (distinta do código numérico / código de barras). Retornada no reload final.
+    // SKU alfabética de e-commerce (v0.0.215, nova regra TIPO+METAL+iniciais+numerador):
+    // gerada pelo hook do servidor na criação (distinta do código numérico/código de
+    // barras). O frontend NUNCA gera — apenas exibe o valor retornado pelo backend.
     const generatedEcommerceSku = (productRecord.sku_ecommerce || '').trim()
     productCreationService.lastGeneratedEcommerceSku = generatedEcommerceSku
 

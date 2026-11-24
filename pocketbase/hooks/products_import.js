@@ -201,41 +201,16 @@ routerAdd(
     const lineReports = []
     const imageFailures = []
 
-    // SKU alfabética do e-commerce (ex.: BRPFD01) — DISTINTA do código numérico.
-    // Iniciais de cada palavra do nome (acentos removidos NFD, maiúsculas, até 8
-    // letras) + contador de 2 dígitos por grupo de iniciais, começando em 01.
+    // SKU alfabética do e-commerce — DISTINTA do código numérico.
+    // NOVA REGRA (v0.0.215): TIPO (2 letras) + METAL (2 letras) + inicial de cada
+    // palavra do NOME LIVRE + numerador de 2 dígitos por combinação, começando em 01.
     // Os importadores usam $app.save/txApp.save, que NÃO disparam
-    // onRecordCreateRequest — por isso a geração aqui é explícita.
+    // onRecordCreateRequest — por isso a geração aqui é explícita, via $app_skuRule.
     const genEcommerceSku = (prodRecord) => {
-      const rawName =
-        (prodRecord.getString('nome_produto') || '').trim() ||
-        (prodRecord.getString('description') || '').trim()
-      if (!rawName) return
-      const asciiName = rawName
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .toUpperCase()
-      const words = asciiName.split(/[^A-Z]+/).filter(Boolean)
-      if (words.length === 0) return
-      let prefix = ''
-      for (let w = 0; w < words.length; w++) {
-        prefix += words[w].charAt(0)
-        if (prefix.length >= 8) break
-      }
-      if (!prefix) return
-      let n = 1
-      while (n < 100) {
-        const candidate = prefix + String(n).padStart(2, '0')
-        let occupied = false
-        try {
-          $app.findFirstRecordByFilter('products', "sku_ecommerce = '" + candidate + "'")
-          occupied = true
-        } catch (_) {}
-        if (!occupied) {
-          prodRecord.set('sku_ecommerce', candidate)
-          return
-        }
-        n++
+      try {
+        $app_skuRule.generateForRecord(prodRecord, '', '', '', $app)
+      } catch (errSku) {
+        console.log('Aviso ao gerar SKU e-commerce (nova regra):', errSku.message)
       }
     }
 
@@ -713,40 +688,44 @@ routerAdd(
         return String(cand)
       }
 
-      // SKU alfabética do e-commerce (ex.: BRPFD01) — DISTINTA do código numérico.
-      // Regra do usuário: iniciais de cada palavra do nome (acentos removidos) +
-      // contador de 2 dígitos por grupo de iniciais, começando em 01.
-      const genEcommerceSku = (prodRecord) => {
-        const rawName =
-          (prodRecord.getString('nome_produto') || '').trim() ||
-          (prodRecord.getString('description') || '').trim()
-        if (!rawName) return
-        const asciiName = rawName
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '')
-          .toUpperCase()
-        const words = asciiName.split(/[^A-Z]+/).filter(Boolean)
-        if (words.length === 0) return
-        let prefix = ''
-        for (let w = 0; w < words.length; w++) {
-          prefix += words[w].charAt(0)
-          if (prefix.length >= 8) break
+      // SKU alfabética do e-commerce — DISTINTA do código numérico.
+      // NOVA REGRA (v0.0.215): TIPO (2 letras) + METAL (2 letras) + inicial de cada
+      // palavra do NOME LIVRE + numerador de 2 dígitos por combinação, começando em 01.
+      // Geração explícita via $app_skuRule (os importadores gravam com $app.save,
+      // que NÃO dispara onRecordCreateRequest). O tipo/metal vêm das categorias
+      // vinculadas ao produto (links criados nas linhas seguintes), com detecção
+      // no próprio nome como fallback. NOVO produto: gera ANTES do save, com hints
+      // derivadas das categorias da linha (o record ainda não tem links).
+      const genEcommerceSku = (prodRecord, catsList) => {
+        try {
+          const hints = deriveSkuHintsFromCats(catsList)
+          return $app_skuRule.generateForRecord(prodRecord, hints.tipo, hints.metal, '', $app)
+        } catch (errSku) {
+          console.log('Aviso ao gerar SKU e-commerce (nova regra):', errSku.message)
         }
-        if (!prefix) return
-        let n = 1
-        while (n < 100) {
-          const candidate = prefix + String(n).padStart(2, '0')
-          let occupied = false
+      }
+
+      // Deriva {tipo, metal} das categorias normalizadas da linha (Scaglioni/Tecson)
+      // usando os grupos de product_categories quando possível; senão nome.
+      const deriveSkuHintsFromCats = (catsList) => {
+        const hints = { tipo: '', metal: '' }
+        if (!catsList || catsList.length === 0) return hints
+        for (let c = 0; c < catsList.length; c++) {
+          const catName = String(catsList[c] || '').trim()
+          if (!catName) continue
+          let group = ''
           try {
-            $app.findFirstRecordByFilter('products', "sku_ecommerce = '" + candidate + "'")
-            occupied = true
+            const catRec = $app.findFirstRecordByData('product_categories', 'name', catName)
+            group = (catRec.getString('group') || '').trim()
           } catch (_) {}
-          if (!occupied) {
-            prodRecord.set('sku_ecommerce', candidate)
-            return
+          const isMetal = group === 'metal' || (!group && $app_skuRule.isMetalName(catName))
+          if (isMetal && !hints.metal) {
+            hints.metal = catName
+          } else if (!isMetal && !hints.tipo) {
+            hints.tipo = catName
           }
-          n++
         }
+        return hints
       }
 
       // Processamento LINHA A LINHA sem transação de lote:
@@ -1290,14 +1269,20 @@ routerAdd(
               newProd.set('id_scaglioni', idScaglioni)
               newProd.set('sku_scaglioni', skuScaglioni)
 
+              // Categorias com normalização tolerante (calculadas ANTES da geração
+              // da SKU — o tipo/metal da nova regra vêm das categorias da linha)
+              const catsToLink = normalizeCategoriesInput(item.categorias, item.categoria)
+              const catPrincipalTarget =
+                normalizeSingleCategory(item.categoria_principal) ||
+                (catsToLink.length > 0 ? catsToLink[0] : '')
+
               // SKU e-commerce: SKU da planilha Scaglioni quando vier; senão gerada
-              // por iniciais do nome (explícito: $app.save NÃO dispara
-              // onRecordCreateRequest) — v0.0.213. Regra do usuário: corrigir a
-              // importação do campo SKU do e-commerce Scaglioni.
+              // pela NOVA regra (tipo+metal das categorias + iniciais do nome livre),
+              // explícito: $app.save NÃO dispara onRecordCreateRequest — v0.0.215.
               if (skuScaglioni) {
                 newProd.set('sku_ecommerce', skuScaglioni)
               } else {
-                genEcommerceSku(newProd)
+                genEcommerceSku(newProd, catsToLink)
               }
 
               newProd.set('selling_price', precoVenda)
@@ -1383,12 +1368,6 @@ routerAdd(
                   $app.save(extraRec)
                 }
               }
-
-              // Categorias com normalização tolerante
-              const catsToLink = normalizeCategoriesInput(item.categorias, item.categoria)
-              const catPrincipalTarget =
-                normalizeSingleCategory(item.categoria_principal) ||
-                (catsToLink.length > 0 ? catsToLink[0] : '')
 
               for (let c = 0; c < catsToLink.length; c++) {
                 const cleanCat = catsToLink[c]

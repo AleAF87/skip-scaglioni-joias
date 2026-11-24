@@ -117,25 +117,26 @@ onRecordCreateRequest((e) => {
     // Ex.: BRINCO + OURO + "Liso com pedras vermelhas" -> BROULCPV01.
     // Se o chamador já enviou um sku_ecommerce explícito (ex.: importador com
     // SKU da planilha), preserva. Dicas de tipo/metal/nome livre podem vir nos
-    // campos internos sku_ecommerce_*_hint (nunca persistidos — zerados abaixo).
+    // QUERY PARAMS skuTipo/skuMetal/skuNomeLivre (nunca persistidos no banco).
     const incomingEcommerceSku = (record.getString('sku_ecommerce') || '').trim()
     if (!incomingEcommerceSku) {
-      const tipoHint = record.getString('sku_ecommerce_tipo_hint') || ''
-      const metalHint = record.getString('sku_ecommerce_metal_hint') || ''
-      const nomeLivreHint = record.getString('sku_ecommerce_nome_livre_hint') || ''
-      const skuGerada = $app_skuRule.generateForRecord(
-        record,
-        tipoHint,
-        metalHint,
-        nomeLivreHint,
-        $app,
-      )
+      let tipoHint = ''
+      let metalHint = ''
+      let nomeLivreHint = ''
+      try {
+        const q = e.requestInfo().query || {}
+        tipoHint = String(q.skuTipo || '')
+        metalHint = String(q.skuMetal || '')
+        nomeLivreHint = String(q.skuNomeLivre || '')
+      } catch (_) {}
+      let skuGerada = ''
+      try {
+        skuGerada = $app_skuRule.generateForRecord(record, tipoHint, metalHint, nomeLivreHint, $app)
+      } catch (skuErr) {
+        console.log('Aviso: falha ao gerar SKU e-commerce:', skuErr.message)
+      }
       console.log('SKU e-commerce gerada pela nova regra:', skuGerada || '(não gerada)')
     }
-    // Hints nunca persistem no banco
-    record.set('sku_ecommerce_tipo_hint', '')
-    record.set('sku_ecommerce_metal_hint', '')
-    record.set('sku_ecommerce_nome_livre_hint', '')
 
     const incomingSkuNovo = (record.getString('sku_novo') || '').trim()
     const incomingCode = (record.getString('code') || '').trim()
