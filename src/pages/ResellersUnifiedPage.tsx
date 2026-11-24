@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
@@ -1064,10 +1063,93 @@ export default function ResellersUnifiedPage() {
           </div>
 
           {/* Busca da revendedora */}
-    {/* eslint-disable-next-line @typescript-eslint/no-unused-vars */}
-    {setSelectedSettlementReceipt(null)}
-        }}
-      />
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#8C8275]" />
+            <Input
+              value={resellerSearch}
+              onChange={(e) => setResellerSearch(e.target.value)}
+              placeholder="Buscar revendedora por nome, e-mail ou código..."
+              className="pl-9 pr-9 h-11 text-sm border-[#E5DFD5]"
+            />
+            {resellerSearch && (
+              <button
+                type="button"
+                onClick={() => setResellerSearch('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8C8275] hover:text-[#B3261E]"
+                aria-label="Limpar busca"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+
+          {/* Grid de cards das revendedoras */}
+          {resellerOverviewList.length === 0 ? (
+            <div className="border border-[#E5DFD5] rounded-2xl bg-white p-12 text-center shadow-xs">
+              <Users2 className="h-10 w-10 text-[#C6A664] mx-auto mb-3 opacity-60" />
+              <p className="text-base font-semibold text-[#2D2A26]">
+                {resellerSearch
+                  ? 'Nenhuma revendedora encontrada para esta busca.'
+                  : 'Nenhuma revendedora cadastrada ainda.'}
+              </p>
+              <p className="text-xs text-[#6B655E] mt-1">
+                {resellerSearch
+                  ? 'Tente buscar por outro nome ou código.'
+                  : canManage
+                    ? 'Use o botão "Cadastrar Revendedora" acima para criar a primeira conta.'
+                    : 'Aguarde enquanto a equipe cadastra as revendedoras.'}
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {resellerOverviewList.map(
+                ({ reseller: r, key, piecesCount, distinctProducts, totalValue }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => handleOpenResellerProfile(r)}
+                    className="text-left border border-[#E5DFD5] rounded-2xl bg-white p-4 shadow-xs hover:border-[#C6A664] hover:shadow-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C6A664]"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-serif text-base font-bold text-[#2D2A26] truncate">
+                          {r.name}
+                        </p>
+                        <p className="text-[11px] text-[#6B655E] truncate mt-0.5">
+                          {r.expand?.user?.email || r.email || '—'}
+                        </p>
+                      </div>
+                      <Badge
+                        variant="outline"
+                        className="shrink-0 text-[10px] border-[#C6A664] text-[#7A5C2E]"
+                      >
+                        {r.code || 'S/C'}
+                      </Badge>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 mt-3 text-center">
+                      <div className="rounded-xl bg-[#FDFBF7] border border-[#E5DFD5]/70 py-2">
+                        <p className="text-sm font-bold text-[#2D2A26]">{piecesCount}</p>
+                        <p className="text-[10px] text-[#6B655E]">peças</p>
+                      </div>
+                      <div className="rounded-xl bg-[#FDFBF7] border border-[#E5DFD5]/70 py-2">
+                        <p className="text-sm font-bold text-[#2D2A26]">{distinctProducts}</p>
+                        <p className="text-[10px] text-[#6B655E]">modelos</p>
+                      </div>
+                      <div className="rounded-xl bg-[#FDFBF7] border border-[#E5DFD5]/70 py-2">
+                        <p className="text-sm font-bold text-[#7A5C2E]">
+                          {formatCurrency(totalValue)}
+                        </p>
+                        <p className="text-[10px] text-[#6B655E]">valor</p>
+                      </div>
+                    </div>
+                  </button>
+                ),
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ------------------------------------------------------------------- */}
       {/* MODAL 1: NOVA ENTREGA DE JOIAS */}

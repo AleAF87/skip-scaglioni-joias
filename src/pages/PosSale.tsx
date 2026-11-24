@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { salesService } from '@/services/salesService'
 import { productService } from '@/services/productService'
@@ -501,7 +500,8 @@ export default function PosSale() {
 
     setCart((prev) => {
       const existing = prev.find(
-        (item) => item.product_id === product.id && item.variation_id === product.selected_variation_id,
+        (item) =>
+          item.product_id === product.id && item.variation_id === product.selected_variation_id,
       )
       if (existing) {
         const maxQty = getMaxQtyForOrigin(
@@ -527,7 +527,8 @@ export default function PosSale() {
         ]
       } else {
         // Novo item entra na PRIMEIRA linha do carrinho (mais recente no topo).
-        const fullName = getProductFullName(product, product.selected_variation) || product.description
+        const fullName =
+          getProductFullName(product, product.selected_variation) || product.description
         return [
           {
             cart_item_id: `${product.id}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -656,7 +657,8 @@ export default function PosSale() {
     // c) Se o produto já está listado na venda atual e não foi explicitamente confirmado pelo modal:
     // Retorna solicitação de confirmação para o scanner de câmera (smartphone)
     const alreadyInCart = cart.some(
-      (item) => item.product_id === product.id && item.variation_id === product.selected_variation_id,
+      (item) =>
+        item.product_id === product.id && item.variation_id === product.selected_variation_id,
     )
     if (alreadyInCart && !options?.forceDuplicate) {
       return {
@@ -1118,7 +1120,9 @@ export default function PosSale() {
       setCustomerSearchQuery(
         pSale.expand?.customer ? getMaskedCustomerLabel(pSale.expand.customer) : '',
       )
-      setPaymentMethod((pSale.payment_method as 'pix' | 'cash' | 'credit_card' | 'debit_card') || 'pix')
+      setPaymentMethod(
+        (pSale.payment_method as 'pix' | 'cash' | 'credit_card' | 'debit_card') || 'pix',
+      )
       setInstallments(pSale.installments || 1)
       setDiscount(String(pSale.discount || 0))
       setDiscountPercent(
@@ -1306,7 +1310,9 @@ export default function PosSale() {
               <ShoppingCart className="h-6 w-6" />
             </span>
             <div>
-              <h1 className="font-serif text-2xl font-bold text-[#2D2A26]">Frente de Caixa (PDV)</h1>
+              <h1 className="font-serif text-2xl font-bold text-[#2D2A26]">
+                Frente de Caixa (PDV)
+              </h1>
               <p className="text-xs text-[#6B655E]">
                 Bipe o código de barras ou busque a joia para iniciar a venda.
               </p>
@@ -1500,7 +1506,9 @@ export default function PosSale() {
                               >
                                 <img
                                   src={
-                                    item.photo || (prod ? getProductDisplayPhoto(prod) : '') || undefined
+                                    item.photo ||
+                                    (prod ? getProductDisplayPhoto(prod) : '') ||
+                                    undefined
                                   }
                                   alt={item.description}
                                   className="h-14 w-14 rounded-lg object-cover border border-[#E5DFD5] bg-white"
@@ -1585,155 +1593,155 @@ export default function PosSale() {
                   </CardContent>
                 </Card>
               </div>
+              {/* Cliente da venda */}
+              <Card className="border-[#E5DFD5] bg-white shadow-xs">
+                <CardHeader className="p-3 pb-2 border-b border-[#E5DFD5]">
+                  <CardTitle className="font-serif text-xs font-bold text-[#2D2A26] flex items-center gap-1.5">
+                    <FileText className="h-3.5 w-3.5 text-[#7A5C2E]" />
+                    <span>Cliente</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-3 pt-2">
+                  <div className="space-y-2" ref={customerSearchContainerRef}>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#8C8275]" />
+                      <Input
+                        value={customerSearchQuery}
+                        onChange={(e) => {
+                          setCustomerSearchQuery(e.target.value)
+                          setSelectedCustomerId('')
+                          setIsCustomerDropdownOpen(true)
+                        }}
+                        onFocus={() => setIsCustomerDropdownOpen(true)}
+                        onKeyDown={handleCustomerInputKeyDown}
+                        placeholder="Nome, CPF, e-mail ou telefone..."
+                        className="pl-9 pr-8 h-10 text-xs border-[#E5DFD5]"
+                      />
+                      {(selectedCustomerId || customerSearchQuery) && (
+                        <button
+                          type="button"
+                          onClick={clearCustomerSelection}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8C8275] hover:text-[#B3261E]"
+                          title="Limpar cliente (Consumidor Final)"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
 
-              {/* Coluna direita: cliente, resumo e ações de checkout */}
-              <div className="space-y-3">
-                {/* Cliente da venda */}
-                <Card className="border-[#E5DFD5] bg-white shadow-xs">
-                  <CardHeader className="p-3 pb-2 border-b border-[#E5DFD5]">
-                    <CardTitle className="font-serif text-xs font-bold text-[#2D2A26] flex items-center gap-1.5">
-                      <FileText className="h-3.5 w-3.5 text-[#7A5C2E]" />
-                      <span>Cliente</span>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="p-3 pt-2">
-                    <div className="space-y-2" ref={customerSearchContainerRef}>
-                      <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#8C8275]" />
-                        <Input
-                          value={customerSearchQuery}
-                          onChange={(e) => {
-                            setCustomerSearchQuery(e.target.value)
-                            setSelectedCustomerId('')
-                            setIsCustomerDropdownOpen(true)
-                          }}
-                          onFocus={() => setIsCustomerDropdownOpen(true)}
-                          onKeyDown={handleCustomerInputKeyDown}
-                          placeholder="Nome, CPF, e-mail ou telefone..."
-                          className="pl-9 pr-8 h-10 text-xs border-[#E5DFD5]"
-                        />
-                        {(selectedCustomerId || customerSearchQuery) && (
-                          <button
-                            type="button"
-                            onClick={clearCustomerSelection}
-                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8C8275] hover:text-[#B3261E]"
-                            title="Limpar cliente (Consumidor Final)"
-                          >
-                            <X className="h-4 w-4" />
-                          </button>
+                    {isCustomerDropdownOpen && customerSearchQuery.trim() && (
+                      <div className="border border-[#E5DFD5] rounded-xl overflow-hidden bg-white max-h-56 overflow-y-auto shadow-sm">
+                        {filteredCustomers.length === 0 ? (
+                          <p className="p-3 text-xs text-[#8C8275] text-center">
+                            Nenhum cliente encontrado.
+                          </p>
+                        ) : (
+                          filteredCustomers.map((c) => (
+                            <button
+                              key={c.id}
+                              type="button"
+                              onClick={() => selectCustomer(c)}
+                              className="w-full text-left px-3 py-2 hover:bg-[#FDFBF7] border-b border-[#E5DFD5]/60 last:border-0"
+                            >
+                              <span className="text-xs font-semibold text-[#2D2A26] block truncate">
+                                {c.name}
+                              </span>
+                              <span className="text-[10px] text-[#6B655E]">
+                                {[
+                                  formatCpf((c as any).cpf || ''),
+                                  formatPhone((c as any).phone || ''),
+                                ]
+                                  .filter(Boolean)
+                                  .join(' · ') || 'Sem documento/telefone'}
+                              </span>
+                            </button>
+                          ))
                         )}
                       </div>
+                    )}
 
-                      {isCustomerDropdownOpen && customerSearchQuery.trim() && (
-                        <div className="border border-[#E5DFD5] rounded-xl overflow-hidden bg-white max-h-56 overflow-y-auto shadow-sm">
-                          {filteredCustomers.length === 0 ? (
-                            <p className="p-3 text-xs text-[#8C8275] text-center">
-                              Nenhum cliente encontrado.
-                            </p>
-                          ) : (
-                            filteredCustomers.map((c) => (
-                              <button
-                                key={c.id}
-                                type="button"
-                                onClick={() => selectCustomer(c)}
-                                className="w-full text-left px-3 py-2 hover:bg-[#FDFBF7] border-b border-[#E5DFD5]/60 last:border-0"
-                              >
-                                <span className="text-xs font-semibold text-[#2D2A26] block truncate">
-                                  {c.name}
-                                </span>
-                                <span className="text-[10px] text-[#6B655E]">
-                                  {[formatCpf((c as any).cpf || ''), formatPhone((c as any).phone || '')]
-                                    .filter(Boolean)
-                                    .join(' · ') || 'Sem documento/telefone'}
-                                </span>
-                              </button>
-                            ))
-                          )}
-                        </div>
-                      )}
+                    {isNoCustomerFound && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setNewCustomerModalOpen(true)}
+                        className="w-full border-[#7A5C2E] text-[#7A5C2E] hover:bg-[#F3EAD8] text-xs h-9"
+                      >
+                        <UserPlus className="h-4 w-4 mr-1.5" />
+                        Cadastrar novo cliente
+                      </Button>
+                    )}
 
-                      {isNoCustomerFound && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => setNewCustomerModalOpen(true)}
-                          className="w-full border-[#7A5C2E] text-[#7A5C2E] hover:bg-[#F3EAD8] text-xs h-9"
-                        >
-                          <UserPlus className="h-4 w-4 mr-1.5" />
-                          Cadastrar novo cliente
-                        </Button>
-                      )}
+                    {!selectedCustomerId && (
+                      <p className="text-[10px] text-[#8C8275] text-center">
+                        Sem cliente selecionado = Consumidor Final
+                      </p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
 
-                      {!selectedCustomerId && (
-                        <p className="text-[10px] text-[#8C8275] text-center">
-                          Sem cliente selecionado = Consumidor Final
-                        </p>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
+              {/* Resumo da venda (subtotal, desconto, total e ações de checkout) */}
+              <Card className="border-[#E5DFD5] bg-white shadow-xs">
+                <CardHeader className="p-3 pb-2 border-b border-[#E5DFD5]">
+                  <CardTitle className="font-serif text-xs font-bold text-[#2D2A26] flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <PackageCheck className="h-3.5 w-3.5 text-[#7A5C2E]" />
+                      <span>Resumo da Venda</span>
+                    </span>
+                    <Badge variant="outline" className="text-[10px] font-normal text-[#6B655E]">
+                      {cart.length} {cart.length === 1 ? 'item' : 'itens'}
+                    </Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-3 pt-2 space-y-3">
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-xs text-[#6B655E]">Subtotal:</span>
+                    <span className="font-serif text-lg font-bold text-[#2D2A26]">
+                      {formatCurrency(subtotal)}
+                    </span>
+                  </div>
 
-                {/* Resumo da venda (subtotal, desconto, total e ações de checkout) */}
-                <Card className="border-[#E5DFD5] bg-white shadow-xs">
-                  <CardHeader className="p-3 pb-2 border-b border-[#E5DFD5]">
-                    <CardTitle className="font-serif text-xs font-bold text-[#2D2A26] flex items-center justify-between">
-                      <span className="flex items-center gap-1.5">
-                        <PackageCheck className="h-3.5 w-3.5 text-[#7A5C2E]" />
-                        <span>Resumo da Venda</span>
-                      </span>
-                      <Badge variant="outline" className="text-[10px] font-normal text-[#6B655E]">
-                        {cart.length} {cart.length === 1 ? 'item' : 'itens'}
-                      </Badge>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="p-3 pt-2 space-y-3">
-                    <div className="flex justify-between items-baseline">
-                      <span className="text-xs text-[#6B655E]">Subtotal:</span>
-                      <span className="font-serif text-lg font-bold text-[#2D2A26]">
-                        {formatCurrency(subtotal)}
-                      </span>
+                  <div className="space-y-2 pt-2 border-t border-[#E5DFD5]/60">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label htmlFor="disc" className="text-xs text-[#6B655E]">
+                        Desconto (R$):{' '}
+                      </Label>
+                      <Input
+                        id="disc"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={discount}
+                        onChange={(e) => handleDiscountValueChange(e.target.value)}
+                        className="w-24 h-8 text-right font-semibold text-xs border-[#E5DFD5]"
+                      />
                     </div>
 
-                    <div className="space-y-2 pt-2 border-t border-[#E5DFD5]/60">
-                      <div className="flex items-center justify-between gap-2">
-                        <Label htmlFor="disc" className="text-xs text-[#6B655E]">
-                          Desconto (R$):          </Label>
-                        <Input
-                          id="disc"
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={discount}
-                          onChange={(e) => handleDiscountValueChange(e.target.value)}
-                          className="w-24 h-8 text-right font-semibold text-xs border-[#E5DFD5]"
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between gap-2">
-                        <Label htmlFor="discPct" className="text-xs text-[#6B655E]">
-                          Desconto (%):
-                        </Label>
-                        <Input
-                          id="discPct"
-                          type="number"
-                          min="0"
-                          max="100"
-                          step="0.01"
-                          value={discountPercent}
-                          onChange={(e) => handleDiscountPercentChange(e.target.value)}
-                          className="w-24 h-8 text-right font-semibold text-xs border-[#E5DFD5]"
-                        />
-                      </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <Label htmlFor="discPct" className="text-xs text-[#6B655E]">
+                        Desconto (%):
+                      </Label>
+                      <Input
+                        id="discPct"
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        value={discountPercent}
+                        onChange={(e) => handleDiscountPercentChange(e.target.value)}
+                        className="w-24 h-8 text-right font-semibold text-xs border-[#E5DFD5]"
+                      />
                     </div>
+                  </div>
 
-                    <div className="flex justify-between items-baseline pt-2">
-                      <span className="font-serif text-base font-bold text-[#2D2A26]">
-                        Total a Pagar:
-                      </span>
-                      <span className="font-serif text-2xl font-bold text-[#7A5C2E]">
-                        {formatCurrency(total)}
-                      </span>
-                    </div>
+                  <div className="flex justify-between items-baseline pt-2">
+                    <span className="font-serif text-base font-bold text-[#2D2A26]">
+                      Total a Pagar:
+                    </span>
+                    <span className="font-serif text-2xl font-bold text-[#7A5C2E]">
+                      {formatCurrency(total)}
+                    </span>
                   </div>
 
                   {/* Botões do Checkout: Apenas ícones lado a lado para Pagamento e Fiado (salvar pendente) */}
