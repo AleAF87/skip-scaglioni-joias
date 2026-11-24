@@ -177,6 +177,44 @@ routerAdd(
     const lineReports = []
     const imageFailures = []
 
+    // SKU alfabética do e-commerce (ex.: BRPFD01) — DISTINTA do código numérico.
+    // Iniciais de cada palavra do nome (acentos removidos NFD, maiúsculas, até 8
+    // letras) + contador de 2 dígitos por grupo de iniciais, começando em 01.
+    // Os importadores usam $app.save/txApp.save, que NÃO disparam
+    // onRecordCreateRequest — por isso a geração aqui é explícita.
+    const genEcommerceSku = (prodRecord) => {
+      const rawName =
+        (prodRecord.getString('nome_produto') || '').trim() ||
+        (prodRecord.getString('description') || '').trim()
+      if (!rawName) return
+      const asciiName = rawName
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toUpperCase()
+      const words = asciiName.split(/[^A-Z]+/).filter(Boolean)
+      if (words.length === 0) return
+      let prefix = ''
+      for (let w = 0; w < words.length; w++) {
+        prefix += words[w].charAt(0)
+        if (prefix.length >= 8) break
+      }
+      if (!prefix) return
+      let n = 1
+      while (n < 100) {
+        const candidate = prefix + String(n).padStart(2, '0')
+        let occupied = false
+        try {
+          $app.findFirstRecordByFilter('products', "sku_ecommerce = '" + candidate + "'")
+          occupied = true
+        } catch (_) {}
+        if (!occupied) {
+          prodRecord.set('sku_ecommerce', candidate)
+          return
+        }
+        n++
+      }
+    }
+
     try {
       $app.runInTransaction((txApp) => {
         for (let i = 0; i < items.length; i++) {
@@ -307,6 +345,20 @@ routerAdd(
                 existing.set('codigo_barras_tecson', fullBarcodeValue)
                 existing.set('sku_interno', productCode)
                 existing.set('sku_novo', productCode)
+
+                // SKU e-commerce: preserva a SKU da planilha quando o CSV traz uma
+                // nova; senão gera (apenas se ainda não houver) — v0.0.213
+                const tecsonExistingSku = (existing.getString('sku_ecommerce') || '').trim()
+                if (
+                  item.sku &&
+                  String(item.sku).trim() &&
+                  String(item.sku).trim() !== tecsonExistingSku
+                ) {
+                  existing.set('sku_ecommerce', String(item.sku).trim())
+                } else if (!tecsonExistingSku) {
+                  genEcommerceSku(existing)
+                }
+
                 existing.set(
                   'nome_original_tecson',
                   nomeOriginal || existing.getString('nome_original_tecson'),
@@ -445,6 +497,14 @@ routerAdd(
                   newProd.set('cod_produto_pai_bruto', String(item.cod_produto_pai_bruto))
                 if (item.codigo_barras_pai_bruto)
                   newProd.set('codigo_barras_pai_bruto', String(item.codigo_barras_pai_bruto))
+
+                // SKU e-commerce: SKU da planilha quando vier; senão gerada por iniciais
+                // (explícito: txApp.save NÃO dispara onRecordCreateRequest) — v0.0.213
+                if (item.sku && String(item.sku).trim()) {
+                  newProd.set('sku_ecommerce', String(item.sku).trim())
+                } else {
+                  genEcommerceSku(newProd)
+                }
 
                 txApp.save(newProd)
 
@@ -1066,6 +1126,16 @@ routerAdd(
               existing.set('estado_ativo_ecommerce', estadoAtivoEcommerce)
               existing.set('destaque_ecommerce', destaqueEcommerce)
 
+              // SKU e-commerce: SKU da planilha quando vier; senão gerada por iniciais
+              // (apenas se ainda não houver) — v0.0.213. Regra do usuário: corrigir a
+              // importação do campo SKU do e-commerce Scaglioni.
+              const scagExistingSku = (existing.getString('sku_ecommerce') || '').trim()
+              if (skuScaglioni && skuScaglioni !== scagExistingSku) {
+                existing.set('sku_ecommerce', skuScaglioni)
+              } else if (!scagExistingSku) {
+                genEcommerceSku(existing)
+              }
+
               // Permite gravar ou atualizar mesmo com descrição vazia
               existing.set('description', descricao || '')
 
@@ -1195,6 +1265,17 @@ routerAdd(
               newProd.set('code', skuNovo)
               newProd.set('id_scaglioni', idScaglioni)
               newProd.set('sku_scaglioni', skuScaglioni)
+
+              // SKU e-commerce: SKU da planilha Scaglioni quando vier; senão gerada
+              // por iniciais do nome (explícito: $app.save NÃO dispara
+              // onRecordCreateRequest) — v0.0.213. Regra do usuário: corrigir a
+              // importação do campo SKU do e-commerce Scaglioni.
+              if (skuScaglioni) {
+                newProd.set('sku_ecommerce', skuScaglioni)
+              } else {
+                genEcommerceSku(newProd)
+              }
+
               newProd.set('selling_price', precoVenda)
               if (precoPromo !== null) {
                 newProd.set('preco_promocional', precoPromo)

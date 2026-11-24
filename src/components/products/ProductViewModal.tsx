@@ -183,6 +183,14 @@ export function ProductViewModal({
               </div>
             )}
 
+            {/* SKU E-commerce (v0.0.213): alfabética, DISTINTA do código numérico/código de barras */}
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-[#2D2A26] flex items-center gap-1.5">
+                <Tag className="h-3.5 w-3.5 text-[#7A5C2E]" /> SKU E-commerce:
+              </span>
+              <span className="font-mono text-[#2D2A26]">{product.sku_ecommerce || '—'}</span>
+            </div>
+
             {product.fornecedor && (
               <div className="flex items-center justify-between">
                 <span className="font-semibold text-[#2D2A26] flex items-center gap-1.5">

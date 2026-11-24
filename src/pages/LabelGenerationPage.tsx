@@ -193,6 +193,7 @@ export const LabelGenerationPage: React.FC = () => {
           productId: p.id,
           code,
           barcodeValue,
+          skuEcommerce: (p.sku_ecommerce || '').trim(),
           description: p.nome_produto || p.description || 'Produto Scaglioni',
           fullName,
           price,

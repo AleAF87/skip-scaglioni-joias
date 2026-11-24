@@ -1,6 +1,3 @@
-/**
- * Versão atual do aplicativo Scaglioni Joias.
- * Único número de versão exibido no sistema (sidebar, login e cadastro por voz).
- * Regra do usuário: exibir SOMENTE o APP_VERSION — nunca mostrar número da plataforma.
- */
-export const APP_VERSION = '0.0.211'
+// Versão do aplicativo — exibida na sidebar e na tela de login.
+// Bump manual a cada versão (0.0.213): SKU E-commerce alfabética em importadores e telas.
+export const APP_VERSION = '0.0.213'

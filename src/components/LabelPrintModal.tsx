@@ -13,6 +13,7 @@ export interface PrintQueueItem {
   productId?: string
   code: string
   barcodeValue: string
+  skuEcommerce?: string
   description: string
   fullName: string
   price: number
@@ -57,6 +58,7 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
     type: 'empty' | 'product'
     code: string
     barcodeValue: string
+    skuEcommerce: string
     description: string
     fullName: string
     price: number
@@ -70,6 +72,7 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
         type: item.type,
         code: item.code,
         barcodeValue: item.barcodeValue,
+        skuEcommerce: item.skuEcommerce || '',
         description: item.description,
         fullName: item.fullName,
         price: item.price,
@@ -90,6 +93,7 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
         type: 'empty',
         code: '',
         barcodeValue: '',
+        skuEcommerce: '',
         description: '',
         fullName: '',
         price: 0,
@@ -107,6 +111,7 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
         type: 'empty',
         code: '',
         barcodeValue: '',
+        skuEcommerce: '',
         description: '',
         fullName: '',
         price: 0,
@@ -291,6 +296,11 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
                                 {cell.code}
                               </span>
                             )}
+                            {showCode && cell.skuEcommerce && (
+                              <span className="font-mono text-[6px] text-gray-600 tracking-tight">
+                                SKU {cell.skuEcommerce}
+                              </span>
+                            )}
                           </div>
 
                           {/* Centro da haste fina (área dobrável do anel) */}
@@ -335,11 +345,16 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
                             />
                           </div>
 
-                          {/* Linha inferior: Código sem zeros + Preço opcional */}
+                          {/* Linha inferior: Código sem zeros + SKU E-commerce + Preço opcional */}
                           <div className="w-full flex items-center justify-between px-0.5 text-[7px] font-semibold mt-[0.2mm]">
                             {showCode ? (
                               <span className="font-mono font-bold tracking-tight text-[7.5px]">
                                 {cell.code}
+                                {cell.skuEcommerce ? (
+                                  <span className="font-mono font-medium text-[6px] text-gray-600 ml-1">
+                                    SKU {cell.skuEcommerce}
+                                  </span>
+                                ) : null}
                               </span>
                             ) : (
                               <span />

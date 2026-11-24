@@ -174,8 +174,15 @@ export function ProductEditModal({
             <DialogTitle className="font-serif text-xl text-[#2D2A26]">Editar Produto</DialogTitle>
           </div>
           <DialogDescription className="text-xs text-[#6B655E]">
-            SKU novo: <strong className="text-[#7A5C2E]">{product.sku_novo || product.code}</strong>{' '}
-            • ID: {product.produto_id || product.id}
+            Código: <strong className="text-[#7A5C2E]">{product.sku_novo || product.code}</strong> •
+            ID: {product.produto_id || product.id}
+            {product.sku_ecommerce && (
+              <>
+                {' '}
+                • SKU E-commerce:{' '}
+                <strong className="text-[#7A5C2E]">{product.sku_ecommerce}</strong>
+              </>
+            )}
           </DialogDescription>
         </DialogHeader>
 

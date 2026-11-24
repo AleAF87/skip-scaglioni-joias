@@ -136,6 +136,8 @@ export interface Product {
   produto_id?: string
   sku_interno?: string
   sku_novo?: string
+  /** SKU alfabética de e-commerce (ex.: BRPFD01) — DISTINTA do código numérico */
+  sku_ecommerce?: string
   code: string // código legado e compatibilidade (só o número)
   variacao?: string // sufixo da variação (ex.: N14, N15, PEDRAS) - Opção A Tecson
   codigo_barras?: string // texto preservando zeros

@@ -104,10 +104,18 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
   const [hasVariations, setHasVariations] = useState(false)
   const [variations, setVariations] = useState<ProductVariationInput[]>([])
 
+  // 7. Confirmação pós-salvar (v0.0.213): mostra código numérico e SKU E-commerce geradas
+  const [savedInfo, setSavedInfo] = useState<{
+    nome: string
+    code: string
+    skuEcommerce: string
+  } | null>(null)
+
   // Carrega metadados e inicializa campos ao abrir
   useEffect(() => {
     if (open) {
       loadMetaAndInitialize()
+      setSavedInfo(null)
     }
   }, [open])
 
@@ -325,8 +333,14 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
       toast.success(
         `Produto "${created.nome_produto || created.description}" cadastrado com sucesso!`,
       )
+      // v0.0.213: mostra a SKU E-commerce gerada (somente leitura) junto ao código numérico,
+      // sem fechar o modal imediatamente.
+      setSavedInfo({
+        nome: created.nome_produto || created.description || '',
+        code: created.code || created.sku_novo || '',
+        skuEcommerce: productCreationService.previewEcommerceSkuFor(created),
+      })
       onSuccess(created)
-      onOpenChange(false)
     } catch (err: any) {
       console.error('Erro ao salvar produto:', err)
       toast.error('Erro ao salvar produto: ' + (err.message || 'Verifique os dados digitados.'))
@@ -967,6 +981,46 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
               )}
             </div>
 
+            {/* Confirmação pós-salvar (v0.0.213): código numérico + SKU E-commerce */}
+            {savedInfo && (
+              <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/70 space-y-2">
+                <div className="flex items-center gap-2">
+                  <Check className="h-4 w-4 text-emerald-600" />
+                  <span className="text-xs font-bold text-emerald-800">
+                    Produto "{savedInfo.nome}" cadastrado com sucesso!
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] font-semibold text-[#8C8275] block mb-0.5">
+                      Código do produto (numérico)
+                    </label>
+                    <Input
+                      value={savedInfo.code || '—'}
+                      readOnly
+                      disabled
+                      className="h-9 text-xs font-mono font-bold bg-white text-[#2D2A26]"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-semibold text-[#8C8275] block mb-0.5">
+                      SKU E-commerce (alfabética, gerada)
+                    </label>
+                    <Input
+                      value={savedInfo.skuEcommerce || '—'}
+                      readOnly
+                      disabled
+                      className="h-9 text-xs font-mono font-bold bg-white text-[#7A5C2E]"
+                    />
+                  </div>
+                </div>
+                <span className="text-[10px] text-[#8C8275] block">
+                  A SKU E-commerce é gerada automaticamente pelo sistema a partir das iniciais do
+                  nome — é distinta do código numérico e do código de barras.
+                </span>
+              </div>
+            )}
+
             {/* SEÇÃO 7: BOTÕES DO MODAL */}
             <DialogFooter className="p-6 border-t border-[#E5DFD5] bg-[#FDFBF7] sticky bottom-0 z-10 flex-col sm:flex-row gap-2 sm:gap-3">
               <Button
@@ -976,23 +1030,36 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
                 disabled={isSaving}
                 className="border-[#E5DFD5] text-[#2D2A26] h-11 px-6 font-medium"
               >
-                Cancelar
+                {savedInfo ? 'Fechar' : 'Cancelar'}
               </Button>
 
-              <Button
-                type="submit"
-                disabled={isSaving}
-                className="bg-gradient-to-r from-[#7A5C2E] via-[#A88742] to-[#7A5C2E] hover:from-[#634924] hover:to-[#634924] text-white h-11 px-6 font-bold shadow-md"
-              >
-                {isSaving ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Salvando e registrando estoque...
-                  </>
-                ) : (
-                  'Salvar produto e registrar estoque inicial'
-                )}
-              </Button>
+              {savedInfo ? (
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setSavedInfo(null)
+                    loadMetaAndInitialize()
+                  }}
+                  className="bg-gradient-to-r from-[#7A5C2E] via-[#A88742] to-[#7A5C2E] hover:from-[#634924] hover:to-[#634924] text-white h-11 px-6 font-bold shadow-md"
+                >
+                  <Plus className="h-4 w-4 mr-2" /> Cadastrar outro produto
+                </Button>
+              ) : (
+                <Button
+                  type="submit"
+                  disabled={isSaving}
+                  className="bg-gradient-to-r from-[#7A5C2E] via-[#A88742] to-[#7A5C2E] hover:from-[#634924] hover:to-[#634924] text-white h-11 px-6 font-bold shadow-md"
+                >
+                  {isSaving ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Salvando e registrando estoque...
+                    </>
+                  ) : (
+                    'Salvar produto e registrar estoque inicial'
+                  )}
+                </Button>
+              )}
             </DialogFooter>
           </form>
         )}

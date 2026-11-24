@@ -113,6 +113,22 @@ export const productCreationService = {
   },
 
   /**
+   * SKU alfabética de e-commerce (v0.0.213): DISTINTA do código numérico/código de barras.
+   * Gerada SOMENTE pelo hook do servidor (products_code_sequence.js) na criação:
+   * iniciais do nome sem acentos + contador de 2 dígitos (ex.: BRPFD01).
+   * Aqui é apenas espelho da última SKU retornada pela criação, para exibição pós-salvar.
+   */
+  lastGeneratedEcommerceSku: '' as string,
+
+  /**
+   * SKU alfabética de e-commerce do último produto criado nesta sessão do modal
+   * (somente leitura; nunca sobrescreve sku_novo nem codigo_barras).
+   */
+  previewEcommerceSkuFor(product: Product): string {
+    return (product.sku_ecommerce || '').trim() || this.lastGeneratedEcommerceSku
+  },
+
+  /**
    * Valida código de barras duplicado
    */
   async checkBarcodeUnique(barcode: string, ignoreProductId?: string): Promise<boolean> {
@@ -284,6 +300,10 @@ export const productCreationService = {
     }
     const createdProduct = productRecord
     const productId = createdProduct.id
+    // SKU alfabética de e-commerce (v0.0.213): gerada pelo hook do servidor na criação
+    // (distinta do código numérico / código de barras). Retornada no reload final.
+    const generatedEcommerceSku = (productRecord.sku_ecommerce || '').trim()
+    productCreationService.lastGeneratedEcommerceSku = generatedEcommerceSku
 
     // Variações: SKU filho derivado do código FINAL atribuído pelo servidor (ex.: 1107-V1)
     const finalCode = createdProduct.code || createdProduct.sku_novo || ''
