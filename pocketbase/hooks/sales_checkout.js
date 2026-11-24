@@ -41,6 +41,7 @@ routerAdd(
           }
 
           const product = txApp.findRecordById('products', productId)
+          const variationId = item.variation_id || ''
           const origin = item.stock_origin || 'general'
           const resellerId = item.reseller_id
 
@@ -117,6 +118,37 @@ routerAdd(
           } else {
             // Default: 'general' (estoque físico da loja)
             const currentQty = product.getInt('quantity') || 0
+
+            // Produto com variação: a baixa precisa atingir também a variação
+            // específica. O produto-pai continua com o total agregado apenas
+            // para compatibilidade com os relatórios existentes.
+            if (variationId) {
+              const variation = txApp.findRecordById('product_variations', variationId)
+              if (variation.getString('product') !== productId) {
+                throw new Error('A variação informada não pertence ao produto da venda.')
+              }
+              const variationQty = variation.getInt('quantity') || 0
+              if (variationQty < qtyToBuy) {
+                throw new Error(
+                  'Estoque insuficiente para a variação selecionada (disponível: ' + variationQty + ').',
+                )
+              }
+              variation.set('quantity', variationQty - qtyToBuy)
+              txApp.save(variation)
+            } else {
+              // Não permite que um cliente da API burle a tela e venda o
+              // produto-pai quando existem variações cadastradas.
+              const registeredVariations = txApp.findRecordsByFilter(
+                'product_variations',
+                "product = '" + productId + "'",
+                '',
+                1,
+                0,
+              )
+              if (registeredVariations.length > 0) {
+                throw new Error('Este produto possui variações. Informe a variação específica para concluir a venda.')
+              }
+            }
 
             if (currentQty < qtyToBuy) {
               throw new Error(
