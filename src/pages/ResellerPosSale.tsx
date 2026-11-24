@@ -40,6 +40,7 @@ import {
 import pb from '@/lib/pocketbase/client'
 import { Customer, Product, ResellerStockItem, Reseller, ResellerSale, SaleItem } from '@/types'
 import { getProductVariationBadge, formatVariationAttributeLabel } from '@/types/labelContent'
+import { getProductBarcodeValue } from '@/lib/barcodeSearch'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -231,6 +232,14 @@ export default function ResellerPosSale() {
       .reduce((acc, c) => acc + c.quantity, 0)
 
   const addCartLine = (item: ResellerStockItem): boolean => {
+    const product = item.expand?.product
+    if (
+      !product?.selected_variation_id &&
+      (product?.expand?.['product_variations(product)'] || []).length > 0
+    ) {
+      toast.info('Esta joia possui variações. Leia a etiqueta da variação específica.')
+      return false
+    }
     const used = getUsedQty(item.id)
     if (used >= item.quantity) {
       toast.warning(`Você possui apenas ${item.quantity} unidade(s) desta joia em seu estoque.`)
@@ -288,6 +297,15 @@ export default function ResellerPosSale() {
           (it) =>
             it.product === resolved.product!.id || it.expand?.product?.id === resolved.product!.id,
         )
+        if (foundStockItem && resolved.product.selected_variation_id) {
+          foundStockItem = {
+            ...foundStockItem,
+            expand: {
+              ...foundStockItem.expand,
+              product: { ...(foundStockItem.expand?.product || {}), ...(resolved.product as Product) },
+            },
+          }
+        }
       } else if (
         resolved &&
         resolved.ambiguous &&
@@ -384,6 +402,9 @@ export default function ResellerPosSale() {
         customer_phone: selectedCustomer?.phone || '',
         items: cart.map((c) => ({
           product_id: c.stockItem.product,
+          variation_id: c.stockItem.expand?.product?.selected_variation_id,
+          variation_sku: c.stockItem.expand?.product?.selected_variation_sku,
+          code: getProductBarcodeValue(c.stockItem.expand?.product || {}),
           quantity: c.quantity,
           unit_price: c.unit_price,
         })),
@@ -444,7 +465,9 @@ export default function ResellerPosSale() {
     try {
       const items: SaleItem[] = cart.map((c) => ({
         product_id: c.stockItem.product,
-        code: c.stockItem.expand?.product?.code || '',
+        variation_id: c.stockItem.expand?.product?.selected_variation_id,
+        variation_sku: c.stockItem.expand?.product?.selected_variation_sku,
+        code: getProductBarcodeValue(c.stockItem.expand?.product || {}),
         description: getProductDisplayLabel(c.stockItem.expand?.product),
         quantity: c.quantity,
         unit_price: c.unit_price,
