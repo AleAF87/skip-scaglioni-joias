@@ -1034,6 +1034,10 @@ export default function ResellersUnifiedPage() {
   const grandTotalPieces = resellerOverviewList.reduce((acc, it) => acc + it.piecesCount, 0)
   const grandTotalValue = resellerOverviewList.reduce((acc, it) => acc + it.totalValue, 0)
 
+  // Código de identificação da revendedora: derivado do usuário vinculado (login),
+  // pois a collection resellers não possui campo próprio de código.
+  const resellerCode = (r: Reseller): string => r.expand?.user?.id || r.id || '—'
+
   const pendingIssuesList = issues.filter((i) => i.status === 'pending')
   const totalPendingDue = pendingIssuesList.reduce(
     (acc, i) => acc + (i.scaglioni_due_total || 0),
@@ -1190,7 +1194,7 @@ export default function ResellersUnifiedPage() {
                         variant="outline"
                         className="shrink-0 text-[10px] border-[#C6A664] text-[#7A5C2E]"
                       >
-                        {'S/C'}
+                        {resellerCode(r)}
                       </Badge>
                     </div>
 
@@ -1215,6 +1219,86 @@ export default function ResellersUnifiedPage() {
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------------- */}
+      {/* MODO 2: PERFIL DA REVENDEDORA (Abas: Financeiro | Devolução & Pendências) */}
+      {/* ------------------------------------------------------------------- */}
+      {currentReseller && (
+        <div className="space-y-6">
+          {/* Cabeçalho do perfil: botão Voltar + nome + código real da revendedora */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#E5DFD5] pb-5">
+            <div className="flex items-center gap-3 min-w-0">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleBackToOverview}
+                className="border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] shrink-0 flex items-center gap-1.5"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Voltar
+              </Button>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 min-w-0">
+                  <h1 className="font-serif text-2xl md:text-3xl font-bold tracking-tight text-[#2D2A26] truncate">
+                    {currentReseller.name}
+                  </h1>
+                  <Badge
+                    variant="outline"
+                    className="shrink-0 text-[10px] border-[#C6A664] text-[#7A5C2E]"
+                  >
+                    {resellerCode(currentReseller)}
+                  </Badge>
+                </div>
+                <p className="text-xs text-[#6B655E] mt-1 truncate">
+                  {currentReseller.expand?.user?.email || currentReseller.email || '—'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+              <Button
+                size="sm"
+                onClick={() => setIsNewDeliveryModalOpen(true)}
+                className="bg-[#7A5C2E] hover:bg-[#634923] text-white text-xs h-9 px-4 flex items-center gap-1.5"
+              >
+                <PackagePlus className="h-4 w-4" />
+                Nova Entrega
+              </Button>
+            </div>
+          </div>
+
+          {/* Abas do perfil */}
+          <div className="flex items-center gap-2 border-b border-[#E5DFD5] overflow-x-auto">
+            {(
+              [
+                { id: 'financial', label: 'Financeiro & Lucro', icon: DollarSign },
+                { id: 'returns', label: 'Devolução & Pendências', icon: RotateCcw },
+              ] as const
+            ).map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setProfileTab(id)}
+                aria-current={profileTab === id ? 'page' : undefined}
+                className={`px-4 py-2.5 text-sm font-semibold whitespace-nowrap border-b-2 transition-colors flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C6A664] ${
+                  profileTab === id
+                    ? 'border-[#7A5C2E] text-[#7A5C2E]'
+                    : 'border-transparent text-[#6B655E] hover:text-[#2D2A26]'
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Conteúdo das abas */}
+          {profileTab === 'financial' && (
+            <ResellerFinancialContent reseller={currentReseller} showCatalogButton={false} />
+          )}
+          {profileTab === 'returns' && <ResellerReturnsIssuesContent reseller={currentReseller} />}
         </div>
       )}
 
