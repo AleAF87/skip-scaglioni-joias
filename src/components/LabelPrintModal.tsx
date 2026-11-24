@@ -62,6 +62,7 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
     description: string
     fullName: string
     price: number
+    imageUrl: string
     key: string
   }> = []
 
@@ -76,6 +77,7 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
         description: item.description,
         fullName: item.fullName,
         price: item.price,
+        imageUrl: item.imageUrl || '',
         key: `${item.id}-${itemIdx}-${i}`,
       })
     }
@@ -97,6 +99,7 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
         description: '',
         fullName: '',
         price: 0,
+        imageUrl: '',
         key: `pad-${i}-${pageCells.length}`,
       })
     }
@@ -336,7 +339,16 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
                           )}
 
                           {/* Barcode ocupando o corpo principal da etiqueta */}
-                          <div className="w-full flex-1 flex items-center justify-center min-h-0 overflow-hidden py-[0.3mm]">
+                          <div className="w-full flex-1 flex flex-col items-center justify-center min-h-0 overflow-hidden py-[0.3mm]">
+                            {cell.imageUrl ? (
+                              <img
+                                src={cell.imageUrl}
+                                alt={cell.fullName || cell.description}
+                                width={40}
+                                height={40}
+                                className="h-[9mm] w-auto max-w-full object-contain mb-[0.2mm]"
+                              />
+                            ) : null}
                             <BarcodeSvg
                               value={cell.barcodeValue}
                               displayText={showCode ? cell.code : ''}

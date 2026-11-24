@@ -14,6 +14,7 @@ routerAdd(
   (e) => {
     const sanitizeProduct = (record) => ({
       id: record.id,
+      photos: record.getStringSlice('photos') || [],
       produto_id: record.getString('produto_id'),
       code: record.getString('code'),
       variacao: record.getString('variacao') || '',
@@ -315,6 +316,7 @@ routerAdd(
   (e) => {
     const sanitizeProduct = (record) => ({
       id: record.id,
+      photos: record.getStringSlice('photos') || [],
       produto_id: record.getString('produto_id'),
       code: record.getString('code'),
       variacao: record.getString('variacao') || '',
