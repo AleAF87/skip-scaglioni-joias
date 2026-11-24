@@ -579,6 +579,8 @@ export default function ResellersUnifiedPage() {
   ): Promise<boolean | { requiresDuplicateConfirmation: boolean; product?: Product }> => {
     const rawCode = (barcode || '').trim()
     if (!rawCode) return false
+    // A câmera não pode herdar texto de uma leitura manual que falhou.
+    setDeliveryBarcodeScan('')
 
     // Já lido agora mesmo (ref, sem depender de re-render): câmera pergunta sobre duplicado
     if (
@@ -1847,8 +1849,23 @@ export default function ResellersUnifiedPage() {
                           onChange={(e) => setDeliveryBarcodeScan(e.target.value)}
                           onKeyDown={handleDeliveryBarcodeKeyDown}
                           disabled={isSearchingDeliveryBarcode}
-                          className="pl-9 text-xs bg-white border-[#C6A664] focus-visible:ring-[#7A5C2E] font-mono font-medium h-9"
+                          className="pl-9 pr-9 text-xs bg-white border-[#C6A664] focus-visible:ring-[#7A5C2E] font-mono font-medium h-9"
                         />
+                        {deliveryBarcodeScan && !isSearchingDeliveryBarcode && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDeliveryBarcodeScan('')
+                              setDeliveryScanAlert(null)
+                              deliveryBarcodeInputRef.current?.focus()
+                            }}
+                            className="absolute right-2 top-1.5 h-6 w-6 rounded-md text-[#7A5C2E] hover:bg-[#F3EAD8] flex items-center justify-center"
+                            title="Limpar código lido"
+                            aria-label="Limpar código lido"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                       </div>
                       {deliveryScanAlert && (
                         <div className="p-2 rounded-lg bg-red-100 border border-red-300 text-red-900 text-xs font-semibold flex items-center gap-2 animate-fade-in">

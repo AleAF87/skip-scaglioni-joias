@@ -795,8 +795,19 @@ export default function ResellerConferencePage() {
                   value={searchText}
                   onChange={(e) => setSearchText(e.target.value)}
                   placeholder="Ex: 1234 ou Anel..."
-                  className="text-xs bg-white"
+                  className="text-xs bg-white pr-9"
                 />
+                {searchText && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchText('')}
+                    className="absolute right-2 top-7 h-6 w-6 rounded-md text-[#7A5C2E] hover:bg-[#F3EAD8] flex items-center justify-center"
+                    title="Limpar código ou busca"
+                    aria-label="Limpar código ou busca"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                )}
                 {searchText && (
                   <div className="absolute z-20 left-0 right-0 mt-1 bg-white border border-[#E5DFD5] rounded-xl shadow-lg overflow-hidden max-h-64 overflow-y-auto">
                     {searchResults.length === 0 ? (
