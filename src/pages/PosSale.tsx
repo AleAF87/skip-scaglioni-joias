@@ -624,6 +624,8 @@ export default function PosSale() {
     if (!product) {
       const exactMatches = products.filter((p) => isExactCodeMatch(p, raw))
       if (exactMatches.length === 0) {
+        // Evita que a próxima leitura seja concatenada ao código inválido anterior.
+        setBarcodeOrSearch('')
         toast.error(`Código de barras não cadastrado: "${raw}"`)
         return false
       }
@@ -810,6 +812,8 @@ export default function PosSale() {
       if (exactMatches.length > 1) {
         toast.info('Mais de um produto encontrado com este código. Selecione na lista.')
       } else {
+        // Código inválido não permanece no campo: a próxima leitura começa limpa.
+        setBarcodeOrSearch('')
         toast.info('Nenhuma joia encontrada com esse código de barras exato.')
       }
     }
@@ -893,6 +897,7 @@ export default function PosSale() {
           return
         }
 
+        setBarcodeOrSearch('')
         toast.info('Nenhuma joia encontrada com esse código de barras.')
       } finally {
         isGlobalScanBusyRef.current = false
@@ -1362,6 +1367,20 @@ export default function PosSale() {
                             : 'border border-[#E5DFD5] bg-white text-[#8C8275]'
                         }`}
                       />
+                      {barcodeOrSearch && !isGlobalScanBusy && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBarcodeOrSearch('')
+                            barcodeInputRef.current?.focus()
+                          }}
+                          className="absolute right-2 top-2 h-6 w-6 rounded-md text-[#7A5C2E] hover:bg-[#F3EAD8] flex items-center justify-center"
+                          title="Limpar código ou busca"
+                          aria-label="Limpar código ou busca"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      )}
                       {isGlobalScanBusy && (
                         <span className="absolute right-3 top-2.5 text-[11px] font-semibold text-[#7A5C2E]">
                           lendo...
