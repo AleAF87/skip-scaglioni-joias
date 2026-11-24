@@ -1,5 +1,5 @@
-Warning: truncated output (original token count: 29292)
-Total output lines: 2750
+Warning: truncated output (original token count: 29313)
+Total output lines: 2754
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { salesService } from '@/services/salesService'
@@ -775,8 +775,10 @@ export default function PosSale() {
       try {
         const resolved = await productService.resolveBarcode(q)
         if (resolved && resolved.matched && resolved.product) {
-          const resolvedProd =
-            products.find((p) => p.id === resolved.product!.id) || (resolved.product as Product)
+          const resolvedProd = {
+            ...(products.find((p) => p.id === resolved.product!.id) || {}),
+            ...(resolved.product as Product),
+          }
           const varBadge = getProductVariationBadge(resolvedProd)
           const varSuffix = varBadge ? ' ' + varBadge : ''
           if (getProductAvailableStock(resolvedProd) > 0) {
@@ -865,8 +867,10 @@ export default function PosSale() {
         try {
           const resolved = await productService.resolveBarcode(code)
           if (resolved && resolved.matched && resolved.product) {
-            const resolvedProd =
-              products.find((p) => p.id === resolved.product!.id) || (resolved.product as Product)
+            const resolvedProd = {
+              ...(products.find((p) => p.id === resolved.product!.id) || {}),
+              ...(resolved.product as Product),
+            }
             const varBadge = getProductVariationBadge(resolvedProd)
             const varSuffix = varBadge ? ' ' + varBadge : ''
             if (getProductAvailableStock(resolvedProd) > 0) {
@@ -1112,9 +1116,7 @@ export default function PosSale() {
         ? pSale.items
         : JSON.parse((pSale.items as any) || '[]')
       setCart(items)
-      setSelectedCustomerId(pSale.customer || '')
-      setCustomerSearchQuery('')
-      setPayme…9292 tokens truncated…          </Label>
+      setSelect…9313 tokens truncated…          </Label>
                         <Input
                           id="disc"
                           type="number"
