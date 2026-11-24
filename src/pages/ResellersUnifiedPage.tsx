@@ -1265,7 +1265,11 @@ export default function ResellersUnifiedPage() {
               {canManage && (
                 <Button
                   size="sm"
-                  onClick={() => navigate('/revendedoras/entrega?reseller=' + encodeURIComponent(currentReseller.id))}
+                  onClick={() =>
+                    navigate(
+                      '/revendedoras/entrega?reseller=' + encodeURIComponent(currentReseller.id),
+                    )
+                  }
                   className="h-9 rounded-full bg-[#7A5C2E] hover:bg-[#634923] text-white text-xs flex items-center gap-1.5 shadow-xs"
                 >
                   <PackagePlus className="h-4 w-4" />

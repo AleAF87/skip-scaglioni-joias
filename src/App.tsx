@@ -202,7 +202,10 @@ export default function App() {
                 element={<ResellerReturnsAndIssues />}
               />
               <Route path="revendedora/financeiro" element={<ResellerFinancial />} />
-              <Route path="revendedoras/entrega" element={<ResellerDeliveryPage key={window.location.search} />} />
+              <Route
+                path="revendedoras/entrega"
+                element={<ResellerDeliveryPage key={window.location.search} />}
+              />
               <Route path="revendedoras/devolucao" element={<ResellerConferencePage />} />
               {/* Rota antiga preservada para links já compartilhados. */}
               <Route path="revendedoras/conferencia" element={<ResellerConferencePage />} />
