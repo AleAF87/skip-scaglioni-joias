@@ -183,7 +183,10 @@ export const LabelGenerationPage: React.FC = () => {
     const { code, barcodeValue } = getProductDisplayBarcode(p)
     const initialQty = p.qtde_inicial && p.qtde_inicial > 0 ? Math.floor(p.qtde_inicial) : 1
     const price = typeof p.selling_price === 'number' ? p.selling_price : 0
-    const photo = getProductDisplayPhoto(p)
+    // Variações usam id composto "productId:variationId"; a foto vive no produto-pai
+    // (photos[] ou image_url externa do importador). Resolver sempre pelo id real do pai
+    // garante que a variação mostre a mesma foto do pai (decisão do usuário).
+    const photo = getProductDisplayPhoto({ ...p, id: p.id.split(':')[0] })
     const fullName = getProductFullName(p, p.selected_variation)
 
     // Se já estiver na fila, incrementa ou atualiza
@@ -688,7 +691,8 @@ export const LabelGenerationPage: React.FC = () => {
                     </tr>
                   ) : (
                     paginatedProducts.map((p) => {
-                      const photoUrl = getProductDisplayPhoto(p)
+                      // Foto resolvida pelo id do produto-pai (variação tem id composto "pai:variação")
+                      const photoUrl = getProductDisplayPhoto({ ...p, id: p.id.split(':')[0] })
                       const brandObj = brands.find((b) => b.id === p.marca_id)
                       const resellerQty = resellerStockMap.get(p.id) || 0
                       const totalStock = getProductTotalStock(p, resellerQty)

@@ -1,4 +1,5 @@
 import React, { useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { Printer, X, ZoomIn, ZoomOut, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -200,7 +201,6 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
           </Button>
         </div>
       </header>
-
       {/* Dica para o usuário sobre configuração de impressão do navegador */}
       <div className="no-print bg-[#2A2418] border-b border-[#59441D] px-6 py-2 text-xs text-[#E5C378] flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
@@ -217,7 +217,6 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
           {template.labelHeightMm} mm)
         </span>
       </div>
-
       {/* Área da folha (ScrollView) */}
       <div className="flex-1 overflow-auto p-4 sm:p-8 flex flex-col items-center gap-8 bg-[#12110F]">
         <div
@@ -389,47 +388,49 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
           ))}
         </div>
       </div>
-
       {/* Estilos dedicados para impressão limpa em folhas pautadas */}
       <style>{`
-        @media print {
-          /* Oculta tudo que estiver fora da área das folhas */
-          body * {
-            visibility: hidden !important;
-          }
-          #print-sheets-container,
-          #print-sheets-container * {
-            visibility: visible !important;
-          }
-          #print-sheets-container {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            transform: none !important;
-            background: transparent !important;
-          }
-          .sheet-page {
-            box-shadow: none !important;
-            margin: 0 !important;
-            page-break-after: always !important;
-            break-after: page !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
-          .no-print {
-            display: none !important;
-          }
-          .label-guide-border {
-            display: none !important;
-          }
-          @page {
-            size: ${template.sheetType === 'Carta' ? 'letter' : 'A4'} portrait;
-            margin: 0mm !important;
-          }
+      @media print {
+        /* Oculta tudo que estiver fora da área das folhas */
+        body * {
+          visibility: hidden !important;
         }
-      `}</style>
+        #print-sheets-container,
+        #print-sheets-container * {
+          visibility: visible !important;
+        }
+        #print-sheets-container {
+          /* Posição estática evita que o elemento fixed seja repetido
+             em TODAS as páginas impressas (bug das 3 folhas idênticas) */
+          position: static !important;
+          left: auto !important;
+          top: auto !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          transform: none !important;
+          background: transparent !important;
+        }
+        /* Remove o transform de zoom que espreme a folha na impressão */
+        #print-sheets-container .sheet-page {
+          box-shadow: none !important;
+          margin: 0 !important;
+          page-break-after: always !important;
+          break-after: page !important;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+        .no-print {
+          display: none !important;
+        }
+        .label-guide-border {
+          display: n#one !important;
+        }
+        @page {
+          size: ${template.sheetType === 'Carta' ? 'letter' : 'A4'} portrait;
+          margin: 0mm !important;
+        }
+      }
+    `}</style>{' '}
     </div>
   )
 }
