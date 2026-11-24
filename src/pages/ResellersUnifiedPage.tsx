@@ -589,19 +589,24 @@ export default function ResellersUnifiedPage() {
       !options?.forceDuplicate &&
       options?.viaCamera === true
     ) {
-      // Reencontra o produto para exibir na pergunta
-      const dupProd =
-        availableProducts.find((p) => isExactCodeMatch(p, rawCode)) ||
-        (await (async () => {
-          try {
-            const resolved = await productService.resolveBarcode(rawCode)
-            if (resolved?.matched && resolved.product) return resolved.product as Product
-            const res = await productService.getProducts({ search: rawCode, perPage: 10 })
-            return res.items.find((p) => isExactCodeMatch(p, rawCode)) || null
-          } catch {
-            return null
+      // Reencontra o produto para exibir na pergunta — mescla preservando a variação
+      const dupProd = await (async () => {
+        try {
+          const resolved = await productService.resolveBarcode(rawCode)
+          if (resolved?.matched && resolved.product) {
+            // Mesclagem: o objeto resolvido por cima do produto em memória,
+            // preservando selected_variation_id / selected_variation_sku.
+            return {
+              ...(availableProducts.find((p) => p.id === resolved.product!.id) || {}),
+              ...(resolved.product as Product),
+            } as Product
           }
-        })())
+        } catch {
+          /* fallback abaixo */
+        }
+        const res = await productService.getProducts({ search: rawCode, perPage: 10 })
+        return res.items.find((p) => isExactCodeMatch(p, rawCode)) || null
+      })()
       return { requiresDuplicateConfirmation: true, product: dupProd || undefined }
     }
 
@@ -650,6 +655,19 @@ export default function ResellersUnifiedPage() {
       return false
     }
 
+    // REGRA: código-base de produto com variações NÃO movimenta estoque —
+    // exige o código completo da variação (ex.: "1107 Aro 16").
+    if (
+      found &&
+      !found.selected_variation_id &&
+      (found.expand?.['product_variations(product)'] || []).length > 0
+    ) {
+      setDeliveryScanAlert(
+        `O código "${found.code}" possui variações cadastradas. Leia ou informe o código completo da variação (ex.: "${found.code} Aro 16").`,
+      )
+      return false
+    }
+
     if (found.quantity <= 0) {
       setDeliveryScanAlert(
         `Peça "${found.code} — ${found.description || found.nome_produto}" sem saldo disponível no estoque geral da loja (0 unidades).`,
@@ -657,8 +675,12 @@ export default function ResellersUnifiedPage() {
       return false
     }
 
-    // Câmera: se o produto já está na lista da entrega, pergunta antes de incluir mais um
-    const existingInDelivery = deliveryItems.find((it) => it.product.id === found!.id)
+    // Câmera: se o produto (mesma variação) já está na lista da entrega, pergunta antes de incluir mais um
+    const existingInDelivery = deliveryItems.find(
+      (it) =>
+        it.product.id === found!.id &&
+        (it.product.selected_variation_id || null) === (found!.selected_variation_id || null),
+    )
     const currentQtyInBasket = existingInDelivery ? existingInDelivery.quantity : 0
     if (currentQtyInBasket > 0 && !options?.forceDuplicate && options?.viaCamera === true) {
       return { requiresDuplicateConfirmation: true, product: found }
@@ -745,6 +767,20 @@ export default function ResellersUnifiedPage() {
           return
         }
 
+        // REGRA: código-base de produto com variações NÃO movimenta estoque —
+        // exige o código completo da variação (ex.: "1107 Aro 16").
+        if (
+          !found.selected_variation_id &&
+          (found.expand?.['product_variations(product)'] || []).length > 0
+        ) {
+          setDeliveryScanAlert(
+            `O código "${found.code}" possui variações cadastradas. Leia ou informe o código completo da variação (ex.: "${found.code} Aro 16").`,
+          )
+          toast.info('Produto com variações: leia a etiqueta da variação específica.')
+          setDeliveryBarcodeScan('')
+          return
+        }
+
         // Se o produto não possui saldo disponível no estoque geral (sem saldo)
         if (found.quantity <= 0) {
           setDeliveryScanAlert(
@@ -755,8 +791,12 @@ export default function ResellersUnifiedPage() {
           return
         }
 
-        // Verifica se a quantidade a adicionar excede o saldo da loja
-        const existingInDelivery = deliveryItems.find((it) => it.product.id === found!.id)
+        // Verifica se a quantidade a adicionar excede o saldo da loja (por variação)
+        const existingInDelivery = deliveryItems.find(
+          (it) =>
+            it.product.id === found!.id &&
+            (it.product.selected_variation_id || null) === (found!.selected_variation_id || null),
+        )
         const currentQtyInBasket = existingInDelivery ? existingInDelivery.quantity : 0
 
         if (currentQtyInBasket >= found.quantity) {
@@ -786,7 +826,22 @@ export default function ResellersUnifiedPage() {
 
   // Basket handlers
   const handleAddProductToDelivery = (prod: Product) => {
-    const existing = deliveryItems.find((it) => it.product.id === prod.id)
+    // REGRA: bloqueia adição manual do produto-pai quando ele possui variações
+    // e nenhuma variação específica selecionada (selected_variation_id).
+    if (
+      !prod.selected_variation_id &&
+      (prod.expand?.['product_variations(product)'] || []).length > 0
+    ) {
+      toast.info(
+        `O produto ${prod.code} possui variações. Escaneie ou selecione a variação específica (ex.: "${prod.code} Aro 16").`,
+      )
+      return
+    }
+    const existing = deliveryItems.find(
+      (it) =>
+        it.product.id === prod.id &&
+        (it.product.selected_variation_id || null) === (prod.selected_variation_id || null),
+    )
     if (existing) {
       if (existing.quantity >= prod.quantity) {
         toast.warning(`Estoque geral da loja possui apenas ${prod.quantity} unidades disponíveis.`)
@@ -794,7 +849,10 @@ export default function ResellersUnifiedPage() {
       }
       setDeliveryItems(
         deliveryItems.map((it) =>
-          it.product.id === prod.id ? { ...it, quantity: it.quantity + 1 } : it,
+          it.product.id === prod.id &&
+          (it.product.selected_variation_id || null) === (prod.selected_variation_id || null)
+            ? { ...it, product: prod, quantity: it.quantity + 1 }
+            : it,
         ),
       )
     } else {
@@ -858,6 +916,14 @@ export default function ResellersUnifiedPage() {
         reseller_id: currentReseller.id,
         items: deliveryItems.map((it) => ({
           product_id: it.product.id,
+          variation_id: it.product.selected_variation_id,
+          variation_sku: it.product.selected_variation_sku,
+          variacao: it.product.selected_variation_id
+            ? getProductFullName(it.product, it.product.selected_variation) ||
+              it.product.variacao ||
+              ''
+            : undefined,
+          code: it.product.codigo_barras || it.product.code,
           quantity: it.quantity,
           selling_price: it.selling_price,
         })),
