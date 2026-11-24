@@ -55,6 +55,7 @@ import {
   Eye,
   EyeOff,
   Barcode,
+  X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Link } from 'react-router-dom'
@@ -915,12 +916,30 @@ export default function StockInventory() {
                       toast.info(
                         `Localizado via leitor/busca: ${exact.sku_novo || exact.sku_scaglioni || exact.code}`,
                       )
+                    } else if (/^[A-Za-z0-9 -]+$/.test(search.trim())) {
+                      // Não deixa a próxima leitura do scanner ser anexada a um código inválido.
+                      setSearch('')
+                      toast.info('Nenhum produto encontrado com esse código.')
                     }
                   }
                 }}
                 placeholder="Buscar por código, SKU novo, SKU herdado, nome ou descrição..."
-                className="pl-9 border-[#E5DFD5] focus-visible:ring-[#C6A664]"
+                className="pl-9 pr-9 border-[#E5DFD5] focus-visible:ring-[#C6A664]"
               />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearch('')
+                    setPage(1)
+                  }}
+                  className="absolute right-2 top-2 h-6 w-6 rounded-md text-[#7A5C2E] hover:bg-[#F3EAD8] flex items-center justify-center"
+                  title="Limpar código ou busca"
+                  aria-label="Limpar código ou busca"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
             </div>
 
             {/* Toggle Multi-choice filters button */}
