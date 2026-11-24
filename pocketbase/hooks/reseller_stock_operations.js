@@ -76,14 +76,26 @@ routerAdd(
             }
             const variationQty = variation.getInt('quantity') || 0
             if (variationQty < qty) {
-              throw new Error('Estoque insuficiente para a variação selecionada (disponível: ' + variationQty + ').')
+              throw new Error(
+                'Estoque insuficiente para a variação selecionada (disponível: ' +
+                  variationQty +
+                  ').',
+              )
             }
             variation.set('quantity', variationQty - qty)
             txApp.save(variation)
           } else {
-            const vars = txApp.findRecordsByFilter('product_variations', "product = '" + productId + "'", '', 1, 0)
+            const vars = txApp.findRecordsByFilter(
+              'product_variations',
+              "product = '" + productId + "'",
+              '',
+              1,
+              0,
+            )
             if (vars.length > 0) {
-              throw new Error('Este produto possui variações. Informe a variação específica para realizar a entrega.')
+              throw new Error(
+                'Este produto possui variações. Informe a variação específica para realizar a entrega.',
+              )
             }
           }
 
@@ -421,14 +433,26 @@ routerAdd(
             }
             const variationQty = variation.getInt('quantity') || 0
             if (variationQty < qtyToBuy) {
-              throw new Error('Estoque insuficiente para a variação selecionada (disponível: ' + variationQty + ').')
+              throw new Error(
+                'Estoque insuficiente para a variação selecionada (disponível: ' +
+                  variationQty +
+                  ').',
+              )
             }
             variation.set('quantity', variationQty - qtyToBuy)
             txApp.save(variation)
           } else {
-            const vars = txApp.findRecordsByFilter('product_variations', "product = '" + productId + "'", '', 1, 0)
+            const vars = txApp.findRecordsByFilter(
+              'product_variations',
+              "product = '" + productId + "'",
+              '',
+              1,
+              0,
+            )
             if (vars.length > 0) {
-              throw new Error('Este produto possui variações. Informe a variação específica para concluir a venda.')
+              throw new Error(
+                'Este produto possui variações. Informe a variação específica para concluir a venda.',
+              )
             }
           }
           const unitPrice =

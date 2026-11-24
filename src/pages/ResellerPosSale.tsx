@@ -302,7 +302,10 @@ export default function ResellerPosSale() {
             ...foundStockItem,
             expand: {
               ...foundStockItem.expand,
-              product: { ...(foundStockItem.expand?.product || {}), ...(resolved.product as Product) },
+              product: {
+                ...(foundStockItem.expand?.product || {}),
+                ...(resolved.product as Product),
+              },
             },
           }
         }

@@ -130,7 +130,9 @@ routerAdd(
               const variationQty = variation.getInt('quantity') || 0
               if (variationQty < qtyToBuy) {
                 throw new Error(
-                  'Estoque insuficiente para a variação selecionada (disponível: ' + variationQty + ').',
+                  'Estoque insuficiente para a variação selecionada (disponível: ' +
+                    variationQty +
+                    ').',
                 )
               }
               variation.set('quantity', variationQty - qtyToBuy)
@@ -146,7 +148,9 @@ routerAdd(
                 0,
               )
               if (registeredVariations.length > 0) {
-                throw new Error('Este produto possui variações. Informe a variação específica para concluir a venda.')
+                throw new Error(
+                  'Este produto possui variações. Informe a variação específica para concluir a venda.',
+                )
               }
             }
 

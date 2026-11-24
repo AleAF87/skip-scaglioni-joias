@@ -96,7 +96,9 @@ routerAdd(
           for (let vi = 0; vi < manualVars.length; vi++) {
             const manual = manualVars[vi]
             let attrs = {}
-            try { attrs = JSON.parse(manual.getString('attributes') || '{}') } catch (_) {}
+            try {
+              attrs = JSON.parse(manual.getString('attributes') || '{}')
+            } catch (_) {}
             const values = Object.keys(attrs).map((k) => String(attrs[k]).trim())
             const label = values.join(' / ') || manual.getString('sku')
             const fullCode = (cleanNum + ' ' + label).trim().toLowerCase()
@@ -112,7 +114,13 @@ routerAdd(
               selected.selling_price = manual.getFloat('price') || selected.selling_price
               selected.selected_variation_id = manual.id
               selected.selected_variation_sku = manual.getString('sku')
-              selected.selected_variation = { id: manual.id, sku: manual.getString('sku'), attributes: attrs, quantity: manual.getInt('quantity'), price: manual.getFloat('price') }
+              selected.selected_variation = {
+                id: manual.id,
+                sku: manual.getString('sku'),
+                attributes: attrs,
+                quantity: manual.getInt('quantity'),
+                price: manual.getFloat('price'),
+              }
               return { matched: true, resolution: 'exact_manual_variation', product: selected }
             }
           }
@@ -133,18 +141,48 @@ routerAdd(
         const manualVariationList = []
         for (let pi = 0; pi < codeMatches.length; pi++) {
           const parent = codeMatches[pi]
-          const manualVars = $app.findRecordsByFilter('product_variations', "product = '" + escapeFilter(parent.id) + "'", '', 50, 0)
+          const manualVars = $app.findRecordsByFilter(
+            'product_variations',
+            "product = '" + escapeFilter(parent.id) + "'",
+            '',
+            50,
+            0,
+          )
           for (let vi = 0; vi < manualVars.length; vi++) {
             const manual = manualVars[vi]
             let attrs = {}
-            try { attrs = JSON.parse(manual.getString('attributes') || '{}') } catch (_) {}
+            try {
+              attrs = JSON.parse(manual.getString('attributes') || '{}')
+            } catch (_) {}
             const values = Object.keys(attrs).map((k) => String(attrs[k]).trim())
             const label = values.join(' / ') || manual.getString('sku')
-            manualVariationList.push({ id: parent.id, variation_id: manual.id, variation_sku: manual.getString('sku'), code: cleanNum, variacao: label, attributes: attrs, description: parent.getString('description') || parent.getString('nome_produto'), selling_price: manual.getFloat('price') || parent.getFloat('selling_price'), quantity: manual.getInt('quantity'), codigo_barras: cleanNum + ' ' + label })
+            manualVariationList.push({
+              id: parent.id,
+              variation_id: manual.id,
+              variation_sku: manual.getString('sku'),
+              code: cleanNum,
+              variacao: label,
+              attributes: attrs,
+              description: parent.getString('description') || parent.getString('nome_produto'),
+              selling_price: manual.getFloat('price') || parent.getFloat('selling_price'),
+              quantity: manual.getInt('quantity'),
+              codigo_barras: cleanNum + ' ' + label,
+            })
           }
         }
         if (manualVariationList.length > 0) {
-          return { matched: false, ambiguous: true, reason: 'multiple_variations', message: 'O código ' + cleanNum + ' possui variações cadastradas. Leia ou selecione a variação específica.', code: cleanNum, variations: manualVariationList, product_count: manualVariationList.length }
+          return {
+            matched: false,
+            ambiguous: true,
+            reason: 'multiple_variations',
+            message:
+              'O código ' +
+              cleanNum +
+              ' possui variações cadastradas. Leia ou selecione a variação específica.',
+            code: cleanNum,
+            variations: manualVariationList,
+            product_count: manualVariationList.length,
+          }
         }
 
         // Regra aprovada: "só cair para 'só o número' quando esse número NÃO tiver nenhuma variação cadastrada"
@@ -297,18 +335,36 @@ routerAdd(
           }
         }
 
-        const parentRecords = $app.findRecordsByFilter('products', "code = '" + escapeFilter(cleanNum) + "'", '-created', 50, 0)
+        const parentRecords = $app.findRecordsByFilter(
+          'products',
+          "code = '" + escapeFilter(cleanNum) + "'",
+          '-created',
+          50,
+          0,
+        )
         for (let pi = 0; pi < parentRecords.length; pi++) {
           const parent = parentRecords[pi]
-          const manualVars = $app.findRecordsByFilter('product_variations', "product = '" + escapeFilter(parent.id) + "'", '', 50, 0)
+          const manualVars = $app.findRecordsByFilter(
+            'product_variations',
+            "product = '" + escapeFilter(parent.id) + "'",
+            '',
+            50,
+            0,
+          )
           for (let vi = 0; vi < manualVars.length; vi++) {
             const manual = manualVars[vi]
             let attrs = {}
-            try { attrs = JSON.parse(manual.getString('attributes') || '{}') } catch (_) {}
+            try {
+              attrs = JSON.parse(manual.getString('attributes') || '{}')
+            } catch (_) {}
             const values = Object.keys(attrs).map((k) => String(attrs[k]).trim())
             const label = values.join(' / ') || manual.getString('sku')
             const fullCode = (cleanNum + ' ' + label).trim().toLowerCase()
-            if (label.toLowerCase() === varPart.toLowerCase() || fullCode === fullBarcodeClean.toLowerCase() || manual.getString('sku').toLowerCase() === fullBarcodeClean.toLowerCase()) {
+            if (
+              label.toLowerCase() === varPart.toLowerCase() ||
+              fullCode === fullBarcodeClean.toLowerCase() ||
+              manual.getString('sku').toLowerCase() === fullBarcodeClean.toLowerCase()
+            ) {
               const selected = sanitizeProduct(parent)
               selected.variacao = label
               selected.codigo_barras = cleanNum + ' ' + label
@@ -316,7 +372,13 @@ routerAdd(
               selected.selling_price = manual.getFloat('price') || selected.selling_price
               selected.selected_variation_id = manual.id
               selected.selected_variation_sku = manual.getString('sku')
-              selected.selected_variation = { id: manual.id, sku: manual.getString('sku'), attributes: attrs, quantity: manual.getInt('quantity'), price: manual.getFloat('price') }
+              selected.selected_variation = {
+                id: manual.id,
+                sku: manual.getString('sku'),
+                attributes: attrs,
+                quantity: manual.getInt('quantity'),
+                price: manual.getFloat('price'),
+              }
               return { matched: true, resolution: 'exact_manual_variation', product: selected }
             }
           }
@@ -335,18 +397,48 @@ routerAdd(
         const manualVariationList = []
         for (let pi = 0; pi < codeMatches.length; pi++) {
           const parent = codeMatches[pi]
-          const manualVars = $app.findRecordsByFilter('product_variations', "product = '" + escapeFilter(parent.id) + "'", '', 50, 0)
+          const manualVars = $app.findRecordsByFilter(
+            'product_variations',
+            "product = '" + escapeFilter(parent.id) + "'",
+            '',
+            50,
+            0,
+          )
           for (let vi = 0; vi < manualVars.length; vi++) {
             const manual = manualVars[vi]
             let attrs = {}
-            try { attrs = JSON.parse(manual.getString('attributes') || '{}') } catch (_) {}
+            try {
+              attrs = JSON.parse(manual.getString('attributes') || '{}')
+            } catch (_) {}
             const values = Object.keys(attrs).map((k) => String(attrs[k]).trim())
             const label = values.join(' / ') || manual.getString('sku')
-            manualVariationList.push({ id: parent.id, variation_id: manual.id, variation_sku: manual.getString('sku'), code: cleanNum, variacao: label, attributes: attrs, description: parent.getString('description') || parent.getString('nome_produto'), selling_price: manual.getFloat('price') || parent.getFloat('selling_price'), quantity: manual.getInt('quantity'), codigo_barras: cleanNum + ' ' + label })
+            manualVariationList.push({
+              id: parent.id,
+              variation_id: manual.id,
+              variation_sku: manual.getString('sku'),
+              code: cleanNum,
+              variacao: label,
+              attributes: attrs,
+              description: parent.getString('description') || parent.getString('nome_produto'),
+              selling_price: manual.getFloat('price') || parent.getFloat('selling_price'),
+              quantity: manual.getInt('quantity'),
+              codigo_barras: cleanNum + ' ' + label,
+            })
           }
         }
         if (manualVariationList.length > 0) {
-          return { matched: false, ambiguous: true, reason: 'multiple_variations', message: 'O código ' + cleanNum + ' possui variações cadastradas. Leia ou selecione a variação específica.', code: cleanNum, variations: manualVariationList, product_count: manualVariationList.length }
+          return {
+            matched: false,
+            ambiguous: true,
+            reason: 'multiple_variations',
+            message:
+              'O código ' +
+              cleanNum +
+              ' possui variações cadastradas. Leia ou selecione a variação específica.',
+            code: cleanNum,
+            variations: manualVariationList,
+            product_count: manualVariationList.length,
+          }
         }
 
         if (withVariation.length === 0) {

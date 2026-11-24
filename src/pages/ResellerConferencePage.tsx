@@ -237,7 +237,8 @@ export default function ResellerConferencePage() {
       if (resolved.ambiguous) {
         flashScan(
           'notfound',
-          resolved.message || 'Este código possui variações. Leia a etiqueta da variação específica.',
+          resolved.message ||
+            'Este código possui variações. Leia a etiqueta da variação específica.',
         )
         return
       }
