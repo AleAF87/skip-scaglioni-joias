@@ -140,6 +140,10 @@ export interface Product {
   sku_ecommerce?: string
   code: string // código legado e compatibilidade (só o número)
   variacao?: string // sufixo da variação (ex.: N14, N15, PEDRAS) - Opção A Tecson
+  /** Variação escolhida pelo leitor. Não substitui o produto-pai no banco. */
+  selected_variation_id?: string
+  selected_variation_sku?: string
+  selected_variation?: ProductVariation
   codigo_barras?: string // texto preservando zeros
 
   // Dados principais
@@ -253,6 +257,9 @@ export interface Customer {
 
 export interface SaleItem {
   product_id: string
+  /** Identifica a variação concreta quando o produto possui variações. */
+  variation_id?: string
+  variation_sku?: string
   code: string
   description: string
   quantity: number
@@ -334,6 +341,8 @@ export interface ResellerStockItem {
 
 export interface ResellerDeliveryItem {
   product_id: string
+  variation_id?: string
+  variation_sku?: string
   code: string
   description: string
   quantity: number
@@ -365,6 +374,8 @@ export interface ResellerDelivery {
 
 export interface ResellerSaleItem {
   product_id: string
+  variation_id?: string
+  variation_sku?: string
   code: string
   description: string
   quantity: number
