@@ -118,6 +118,7 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
         description: '',
         fullName: '',
         price: 0,
+        imageUrl: '',
         key: `empty-${i}`,
       })
     }
