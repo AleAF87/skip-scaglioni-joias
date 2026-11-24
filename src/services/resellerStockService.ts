@@ -173,6 +173,10 @@ export const resellerStockService = {
     reseller_id: string
     items: Array<{
       product_id: string
+      variation_id?: string
+      variation_sku?: string
+      variacao?: string
+      codigo_barras?: string
       returned_qty: number
       pending_qty: number
       pending_reason?: 'extraviada' | 'venda_avulsa_sem_pdv' | 'outros'

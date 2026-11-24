@@ -751,6 +751,12 @@ routerAdd(
 
           processedItems.push({
             product_id: productId,
+            // Variação específica lida na etiqueta (v0.0.222): preservada no JSON
+            // dos itens p/ o histórico mostrar exatamente o que foi devolvido.
+            variation_id: it.variation_id || null,
+            variation_sku: it.variation_sku || null,
+            variacao: it.variacao || null,
+            codigo_barras: it.codigo_barras || null,
             code: product.getString('code'),
             description: product.getString('description'),
             selling_price: sellingPrice,

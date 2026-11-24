@@ -57,6 +57,19 @@ interface ConferenceEntry {
   pending_reason: 'extraviada' | 'venda_avulsa_sem_pdv' | 'outros'
   pending_notes: string
   pending_charge: boolean
+  /** Variação específica lida na etiqueta (v0.0.222) */
+  variation_id?: string
+  variation_sku?: string
+  variacao?: string
+  codigo_barras?: string
+}
+
+/** Dados da variação resolvida, repassados do scan/da busca para a entrada. */
+interface VariationSelection {
+  variation_id?: string
+  variation_sku?: string
+  variacao?: string
+  codigo_barras?: string
 }
 
 const emptyEntry = (): ConferenceEntry => ({
@@ -217,15 +230,33 @@ export default function ResellerConferencePage() {
     rearmTimerRef.current = window.setTimeout(() => setScanStatus('ready'), 500)
   }
 
-  const registerOne = (productId: string, label: string) => {
+  const registerOne = (productId: string, label: string, variation?: VariationSelection) => {
     const it = stockRef.current.find((s) => s.product === productId && s.quantity > 0)
     const conf = conferenceRef.current[productId] || emptyEntry()
+    // REGRA: produto com variações exige o código completo/etiqueta da variação —
+    // o código-base nunca movimenta devolução ou extravio.
+    const stockProduct = it?.expand?.product
+    const hasVariations = (stockProduct?.expand?.['product_variations(product)'] || []).length > 0
+    if (hasVariations && !variation?.variation_id) {
+      flashScan(
+        'notfound',
+        `O código "${stockProduct?.code || label}" possui variações cadastradas. Leia a etiqueta da variação específica (ex.: "${stockProduct?.code} Aro 16").`,
+      )
+      return
+    }
     const availableQty = (it?.quantity || 0) - (conf.returned_qty || 0) - (conf.pending_qty || 0)
     if (!it || availableQty <= 0) {
       flashScan('notfound', `${label}: não há saldo disponível para devolução.`)
       return
     }
     handleItemChange(productId, 'returned_qty', (conf.returned_qty || 0) + 1)
+    // Preserva a variação da leitura (nunca derruba os campos com undefined).
+    if (variation?.variation_id) handleItemChange(productId, 'variation_id', variation.variation_id)
+    if (variation?.variation_sku)
+      handleItemChange(productId, 'variation_sku', variation.variation_sku)
+    if (variation?.variacao) handleItemChange(productId, 'variacao', variation.variacao)
+    if (variation?.codigo_barras)
+      handleItemChange(productId, 'codigo_barras', variation.codigo_barras)
     flashScan('ok', `+1 devolvida: ${label}`)
   }
 
@@ -250,12 +281,35 @@ export default function ResellerConferencePage() {
           flashScan('notfound', `Código ${raw} não está na lista em poder desta revendedora.`)
           return
         }
-        const product = stock.expand?.product
+        // Mescla o produto carregado com o resolvido, preservando
+        // selected_variation_id / selected_variation_sku do resolvedor.
+        const merged = {
+          ...(stock.expand?.product || {}),
+          ...(resolved.product as Product),
+        } as Product
+        // REGRA: código-base de produto com variações não movimenta nada.
+        if (
+          !merged.selected_variation_id &&
+          (merged.expand?.['product_variations(product)'] || []).length > 0
+        ) {
+          flashScan(
+            'notfound',
+            `O código "${merged.code}" possui variações cadastradas. Leia o código completo da variação (ex.: "${merged.code} Aro 16").`,
+          )
+          return
+        }
+        const variationLabel = merged.selected_variation_sku || merged.variacao
         registerOne(
           stock.product,
-          resolved.product.variacao
-            ? `${resolved.product.code} — ${resolved.product.variacao}`
-            : getProductFullName(product!) || resolved.product.code,
+          variationLabel
+            ? `${merged.code} — ${variationLabel}`
+            : getProductFullName(merged) || merged.code,
+          {
+            variation_id: merged.selected_variation_id,
+            variation_sku: merged.selected_variation_sku,
+            variacao: merged.selected_variation_sku || merged.variacao,
+            codigo_barras: merged.codigo_barras,
+          },
         )
         return
       }
@@ -287,6 +341,14 @@ export default function ResellerConferencePage() {
       return
     }
     const prod = found.expand?.product
+    // REGRA: código-base (só dígitos) de produto com variações não movimenta nada.
+    if (prod && (prod.expand?.['product_variations(product)'] || []).length > 0) {
+      flashScan(
+        'notfound',
+        `O código "${prod.code}" possui variações cadastradas. Leia o código completo da variação (ex.: "${prod.code} Aro 16").`,
+      )
+      return
+    }
     registerOne(
       found.product,
       prod?.code
@@ -514,6 +576,10 @@ export default function ResellerConferencePage() {
       .filter(([, c]) => (c.returned_qty || 0) > 0 || (c.pending_qty || 0) > 0)
       .map(([product_id, c]) => ({
         product_id,
+        variation_id: c.variation_id,
+        variation_sku: c.variation_sku,
+        variacao: c.variacao,
+        codigo_barras: c.codigo_barras,
         returned_qty: c.returned_qty || 0,
         pending_qty: c.pending_qty || 0,
         pending_reason: (c.pending_qty || 0) > 0 ? c.pending_reason : undefined,
@@ -686,6 +752,9 @@ export default function ResellerConferencePage() {
               >
                 <span>
                   {item.code} — {item.description}
+                  {item.variation_sku || item.variacao
+                    ? ` (${item.variation_sku || item.variacao})`
+                    : ''}
                 </span>
                 <span className="text-right">
                   {item.returned_qty > 0 ? `Devolvida: ${item.returned_qty}` : ''}
@@ -1067,6 +1136,11 @@ export default function ResellerConferencePage() {
                                       p?.nome_produto ||
                                       'Joia'}
                                   </p>
+                                  {(conf?.variation_sku || conf?.variacao) && (
+                                    <p className="text-[11px] text-[#6B655E]">
+                                      Variação: {conf.variation_sku || conf.variacao}
+                                    </p>
+                                  )}
                                 </td>
                                 <td className="p-2">
                                   <div className="flex items-center justify-center gap-1">
@@ -1129,7 +1203,11 @@ export default function ResellerConferencePage() {
                           <div className="min-w-[140px] flex-1">
                             <p className="font-mono font-bold text-[#7A5C2E]">
                               {p?.code}
-                              {p?.variacao ? ` — ${p.variacao}` : ''}
+                              {conf.variation_sku || conf.variacao
+                                ? ` — ${conf.variation_sku || conf.variacao}`
+                                : p?.variacao
+                                  ? ` — ${p.variacao}`
+                                  : ''}
                             </p>
                             <p className="truncate text-[#2D2A26]">
                               {getProductFullName(p!) || p?.description || p?.nome_produto}
