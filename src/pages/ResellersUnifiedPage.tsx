@@ -28,6 +28,7 @@ import {
   AlertTriangle,
   Camera,
   Printer,
+  X,
 } from 'lucide-react'
 import { isExactCodeMatch, matchesProductQuery } from '@/lib/barcodeSearch'
 import { getProductFullName } from '@/types/labelContent'
@@ -1123,7 +1124,7 @@ export default function ResellersUnifiedPage() {
                         variant="outline"
                         className="shrink-0 text-[10px] border-[#C6A664] text-[#7A5C2E]"
                       >
-                        {r.code || 'S/C'}
+                        {'S/C'}
                       </Badge>
                     </div>
 
