@@ -1,5 +1,4 @@
-import React, { useRef } from 'react'
-import { createPortal } from 'react-dom'
+import React from 'react'
 import { Printer, X, ZoomIn, ZoomOut, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -19,7 +18,6 @@ export interface PrintQueueItem {
   fullName: string
   price: number
   quantity: number
-  imageUrl?: string
 }
 
 interface LabelPrintModalProps {
@@ -46,7 +44,6 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
   manualOffsets = { marginTop: 0, marginLeft: 0, gapHorizontal: 0, gapVertical: 0 },
 }) => {
   const [zoom, setZoom] = React.useState<number>(100)
-  const printAreaRef = useRef<HTMLDivElement>(null)
 
   const { showCode, showFullName, showSellingPrice } = contentOptions
 
@@ -63,7 +60,6 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
     description: string
     fullName: string
     price: number
-    imageUrl: string
     key: string
   }> = []
 
@@ -78,7 +74,6 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
         description: item.description,
         fullName: item.fullName,
         price: item.price,
-        imageUrl: item.imageUrl || '',
         key: `${item.id}-${itemIdx}-${i}`,
       })
     }
@@ -100,7 +95,6 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
         description: '',
         fullName: '',
         price: 0,
-        imageUrl: '',
         key: `pad-${i}-${pageCells.length}`,
       })
     }
@@ -119,7 +113,6 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
         description: '',
         fullName: '',
         price: 0,
-        imageUrl: '',
         key: `empty-${i}`,
       })
     }
@@ -137,7 +130,7 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-black/85 backdrop-blur-xs text-white">
+    <div className="print-overlay fixed inset-0 z-50 flex flex-col bg-black/85 backdrop-blur-xs text-white">
       {/* Barra superior de controles (oculta na impressão) */}
       <header className="no-print shrink-0 flex flex-wrap items-center justify-between gap-4 px-6 py-3.5 bg-[#1F1D1A] border-b border-[#3D3833]">
         <div className="flex items-center gap-3">
@@ -218,9 +211,8 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
         </span>
       </div>
       {/* Área da folha (ScrollView) */}
-      <div className="flex-1 overflow-auto p-4 sm:p-8 flex flex-col items-center gap-8 bg-[#12110F]">
+      <div className="print-scroll flex-1 overflow-auto p-4 sm:p-8 flex flex-col items-center gap-8 bg-[#12110F]">
         <div
-          ref={printAreaRef}
           id="print-sheets-container"
           className="flex flex-col items-center gap-8"
           style={{
@@ -338,35 +330,24 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
                             </span>
                           )}
 
-                          {/* Barcode ocupando o corpo principal da etiqueta */}
+                          {/* Código de barras ocupando o corpo principal da etiqueta,
+                              com o texto legível do código embaixo (sem foto) */}
                           <div className="w-full flex-1 flex flex-col items-center justify-center min-h-0 overflow-hidden py-[0.3mm]">
-                            {cell.imageUrl ? (
-                              <img
-                                src={cell.imageUrl}
-                                alt={cell.fullName || cell.description}
-                                width={40}
-                                height={40}
-                                className="h-[9mm] w-auto max-w-full object-contain mb-[0.2mm]"
-                              />
-                            ) : null}
-                            <BarcodeSvg
-                              value={cell.barcodeValue}
-                              displayText={showCode ? cell.code : ''}
-                              height={28}
-                              showText={false}
-                            />
+                            <div className="w-full flex-1 min-h-0">
+                              <BarcodeSvg value={cell.barcodeValue} height={28} showText={false} />
+                            </div>
+                            {showCode && (
+                              <span className="font-mono font-bold tracking-tight text-[7.5px] mt-[0.2mm]">
+                                {cell.barcodeValue}
+                              </span>
+                            )}
                           </div>
 
-                          {/* Linha inferior: Código sem zeros + SKU E-commerce + Preço opcional */}
+                          {/* Linha inferior: SKU E-commerce + Preço opcional */}
                           <div className="w-full flex items-center justify-between px-0.5 text-[7px] font-semibold mt-[0.2mm]">
-                            {showCode ? (
-                              <span className="font-mono font-bold tracking-tight text-[7.5px]">
-                                {cell.code}
-                                {cell.skuEcommerce ? (
-                                  <span className="font-mono font-medium text-[6px] text-gray-600 ml-1">
-                                    SKU {cell.skuEcommerce}
-                                  </span>
-                                ) : null}
+                            {cell.skuEcommerce ? (
+                              <span className="font-mono font-medium text-[6px] text-gray-600 tracking-tight">
+                                SKU {cell.skuEcommerce}
                               </span>
                             ) : (
                               <span />
@@ -399,38 +380,59 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
         #print-sheets-container * {
           visibility: visible !important;
         }
-        #print-sheets-container {
-          /* Posição estática evita que o elemento fixed seja repetido
-             em TODAS as páginas impressas (bug das 3 folhas idênticas) */
+        /* O overlay fixed do modal vira bloco estático na impressão: elementos
+           fixed repetem a prévia em TODAS as páginas impressas
+           (bug das folhas idênticas) */
+        .print-overlay {
           position: static !important;
-          left: auto !important;
-          top: auto !important;
+          inset: auto !important;
+          z-index: auto !important;
+          display: block !important;
+          background: transparent !important;
+          backdrop-filter: none !important;
+          overflow: visible !important;
+        }
+        /* Área de rolagem da tela não pode cortar a folha na impressão */
+        .print-scroll {
+          overflow: visible !important;
+          max-height: none !important;
+          padding: 0 !important;
+          display: block !important;
+        }
+        #print-sheets-container {
+          position: static !important;
           margin: 0 !important;
           padding: 0 !important;
           transform: none !important;
           background: transparent !important;
+          display: block !important;
         }
-        /* Remove o transform de zoom que espreme a folha na impressão */
         #print-sheets-container .sheet-page {
           box-shadow: none !important;
           margin: 0 !important;
           page-break-after: always !important;
           break-after: page !important;
+          overflow: hidden !important;
           -webkit-print-color-adjust: exact !important;
           print-color-adjust: exact !important;
+        }
+        /* A última folha não pode gerar uma página em branco extra */
+        #print-sheets-container .sheet-page:last-child {
+          page-break-after: auto !important;
+          break-after: auto !important;
         }
         .no-print {
           display: none !important;
         }
         .label-guide-border {
-          display: n#one !important;
+          display: none !important;
         }
         @page {
           size: ${template.sheetType === 'Carta' ? 'letter' : 'A4'} portrait;
           margin: 0mm !important;
         }
       }
-    `}</style>{' '}
+    `}</style>
     </div>
   )
 }

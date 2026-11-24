@@ -8,10 +8,8 @@ import {
   AlertTriangle,
   Layers,
   SlidersHorizontal,
-  ImageIcon,
   Check,
   RotateCcw,
-  Eye,
   ListChecks,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -27,9 +25,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Product, Brand, ProductCategory } from '@/types'
 import { LABEL_TEMPLATES, LabelTemplateModel } from '@/types/labels'
+
 import {
   DEFAULT_LABEL_CONTENT,
   LabelContentOptions,
@@ -39,8 +37,9 @@ import {
 import { LabelPrintModal, PrintQueueItem } from '@/components/LabelPrintModal'
 import { productService } from '@/services/productService'
 import { fetchResellerStockQuantityMap, getProductTotalStock } from '@/services/totalStockService'
-import { getProductDisplayPhoto, formatCurrency, formatDate } from '@/lib/formatters'
-import { getProductBarcodeValue, matchesProductQuery } from '@/lib/barcodeSearch'
+import { formatCurrency, formatDate } from '@/lib/formatters'
+import { stripLeadingZeros, matchesProductQuery } from '@/lib/barcodeSearch'
+import { BarcodeSvg } from '@/components/BarcodeSvg'
 import pb from '@/lib/pocketbase/client'
 
 export const LabelGenerationPage: React.FC = () => {
@@ -65,6 +64,8 @@ export const LabelGenerationPage: React.FC = () => {
   const [brands, setBrands] = useState<Brand[]>([])
   const [categories, setCategories] = useState<ProductCategory[]>([])
   const [isLoading, setIsLoading] = useState<boolean>(true)
+  // Erro de carregamento exibido na tabela de produtos
+  const [loadError, setLoadError] = useState<string>('')
 
   // Filtros e busca de produtos
   const [searchTerm, setSearchTerm] = useState<string>('')
@@ -72,9 +73,6 @@ export const LabelGenerationPage: React.FC = () => {
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
   const [productPage, setProductPage] = useState<number>(1)
   const itemsPerPage = 8
-
-  // Modal de visualização de foto ampliada
-  const [lightboxImage, setLightboxImage] = useState<{ url: string; title: string } | null>(null)
 
   // 3. Fila de etiquetas a imprimir
   const [printQueue, setPrintQueue] = useState<PrintQueueItem[]>([])
@@ -108,6 +106,7 @@ export const LabelGenerationPage: React.FC = () => {
       setCategories(categoriesRes)
     } catch (err) {
       console.error('Erro ao carregar produtos para etiquetas:', err)
+      setLoadError(err instanceof Error ? err.message : 'Erro ao carregar produtos para etiquetas.')
     } finally {
       setIsLoading(false)
     }
@@ -169,24 +168,28 @@ export const LabelGenerationPage: React.FC = () => {
 
   const totalPages = Math.ceil(filteredProducts.length / itemsPerPage) || 1
 
-  // Código de barras formatado de um produto (SEM zeros à esquerda)
+  // Código da etiqueta: deve ser EXATAMENTE o código que os leitores resolvem
+  // (backend products_barcode_resolver.js), SEM zeros à esquerda:
+  // - variação manual (product_variations): "código sufixo" (ex. "1106 V1")
+  // - produto sem variação: código puro (ex. "1107")
   const getProductDisplayBarcode = (p: Product): { code: string; barcodeValue: string } => {
-    const cleanCode = getProductBarcodeValue(p) || '0'
+    const cleanCode = stripLeadingZeros(p.code || p.sku_novo || '') || '0'
+    // Sufixo do SKU da variação (ex. "1106-V1" -> "V1"), formando "1106 V1".
+    // Sem SKU de variação, cai para o campo variacao (Tecson: "8112 N14").
+    const skuVariacao = (p.selected_variation_sku || '').trim()
+    const skuSuffix = skuVariacao.replace(new RegExp('^' + cleanCode + '[\\s\\-_]+'), '')
+    const variacao = skuSuffix && skuSuffix !== skuVariacao ? skuSuffix : (p.variacao || '').trim()
+    const full = variacao ? `${cleanCode} ${variacao}` : cleanCode
     return {
-      code: cleanCode,
-      barcodeValue: cleanCode,
+      code: full,
+      barcodeValue: full,
     }
   }
-
   // Ação 2: Adicionar produto à fila
   const handleAddProduct = (p: Product) => {
     const { code, barcodeValue } = getProductDisplayBarcode(p)
     const initialQty = p.qtde_inicial && p.qtde_inicial > 0 ? Math.floor(p.qtde_inicial) : 1
     const price = typeof p.selling_price === 'number' ? p.selling_price : 0
-    // Variações usam id composto "productId:variationId"; a foto vive no produto-pai
-    // (photos[] ou image_url externa do importador). Resolver sempre pelo id real do pai
-    // garante que a variação mostre a mesma foto do pai (decisão do usuário).
-    const photo = getProductDisplayPhoto({ ...p, id: p.id.split(':')[0] })
     const fullName = getProductFullName(p, p.selected_variation)
 
     // Se já estiver na fila, incrementa ou atualiza
@@ -211,12 +214,10 @@ export const LabelGenerationPage: React.FC = () => {
           productId: p.id,
           code,
           barcodeValue,
-          skuEcommerce: (p.sku_ecommerce || '').trim(),
           description: p.nome_produto || p.description || 'Produto Scaglioni',
           fullName,
           price,
           quantity: initialQty,
-          imageUrl: photo,
         },
       ]
     })
@@ -650,8 +651,8 @@ export const LabelGenerationPage: React.FC = () => {
               <table className="w-full text-left text-xs sm:text-sm">
                 <thead className="bg-[#F7F4EE] text-[#5A544A] border-b border-[#E5DFD5] font-semibold text-xs">
                   <tr>
-                    <th scope="col" className="p-3 w-14 text-center">
-                      Imagem
+                    <th scope="col" className="p-3 w-28 text-center">
+                      Código de barras
                     </th>
                     <th scope="col" className="p-3">
                       Data cadastro
@@ -683,6 +684,12 @@ export const LabelGenerationPage: React.FC = () => {
                         Carregando produtos reais do sistema...
                       </td>
                     </tr>
+                  ) : loadError ? (
+                    <tr>
+                      <td colSpan={8} className="p-8 text-center text-red-600">
+                        {loadError}
+                      </td>
+                    </tr>
                   ) : paginatedProducts.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="p-8 text-center text-[#6B655E]">
@@ -691,8 +698,6 @@ export const LabelGenerationPage: React.FC = () => {
                     </tr>
                   ) : (
                     paginatedProducts.map((p) => {
-                      // Foto resolvida pelo id do produto-pai (variação tem id composto "pai:variação")
-                      const photoUrl = getProductDisplayPhoto({ ...p, id: p.id.split(':')[0] })
                       const brandObj = brands.find((b) => b.id === p.marca_id)
                       const resellerQty = resellerStockMap.get(p.id) || 0
                       const totalStock = getProductTotalStock(p, resellerQty)
@@ -701,32 +706,11 @@ export const LabelGenerationPage: React.FC = () => {
                       return (
                         <tr key={p.id} className="hover:bg-[#FCFAF6] transition-colors">
                           <td className="p-2 text-center">
-                            {photoUrl ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setLightboxImage({
-                                    url: photoUrl,
-                                    title: p.nome_produto || p.description || p.code,
-                                  })
-                                }
-                                className="group relative h-10 w-10 mx-auto rounded border border-[#E5DFD5] overflow-hidden bg-white block"
-                                title="Clique para ampliar"
-                              >
-                                <img
-                                  src={photoUrl}
-                                  alt={p.nome_produto || p.code}
-                                  className="h-full w-full object-cover group-hover:scale-110 transition-transform"
-                                />
-                                <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                                  <Eye className="h-3.5 w-3.5 text-white" />
-                                </div>
-                              </button>
-                            ) : (
-                              <div className="h-10 w-10 mx-auto rounded border border-[#E5DFD5] bg-[#F7F4EE] flex items-center justify-center text-[#A8A196]">
-                                <ImageIcon className="h-4 w-4" />
-                              </div>
-                            )}
+                            <BarcodeSvg
+                              value={getProductDisplayBarcode(p).code || p.code}
+                              className="h-8 w-24 text-[#2D2A26]"
+                              showText={false}
+                            />
                           </td>
                           <td className="p-3 text-[#6B655E] whitespace-nowrap">
                             {formatDate(p.created)}
@@ -889,8 +873,8 @@ export const LabelGenerationPage: React.FC = () => {
                 <table className="w-full text-left text-xs sm:text-sm">
                   <thead className="bg-[#F7F4EE] text-[#5A544A] border-b border-[#E5DFD5] font-semibold text-xs">
                     <tr>
-                      <th scope="col" className="p-3 w-14 text-center">
-                        Imagem
+                      <th scope="col" className="p-3 w-28 text-center">
+                        Código de barras
                       </th>
                       <th scope="col" className="p-3 w-28">
                         Código
@@ -927,15 +911,13 @@ export const LabelGenerationPage: React.FC = () => {
                               <div className="h-10 w-10 mx-auto rounded border border-dashed border-amber-300 bg-amber-50 flex items-center justify-center text-amber-600 text-[10px] font-bold">
                                 VAZIA
                               </div>
-                            ) : item.imageUrl ? (
-                              <img
-                                src={item.imageUrl}
-                                alt={item.description}
-                                className="h-10 w-10 mx-auto rounded border border-[#E5DFD5] object-cover"
-                              />
                             ) : (
-                              <div className="h-10 w-10 mx-auto rounded border border-[#E5DFD5] bg-[#F7F4EE] flex items-center justify-center text-[#A8A196]">
-                                <ImageIcon className="h-4 w-4" />
+                              <div className="h-10 w-10 mx-auto flex items-center justify-center py-1 text-[#2D2A26]">
+                                <BarcodeSvg
+                                  value={item.barcodeValue || item.code}
+                                  className="h-8 w-24"
+                                  showText={false}
+                                />
                               </div>
                             )}
                           </td>
@@ -1025,26 +1007,6 @@ export const LabelGenerationPage: React.FC = () => {
           manualOffsets={manualOffsets}
         />
       )}
-
-      {/* MODAL DE IMAGEM AMPLIADA */}
-      <Dialog open={!!lightboxImage} onOpenChange={() => setLightboxImage(null)}>
-        <DialogContent className="max-w-md bg-white border-[#E5DFD5]">
-          <DialogHeader>
-            <DialogTitle className="text-sm font-semibold text-[#2D2A26] truncate">
-              {lightboxImage?.title}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="flex items-center justify-center p-2">
-            {lightboxImage?.url && (
-              <img
-                src={lightboxImage.url}
-                alt={lightboxImage.title}
-                className="max-h-[60vh] w-auto max-w-full rounded-lg object-contain shadow-md"
-              />
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }
