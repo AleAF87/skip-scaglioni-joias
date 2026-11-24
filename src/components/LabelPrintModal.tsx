@@ -203,10 +203,10 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
         <div className="flex items-center gap-2">
           <AlertCircle className="h-4 w-4 shrink-0 text-[#E5C378]" />
           <span>
-            <strong>Dica de impressão:</strong> Na janela de impressão do navegador, defina as
-            margens como <strong>&quot;Nenhuma&quot;</strong> (None) e a escala como{' '}
-            <strong>&quot;100%&quot; ou &quot;Padrão&quot;</strong> para o encaixe perfeito na folha
-            do fabricante.
+            <strong>Dica de impressão:</strong> Na janela de impressão do navegador, mantenha as
+            margens em <strong>&quot;Padrão&quot;</strong> (as margens do gabarito são enviadas
+            automaticamente para a impressora), a escala em <strong>100%</strong> e desative
+            cabeçalhos e rodapés para o encaixe perfeito na folha do fabricante.
           </span>
         </div>
         <span className="text-[11px] opacity-75 hidden md:inline">
@@ -422,6 +422,16 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
         #print-sheets-container .sheet-page {
           box-shadow: none !important;
           margin: 0 !important;
+          /* As margens do gabarito ficam no @page (aplicadas pela impressora);
+             na impressão a folha vira apenas a grade de etiquetas, sem padding
+             e sem o tamanho fixo da prévia em tela (não duplica margem). */
+          width: auto !important;
+          min-width: 0 !important;
+          max-width: none !important;
+          height: auto !important;
+          min-height: 0 !important;
+          max-height: none !important;
+          padding: 0 !important;
           page-break-after: always !important;
           break-after: page !important;
           overflow: hidden !important;
@@ -441,7 +451,10 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
         }
         @page {
           size: ${template.sheetType === 'Carta' ? 'letter' : 'A4'} portrait;
-          margin: 0mm !important;
+          /* Margens oficiais do gabarito (A4349: 13,5mm sup/inf e 8mm laterais;
+             demais gabaritos usam suas próprias margens simétricas). O navegador
+             aplica estas margens quando a opção de margens fica em "Padrão". */
+          margin: ${effectiveMarginTop}mm ${effectiveMarginLeft}mm !important;
         }
       }
     `}</style>
