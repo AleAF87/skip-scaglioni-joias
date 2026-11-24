@@ -178,8 +178,8 @@ export default function Layout() {
 
   const handleOpenDeliveryModal = useCallback(() => {
     if (!resellerId) return
-    window.dispatchEvent(new CustomEvent('scaglioni:open-new-delivery', { detail: { resellerId } }))
-  }, [resellerId])
+    navigate('/revendedoras/entrega?reseller=' + encodeURIComponent(resellerId))
+  }, [resellerId, navigate])
 
   // Interceptar cliques em links ou navegações quando estiver no PDV e houver itens
   const handleNavClick = useCallback(

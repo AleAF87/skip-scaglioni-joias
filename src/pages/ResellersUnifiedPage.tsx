@@ -113,8 +113,8 @@ export default function ResellersUnifiedPage() {
       next.set('reseller', currentReseller.id)
       return next
     })
-    setIsNewDeliveryModalOpen(true)
-  }, [currentReseller, setSearchParams])
+    navigate('/revendedoras/entrega?reseller=' + encodeURIComponent(currentReseller.id))
+  }, [currentReseller, setSearchParams, navigate])
 
   useEffect(() => {
     const handler = (evt: Event) => {
@@ -284,7 +284,7 @@ export default function ResellersUnifiedPage() {
       setSearchParams({ reseller: reseller.id }, { replace: true })
     }
     if (action === 'new_delivery') {
-      setIsNewDeliveryModalOpen(true)
+      navigate('/revendedoras/entrega?reseller=' + encodeURIComponent(reseller.id))
     } else if (action === 'stock') {
       setIsStockModalOpen(true)
     }
@@ -1265,7 +1265,7 @@ export default function ResellersUnifiedPage() {
               {canManage && (
                 <Button
                   size="sm"
-                  onClick={() => setIsNewDeliveryModalOpen(true)}
+                  onClick={() => navigate('/revendedoras/entrega?reseller=' + encodeURIComponent(currentReseller.id))}
                   className="h-9 rounded-full bg-[#7A5C2E] hover:bg-[#634923] text-white text-xs flex items-center gap-1.5 shadow-xs"
                 >
                   <PackagePlus className="h-4 w-4" />
