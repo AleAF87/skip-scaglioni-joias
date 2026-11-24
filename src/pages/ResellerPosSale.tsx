@@ -318,6 +318,8 @@ export default function ResellerPosSale() {
     }
 
     if (!foundStockItem) {
+      // Mantém a próxima leitura independente do código que não foi localizado.
+      setSearchFilter('')
       toast.error('Produto não encontrado no seu estoque de revendedora.')
       return false
     }
@@ -744,8 +746,19 @@ export default function ResellerPosSale() {
                       setSearchFilter('')
                     }
                   }}
-                  className="pl-9 text-xs"
+                  className="pl-9 pr-9 text-xs"
                 />
+                {searchFilter && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchFilter('')}
+                    className="absolute right-2 top-1.5 h-6 w-6 rounded-md text-[#7A5C2E] hover:bg-[#F3EAD8] flex items-center justify-center"
+                    title="Limpar código ou busca"
+                    aria-label="Limpar código ou busca"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
               </div>
               <p className="text-[10px] text-[#8C8275] mt-1">
                 Leitor físico: aponte para o código e pressione Enter — inclui direto, sem pergunta.
