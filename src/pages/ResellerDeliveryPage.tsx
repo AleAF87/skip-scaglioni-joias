@@ -449,6 +449,9 @@ export default function ResellerDeliveryPage() {
         reseller_id: currentReseller.id,
         items: deliveryItems.map((it) => ({
           product_id: it.product.id,
+          variation_id: it.product.selected_variation_id,
+          variation_sku: it.product.selected_variation_sku,
+          code: it.product.codigo_barras || it.product.code,
           quantity: it.quantity,
           selling_price: it.selling_price,
         })),
