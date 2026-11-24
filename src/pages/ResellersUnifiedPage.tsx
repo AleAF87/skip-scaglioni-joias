@@ -1064,7 +1064,8 @@ export default function ResellersUnifiedPage() {
           </div>
 
           {/* Busca da revendedora */}
-    …9096 tokens truncated…    setSelectedSettlementReceipt(null)
+    {/* eslint-disable-next-line @typescript-eslint/no-unused-vars */}
+    {setSelectedSettlementReceipt(null)}
         }}
       />
 
