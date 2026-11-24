@@ -105,6 +105,15 @@ export function isExactCodeMatch(p: Partial<Product>, query: string): boolean {
   const codes = getProductCodeIdentifiers(p)
   const isQueryDigitsOnly = /^\d+$/.test(qTrim)
 
+  // Um produto-pai que possui variações manuais não pode ser escolhido pela
+  // leitura do código-base. A leitura precisa trazer o identificador completo
+  // da variação (ex.: "1107 16"), que é resolvido pelo backend.
+  const hasManualVariations = (p.expand?.['product_variations(product)'] || []).length > 0
+  const baseCode = stripLeadingZeros(p.code || p.sku_novo || '')
+  if (hasManualVariations && isQueryDigitsOnly && baseCode === stripLeadingZeros(qTrim)) {
+    return false
+  }
+
   if (isQueryDigitsOnly) {
     const qNum = parseInt(qTrim, 10)
     const checkFields = [
