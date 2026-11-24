@@ -421,6 +421,11 @@ export interface ResellerReturnItem {
   pending_qty: number
   pending_reason?: 'extraviada' | 'venda_avulsa_sem_pdv' | 'outros' | null
   scaglioni_due?: number
+  /** Variação específica devolvida/extraviada (vive no JSON `items`, v0.0.222) */
+  variation_id?: string
+  variation_sku?: string
+  variacao?: string
+  codigo_barras?: string
 }
 
 export interface ResellerReturn {
