@@ -350,11 +350,12 @@ export const productCreationService = {
     const generatedEcommerceSku = (productRecord.sku_ecommerce || '').trim()
     productCreationService.lastGeneratedEcommerceSku = generatedEcommerceSku
 
-    // Variações: SKU filho derivado do código FINAL atribuído pelo servidor (ex.: 1107-V1)
+    // Variações: a etiqueta precisa carregar o código completo e legível da peça
+    // (ex.: "1107 Aro 16"), nunca apenas o código do produto-pai.
     const finalCode = createdProduct.code || createdProduct.sku_novo || ''
     const variations = payload.variations.map((v, idx) => ({
       ...v,
-      sku: `${finalCode}-V${idx + 1}`,
+      sku: `${finalCode} ${v.attributeValue.trim() || `V${idx + 1}`}`,
     }))
 
     // 2. Vínculos de Categorias (product_category_links)
