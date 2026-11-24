@@ -123,6 +123,14 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
   // Medidas reais em mm aplicadas às variáveis CSS
   const effectiveMarginTop = template.marginTopMm + (manualOffsets.marginTop || 0)
   const effectiveMarginLeft = template.marginLeftMm + (manualOffsets.marginLeft || 0)
+  // Margens do @page na impressão. A4349: prova real saiu 3mm p/ direita e 3mm
+  // p/ baixo do gabarito — compensado assimetricamente (sup 10,5 / inf 16,5 /
+  // esq 5 / dir 11). Demais gabaritos mantêm suas margens simétricas originais.
+  const isA4349 = template.id === 'A4349'
+  const pageMarginTop = isA4349 ? 10.5 : effectiveMarginTop
+  const pageMarginLeft = isA4349 ? 5 : effectiveMarginLeft
+  const pageMarginRight = isA4349 ? 11 : effectiveMarginLeft
+  const pageMarginBottom = isA4349 ? 16.5 : effectiveMarginTop
   const effectiveGapX = template.gapHorizontalMm + (manualOffsets.gapHorizontal || 0)
   const effectiveGapY = template.gapVerticalMm + (manualOffsets.gapVertical || 0)
 
@@ -449,12 +457,12 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
         .label-guide-border {
           display: none !important;
         }
-        @page {
+      @page {
           size: ${template.sheetType === 'Carta' ? 'letter' : 'A4'} portrait;
-          /* Margens oficiais do gabarito (A4349: 13,5mm sup/inf e 8mm laterais;
-             demais gabaritos usam suas próprias margens simétricas). O navegador
-             aplica estas margens quando a opção de margens fica em "Padrão". */
-          margin: ${effectiveMarginTop}mm ${effectiveMarginLeft}mm !important;
+          /* O navegador aplica estas margens quando a opção de margens fica em
+             "Padrão". A4349 compensa o desvio de 3mm da prova real:
+             sup 13,5→10,5 / inf 16,5 / esq 8→5 / dir 11. */
+          margin: ${pageMarginTop}mm ${pageMarginRight}mm ${pageMarginBottom}mm ${pageMarginLeft}mm !important;
         }
       }
     `}</style>
