@@ -127,18 +127,18 @@ export const productCreationService = {
 
   /**
    * NOVA REGRA de SKU e-commerce (v0.0.215): deriva dicas de TIPO e METAL
-   * a partir das categorias selecionadas no cadastro manual. O TIPO é a
+   * a partir das categorias selecionadas no cadastro/edição manual. O TIPO é a
    * categoria não-metal e o METAL a categoria de grupo 'metal' (quando houver).
    * Enviadas ao backend como query params (skuTipo/skuMetal) — o backend é a
-   * fonte da geração.
+   * fonte da geração (criação E edição de produtos).
    */
   deriveSkuHints(
-    payload: CreateProductPayload,
+    categoriaIds: string[],
     categories: ProductCategory[],
   ): { tipo: string; metal: string } {
     const hints = { tipo: '', metal: '' }
-    if (!payload.categoria_ids || payload.categoria_ids.length === 0) return hints
-    for (const catId of payload.categoria_ids) {
+    if (!categoriaIds || categoriaIds.length === 0) return hints
+    for (const catId of categoriaIds) {
       const cat = categories.find((c) => c.id === catId)
       if (!cat) continue
       const group = (cat.group || '').trim()
