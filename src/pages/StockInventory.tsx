@@ -57,6 +57,7 @@ import {
   Barcode,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { BarcodeScannerModal } from '@/components/pos/BarcodeScannerModal'
 import { Link } from 'react-router-dom'
 import {
   SortField,
@@ -133,6 +134,15 @@ export default function StockInventory() {
 
   // CSV Instructions Modal
   const [csvInfoModalOpen, setCsvInfoModalOpen] = useState(false)
+
+  // Leitor de código de barras (consulta)
+  const [scannerOpen, setScannerOpen] = useState(false)
+  const [highlightedProductId, setHighlightedProductId] = useState<string | null>(null)
+  const [scannedVariation, setScannedVariation] = useState<{
+    code: string
+    variacao: string
+    quantity: number
+  } | null>(null)
 
   // Lightbox state
   const [lightboxOpen, setLightboxOpen] = useState(false)
@@ -656,6 +666,75 @@ export default function StockInventory() {
     window.print()
   }
 
+  // Leitor de código de barras (consulta): resolve via productService.resolveBarcode
+  // e posiciona a lista no produto/variação. NUNCA movimenta estoque — a página é só consulta.
+  const handleBarcodeScan = async (barcode: string) => {
+    const code = barcode.trim()
+    if (!code) return true
+    try {
+      const res = await productService.resolveBarcode(code)
+      if (res?.matched && res.product) {
+        // Mescla os campos selected_variation_* do produto resolvido com o registro local
+        // (nunca substituir o produto resolvido pelo da lista em memória).
+        const resolved = res.product
+        const local = products.find((p) => p.id === resolved.id)
+        const merged: Product = local
+          ? {
+              ...local,
+              ...resolved,
+              selected_variation_id: resolved.selected_variation_id ?? local.selected_variation_id,
+              selected_variation_sku:
+                resolved.selected_variation_sku ?? local.selected_variation_sku,
+              selected_variation: resolved.selected_variation ?? local.selected_variation,
+            }
+          : resolved
+        setScannedVariation(null)
+        setSearch(merged.code || code)
+        setSelectedIds([merged.id])
+        setSelectedTypes([])
+        setSelectedMaterials([])
+        setSelectedSizes([])
+        setSelectedAudiences([])
+        setSelectedStatuses([])
+        setSelectedEcommerce([])
+        setSortField('code')
+        setSortDirection('asc')
+        setPage(1)
+        setHighlightedProductId(merged.id)
+        // Rola até a linha destacada depois que a lista re-renderiza filtrada
+        setTimeout(() => {
+          document
+            .getElementById(`stock-row-${merged.id}`)
+            ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }, 150)
+        if (res.resolution === 'variation' && res.variations?.length) {
+          const v = res.variations[0]
+          setScannedVariation({
+            code: v.code || '',
+            variacao: v.variacao || '',
+            quantity: v.quantity ?? 0,
+          })
+        }
+        toast.success(
+          res.resolution === 'variation'
+            ? `Variação localizada: ${merged.code} — ${res.variations?.[0]?.variacao || ''}`
+            : `Produto localizado: ${merged.code}`,
+        )
+        return true
+      }
+      if (res?.matched && res.ambiguous) {
+        toast.info('Código ambíguo: refine a busca (leia a etiqueta completa do produto).')
+        return true
+      }
+      toast.error('Código não encontrado.')
+      return false
+    } catch (err) {
+      console.error('Erro ao resolver código de barras:', err)
+      toast.error('Código não encontrado.')
+      return false
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Header with Title and Actions */}
@@ -878,6 +957,15 @@ export default function StockInventory() {
             {/* Search */}
             <div className="relative flex-1">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-[#6B655E]" />
+              <button
+                type="button"
+                onClick={() => setScannerOpen(true)}
+                className="absolute left-9 top-1.5 h-8 w-8 rounded-md text-[#7A5C2E] hover:bg-[#F3EAD8] flex items-center justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C6A664]"
+                title="Ler código de barras com a câmera"
+                aria-label="Ler código de barras com a câmera"
+              >
+                <Barcode className="h-4.5 w-4.5" />
+              </button>
               <Input
                 value={search}
                 onChange={(e) => {
@@ -923,7 +1011,7 @@ export default function StockInventory() {
                   }
                 }}
                 placeholder="Buscar por código, SKU novo, SKU herdado, nome ou descrição..."
-                className="pl-9 pr-9 border-[#E5DFD5] focus-visible:ring-[#C6A664]"
+                className="pl-9 pr-9 border-[#E5DFD5] focus-visible:ring-[#C6A664] pl-16"
               />
               {search && (
                 <button
@@ -1406,6 +1494,7 @@ export default function StockInventory() {
                 </tr>
               ) : (
                 products.map((p) => {
+                  const isHighlighted = highlightedProductId === p.id
                   const isSelected = selectedIds.includes(p.id)
                   const isEditingThisQty = editingQtyId === p.id
                   const resellerUnits = resellerStockMap.get(p.id) || 0
@@ -1437,9 +1526,10 @@ export default function StockInventory() {
                   return (
                     <tr
                       key={p.id}
+                      id={`stock-row-${p.id}`}
                       className={`hover:bg-[#FDFBF7] transition-colors ${
-                        isSelected ? 'bg-[#C6A664]/5' : ''
-                      }`}
+                        isHighlighted ? 'bg-[#C6A664]/25 ring-1 ring-inset ring-[#7A5C2E]' : ''
+                      } ${isSelected ? 'bg-[#C6A664]/5' : ''}`}
                     >
                       <td className="py-3 px-4 text-center">
                         <button
@@ -1625,6 +1715,16 @@ export default function StockInventory() {
                               >
                                 {currentTotalStock}
                               </span>
+                              {isHighlighted && scannedVariation && (
+                                <Badge
+                                  variant="outline"
+                                  className="border-[#7A5C2E] text-[#7A5C2E] bg-white text-[9px] px-1.5 py-0 h-4 font-semibold"
+                                >
+                                  {scannedVariation.variacao || scannedVariation.code}
+                                  {typeof scannedVariation.quantity === 'number' &&
+                                    ` · ${scannedVariation.quantity} un.`}
+                                </Badge>
+                              )}
                               <Edit className="h-3 w-3 text-[#6B655E] opacity-0 group-hover:opacity-100 transition-opacity" />
                             </div>
                             {resellerUnits ? (
@@ -1727,6 +1827,14 @@ export default function StockInventory() {
           </div>
         </div>
       </Card>
+
+      {/* BarcodeScannerModal (leitor por câmera) — somente consulta */}
+      <BarcodeScannerModal
+        isOpen={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onScan={handleBarcodeScan}
+        originTitle="Consulta de Estoque"
+      />
 
       {/* Bulk Update Modal */}
       <Dialog open={bulkModalOpen} onOpenChange={setBulkModalOpen}>
