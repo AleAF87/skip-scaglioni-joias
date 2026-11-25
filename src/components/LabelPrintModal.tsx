@@ -129,24 +129,28 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
   // Ajuste fino v0.0.234 (prova física medida em sulfite): a 1ª etiqueta precisa
   // andar 1mm p/ a direita (esq 5→6) e o espaço ENTRE etiquetas precisa de +1mm
   // (o gap impresso saía 1mm, o gabarito pede 2mm visíveis).
+  // Ajuste fino v0.0.235 (prova física medida em sulfite): a 1ª etiqueta ainda
+  // estava 0,5mm p/ a direita (esq 6→5,5) e o espaço ENTRE etiquetas estava
+  // 0,5mm largo (gap impresso 3→2,5mm = gabarito 2mm + 0,5mm).
   const isA4349 = template.id === 'A4349'
   const pageMarginTop = isA4349 ? 10.5 : effectiveMarginTop
-  const pageMarginLeft = isA4349 ? 6 : effectiveMarginLeft
+  const pageMarginLeft = isA4349 ? 5.5 : effectiveMarginLeft
   // Escolha do passo horizontal: em vez de mexer na largura da etiqueta
-  // (26mm fixo do gabarito) ou no template, o +1mm do gap entra SÓ no CSS de
-  // impressão (ver .sheet-grid no @media print). Com isso a grade impressa
-  // passa de 194mm (7×26 + 6×2) para 200mm (7×26 + 6×3); para caber na folha
-  // A4 de 210mm sem cortar a última coluna, a margem direita compensada cai
-  // de 11 para 4 (6 + 200 + 4 = 210) — a posição horizontal real das etiquetas
-  // é definida pela margem esquerda + passo, então a margem direita não as move.
-  const pageMarginRight = isA4349 ? 4 : effectiveMarginLeft
+  // (26mm fixo do gabarito) ou no template, o excesso do gap entra SÓ no CSS de
+  // impressão (ver .sheet-grid no @media print). Com o gap impresso de 2,5mm a
+  // grade impressa passa de 194mm (7×26 + 6×2) para 197mm (7×26 + 6×2,5); para
+  // caber na folha A4 de 210mm sem cortar a última coluna, a margem direita
+  // compensada vai para 7,5 (5,5 + 197 + 7,5 = 210) — a posição horizontal real
+  // das etiquetas é definida pela margem esquerda + passo, então a margem
+  // direita não as move, só evita estouro.
+  const pageMarginRight = isA4349 ? 7.5 : effectiveMarginLeft
   const pageMarginBottom = isA4349 ? 16.5 : effectiveMarginTop
   const effectiveGapX = template.gapHorizontalMm + (manualOffsets.gapHorizontal || 0)
   const effectiveGapY = template.gapVerticalMm + (manualOffsets.gapVertical || 0)
-  // Gap horizontal aplicado na IMPRESSÃO: +1mm só para a A4349 (usuário mediu
-  // 1mm de espaço visível entre etiquetas; gabarito pede 2mm). Nos demais
-  // gabaritos o valor é idêntico ao da prévia em tela (nenhuma mudança).
-  const printGapX = isA4349 ? effectiveGapX + 1 : effectiveGapX
+  // Gap horizontal aplicado na IMPRESSÃO: +0,5mm só para a A4349 (prova física
+  // v0.0.235: espaço visível entre etiquetas estava 0,5mm largo do gabarito).
+  // Nos demais gabaritos o valor é idêntico ao da prévia em tela (nenhuma mudança).
+  const printGapX = isA4349 ? effectiveGapX + 0.5 : effectiveGapX
 
   const handlePrint = () => {
     window.print()
@@ -471,8 +475,8 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
         .label-guide-border {
           display: none !important;
         }
-        /* A4349: gap horizontal +1mm SÓ na impressão (grade impressa 200mm:
-           7×26 + 6×3). A prévia em tela continua com o gap do template (2mm)
+        /* A4349: gap horizontal +0,5mm SÓ na impressão (grade impressa 197mm:
+           7×26 + 6×2,5). A prévia em tela continua com o gap do template (2mm)
            para não alterar a visualização; demais gabaritos ficam intactos. */
         #print-sheets-container .sheet-grid {
           ${isA4349 ? `column-gap: ${printGapX}mm !important;` : ''}
@@ -481,8 +485,8 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
           size: ${template.sheetType === 'Carta' ? 'letter' : 'A4'} portrait;
           /* O navegador aplica estas margens quando a opção de margens fica em
              "Padrão". A4349 compensa o desvio da prova real: sup 13,5→10,5 /
-             inf 16,5 / esq 8→6 / dir 11→4 (a grade impressa cresceu p/ 200mm
-             com o gap +1mm entre colunas: 6 + 200 + 4 = 210). */
+             inf 16,5 / esq 5,5 / dir 7,5 (grade impressa 197mm com o gap de
+             2,5mm entre colunas: 5,5 + 197 + 7,5 = 210). */
           margin: ${pageMarginTop}mm ${pageMarginRight}mm ${pageMarginBottom}mm ${pageMarginLeft}mm !important;
         }
       }
