@@ -26,6 +26,7 @@ import UserProfile from '@/pages/UserProfile'
 import ImportProductsPage from '@/pages/ImportProductsPage'
 import { ImportTecsonPage } from '@/pages/ImportTecsonPage'
 import { ImportScaglioniPage } from '@/pages/ImportScaglioniPage'
+import ImportTecsonResellerPage from '@/pages/ImportTecsonResellerPage'
 import CompanySettingsPage from '@/pages/CompanySettingsPage'
 import AutomationPage from '@/pages/AutomationPage'
 import LabelGenerationPage from '@/pages/LabelGenerationPage'
@@ -90,6 +91,15 @@ export default function App() {
                 element={
                   <ProtectedRoute allowedRoles={['superadmin']}>
                     <ImportScaglioniPage />
+                  </ProtectedRoute>
+                }
+              />
+              {/* Importação Tecson → posse de revendedora (admin/superadmin) */}
+              <Route
+                path="/importar-tecson-revendedora"
+                element={
+                  <ProtectedRoute allowedRoles={['admin', 'superadmin']}>
+                    <ImportTecsonResellerPage />
                   </ProtectedRoute>
                 }
               />
