@@ -75,6 +75,16 @@ export const productService = {
         searchClauses.push(`code ~ '${withC}'`)
       }
 
+      // Código de variação lido na etiqueta ("1106 V1", "1106-V1", "1106 Tamanho p"):
+      // além do texto completo, busca pelo código-pai para que a linha do produto
+      // permaneça visível com o valor completo FIXADO no campo de busca (estoque).
+      const varMatch = rawSearch.match(/^(\d+)[\s\-_](.+)$/)
+      if (varMatch) {
+        const parentCode = varMatch[1].replace(/^0+/, '') || '0'
+        searchClauses.push(`code = '${parentCode}'`)
+        searchClauses.push(`code ~ '${varMatch[1].replace(/'/g, "\\'")}'`)
+      }
+
       filters.push(`(${searchClauses.join(' || ')})`)
     }
     // Single or multi types
@@ -195,6 +205,16 @@ export const productService = {
         searchClauses.push(`sku_scaglioni ~ '${withC}'`)
         searchClauses.push(`sku_scaglioni ~ '${withCedilla}'`)
         searchClauses.push(`code ~ '${withC}'`)
+      }
+
+      // Código de variação lido na etiqueta ("1106 V1", "1106-V1", "1106 Tamanho p"):
+      // além do texto completo, busca pelo código-pai para que a linha do produto
+      // permaneça visível com o valor completo FIXADO no campo de busca (estoque).
+      const varMatch = rawSearch.match(/^(\d+)[\s\-_](.+)$/)
+      if (varMatch) {
+        const parentCode = varMatch[1].replace(/^0+/, '') || '0'
+        searchClauses.push(`code = '${parentCode}'`)
+        searchClauses.push(`code ~ '${varMatch[1].replace(/'/g, "\\'")}'`)
       }
 
       filters.push(`(${searchClauses.join(' || ')})`)

@@ -76,7 +76,15 @@ export default function StockInventory() {
   const [sizes, setSizes] = useState<ProductSize[]>([])
 
   // Search & Multiple Choice Filters
-  const [search, setSearch] = useState('')
+  // O valor lido pelo leitor fica FIXO no campo: só sai quando o usuário lê o próximo
+  // código, digita por cima ou limpa à mão. sessionStorage cobre remontagens da rota.
+  const [search, setSearch] = useState(() => {
+    try {
+      return sessionStorage.getItem('stock_inventory_search') || ''
+    } catch {
+      return ''
+    }
+  })
   const [selectedTypes, setSelectedTypes] = useState<string[]>([])
   const [selectedMaterials, setSelectedMaterials] = useState<string[]>([])
   const [selectedSizes, setSelectedSizes] = useState<string[]>([])
@@ -409,6 +417,16 @@ export default function StockInventory() {
     )
   }
 
+  // Persiste o valor do campo de busca (inclusive o código lido pelo leitor) entre
+  // remontagens da rota — trocar de página no menu e voltar NÃO apaga o valor lido.
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('stock_inventory_search', search)
+    } catch {
+      // sessionStorage indisponível: o valor simplesmente não sobrevive à remontagem
+    }
+  }, [search])
+
   // Quick inline quantity update
   const handleSaveQuantity = async (id: string) => {
     const num = parseInt(tempQty, 10)
@@ -689,7 +707,11 @@ export default function StockInventory() {
             }
           : resolved
         setScannedVariation(null)
-        setSearch(merged.code || code)
+        // O valor lido fica FIXO no campo de busca: o TEXTO EXATAMENTE LIDO (ex. "1106",
+        // "1106 V1", "1106 Tamanho p") permanece após re-renders, paginação e interações.
+        // Só é substituído na PRÓXIMA leitura (nova chamada de handleBarcodeScan) ou se o
+        // usuário digitar/limpar à mão — nunca apagado automaticamente pelo sistema.
+        setSearch(code)
         setSelectedIds([merged.id])
         setSelectedTypes([])
         setSelectedMaterials([])
@@ -973,8 +995,18 @@ export default function StockInventory() {
                   setPage(1)
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && search.trim()) {
-                    // Salto no scan exato: se houver exatamente 1 produto que dá match exato com o código/SKU escaneado ou pesquisado
+                  // Formato de código de barras: numérico puro ou código + variação
+                  // ("1106", "1106 V1", "1106-V1"). Busca por texto livre (nome/descrição)
+                  // NÃO dispara o resolvedor ao dar Enter.
+                  const looksLikeCode = /^\d+([\s\-_].+)?$/.test(search.trim())
+                  if (e.key === 'Enter' && search.trim() && looksLikeCode) {
+                    // O valor NUNCA é apagado automaticamente: fica fixo no campo até o
+                    // usuário ler o próximo código ou limpar à mão. O Enter delega ao
+                    // resolvedor (mesmo fluxo da leitura por câmera), que entende código de
+                    // variação e códigos fora da página carregada; se encontrar, reabre a
+                    // edição como antes. Sem match, o campo PERMANECE com o valor e só
+                    // avisa — nunca setSearch('').
+                    void handleBarcodeScan(search)
                     const exact = products.find((p) => {
                       const qTrim = search.trim()
                       const qLower = qTrim.toLowerCase()
@@ -1000,13 +1032,6 @@ export default function StockInventory() {
                     })
                     if (exact) {
                       handleOpenEdit(exact)
-                      toast.info(
-                        `Localizado via leitor/busca: ${exact.sku_novo || exact.sku_scaglioni || exact.code}`,
-                      )
-                    } else if (/^[A-Za-z0-9 -]+$/.test(search.trim())) {
-                      // Não deixa a próxima leitura do scanner ser anexada a um código inválido.
-                      setSearch('')
-                      toast.info('Nenhum produto encontrado com esse código.')
                     }
                   }
                 }}
