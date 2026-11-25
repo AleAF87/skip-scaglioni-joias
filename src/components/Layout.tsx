@@ -9,6 +9,7 @@ import {
   Boxes,
   ShoppingCart,
   Users2,
+  UsersRound,
   Handshake,
   Store,
   UserCheck,
@@ -31,6 +32,8 @@ import {
   Bot,
   Share2,
   PackagePlus,
+  List,
+  FileDown,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -291,13 +294,13 @@ export default function Layout() {
   const navItems: NavItemDef[] = isSuperAdmin
     ? [
         { to: '/', label: 'Painel Geral', icon: LayoutDashboard },
-        { to: '/produtos', label: 'Cadastrar Produtos', icon: Boxes },
+        { to: '/produtos', label: 'Cadastrar Produtos', icon: PackagePlus },
         { to: '/estoque', label: 'Estoque', icon: Boxes },
         { to: '/etiquetas', label: 'Gerar Etiquetas', icon: Tag },
         {
           to: '/revendedoras',
           label: 'Revendedoras',
-          icon: Users2,
+          icon: UsersRound,
         },
         // Ações da tela "Revendedora" (contexto de revendedora selecionada via ?reseller=)
         ...(hasResellerContext
@@ -355,6 +358,12 @@ export default function Layout() {
           isRestricted: true,
         },
         {
+          to: '/importar-tecson-revendedora',
+          label: 'Importar Revendedoras',
+          icon: FileDown,
+          isRestricted: true,
+        },
+        {
           to: '/importar-scaglioni',
           label: 'Importar Scaglioni',
           icon: FileSpreadsheet,
@@ -377,7 +386,7 @@ export default function Layout() {
     : [
         ...(canManageInternal ? [{ to: '/', label: 'Painel Geral', icon: LayoutDashboard }] : []),
         ...(canManageInternal
-          ? [{ to: '/produtos', label: 'Cadastrar Produtos', icon: Boxes }]
+          ? [{ to: '/produtos', label: 'Cadastrar Produtos', icon: PackagePlus }]
           : []),
         ...(canManageInternal ? [{ to: '/estoque', label: 'Estoque', icon: Boxes }] : []),
         ...(canManageInternal && !isReseller
@@ -388,7 +397,7 @@ export default function Layout() {
         {
           to: '/revendedoras',
           label: 'Revendedoras',
-          icon: Users2,
+          icon: UsersRound,
           highlight: !canManageInternal,
         },
         ...(isReseller
@@ -430,9 +439,18 @@ export default function Layout() {
         { to: '/clientes', label: 'Clientes', icon: Users },
         { to: '/vitrine', label: 'Vitrine de Joias', icon: Store },
         ...(isAdmin || (canManageInternal && !isReseller)
-          ? [{ to: '/categorias', label: 'Categorias', icon: Tag }]
+          ? [{ to: '/categorias', label: 'Categorias', icon: List }]
           : []),
         ...(isAdmin ? [{ to: '/usuarios', label: 'Gestão de Usuários', icon: UserCheck }] : []),
+        ...(isAdmin
+          ? [
+              {
+                to: '/importar-tecson-revendedora',
+                label: 'Importar Revendedoras',
+                icon: FileDown,
+              },
+            ]
+          : []),
         { to: '/instalar', label: 'Instalar o App (PWA)', icon: Download, badgeText: 'App' },
       ]
 
