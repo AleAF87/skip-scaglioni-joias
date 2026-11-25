@@ -1,7 +1,16 @@
-import React, { useRef } from 'react'
+import React, { useRef, useState } from 'react'
 import { GalleryImageItem } from '@/services/productCreationService'
 import { Button } from '@/components/ui/button'
-import { Image as ImageIcon, Upload, Star, Trash2, ArrowLeft, ArrowRight } from 'lucide-react'
+import {
+  Image as ImageIcon,
+  Upload,
+  Star,
+  Trash2,
+  ArrowLeft,
+  ArrowRight,
+  Camera,
+} from 'lucide-react'
+import { CameraCaptureModal } from './CameraCaptureModal'
 
 interface GalleryManagerProps {
   images: GalleryImageItem[]
@@ -11,10 +20,11 @@ interface GalleryManagerProps {
 
 export function GalleryManager({ images, onChange, isEcommercePublished }: GalleryManagerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [cameraOpen, setCameraOpen] = useState(false)
 
-  const handleFilesSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files
-    if (!files || files.length === 0) return
+  // Fila única: arquivos enviados e fotos da câmera passam por aqui
+  const addImageFiles = (files: File[]) => {
+    if (files.length === 0) return
 
     const newItems: GalleryImageItem[] = []
     for (let i = 0; i < files.length; i++) {
@@ -35,6 +45,12 @@ export function GalleryManager({ images, onChange, isEcommercePublished }: Galle
     }
 
     onChange(updated)
+  }
+
+  const handleFilesSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+    addImageFiles(Array.from(files))
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
@@ -80,24 +96,41 @@ export function GalleryManager({ images, onChange, isEcommercePublished }: Galle
           </p>
         </div>
 
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => fileInputRef.current?.click()}
-          className="text-xs border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] h-8"
-        >
-          <Upload className="h-3.5 w-3.5 mr-1.5" /> Adicionar Fotos
-        </Button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          multiple
-          className="hidden"
-          onChange={handleFilesSelected}
-        />
+        <div className="flex items-center gap-2 shrink-0">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => fileInputRef.current?.click()}
+            className="text-xs border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] h-8"
+          >
+            <Upload className="h-3.5 w-3.5 mr-1.5" /> Adicionar Fotos
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setCameraOpen(true)}
+            className="text-xs border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] h-8"
+          >
+            <Camera className="h-3.5 w-3.5 mr-1.5" /> Tirar foto
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={handleFilesSelected}
+          />
+        </div>
       </div>
+
+      <CameraCaptureModal
+        open={cameraOpen}
+        onOpenChange={setCameraOpen}
+        onCapture={(file) => addImageFiles([file])}
+      />
 
       {images.length === 0 ? (
         <div
