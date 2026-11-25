@@ -129,34 +129,26 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
   // Medidas reais em mm aplicadas às variáveis CSS
   const effectiveMarginTop = template.marginTopMm + (manualOffsets.marginTop || 0)
   const effectiveMarginLeft = template.marginLeftMm + (manualOffsets.marginLeft || 0)
-  // Margens do @page na impressão. A4349: prova real saiu 3mm p/ direita e 3mm
-  // p/ baixo do gabarito — compensado assimetricamente (sup 10,5 / inf 16,5 /
-  // esq 5 / dir 11). Demais gabaritos mantêm suas margens simétricas originais.
-  // Ajuste fino v0.0.234 (prova física medida em sulfite): a 1ª etiqueta precisa
-  // andar 1mm p/ a direita (esq 5→6) e o espaço ENTRE etiquetas precisa de +1mm
-  // (o gap impresso saía 1mm, o gabarito pede 2mm visíveis).
-  // Ajuste fino v0.0.235 (prova física medida em sulfite): a 1ª etiqueta ainda
-  // estava 0,5mm p/ a direita (esq 6→5,5) e o espaço ENTRE etiquetas estava
-  // 0,5mm largo (gap impresso 3→2,5mm = gabarito 2mm + 0,5mm).
   const isA4349 = template.id === 'A4349'
-  const pageMarginTop = isA4349 ? 10.5 : effectiveMarginTop
-  const pageMarginLeft = isA4349 ? 5.5 : effectiveMarginLeft
-  // Escolha do passo horizontal: em vez de mexer na largura da etiqueta
-  // (26mm fixo do gabarito) ou no template, o excesso do gap entra SÓ no CSS de
-  // impressão (ver .sheet-grid no @media print). Com o gap impresso de 2,5mm a
-  // grade impressa passa de 194mm (7×26 + 6×2) para 197mm (7×26 + 6×2,5); para
-  // caber na folha A4 de 210mm sem cortar a última coluna, a margem direita
-  // compensada vai para 7,5 (5,5 + 197 + 7,5 = 210) — a posição horizontal real
-  // das etiquetas é definida pela margem esquerda + passo, então a margem
-  // direita não as move, só evita estouro.
-  const pageMarginRight = isA4349 ? 7.5 : effectiveMarginLeft
-  const pageMarginBottom = isA4349 ? 16.5 : effectiveMarginTop
+  // Margens do @page na impressão. A4349 v0.0.241 (geometria confirmada pelo
+  // usuário contra a folha real): sup 13 / inf 14 / esq 8 / dir 8.
+  // Horizontal: 8 + (7×26) + (6×2) + 8 = 210mm ✓
+  // Vertical:   13 + (18×15) + 14 = 297mm ✓ (0mm entre linhas)
+  // Demais gabaritos mantêm suas margens originais.
+  const pageMarginTop = isA4349 ? 13 : effectiveMarginTop
+  const pageMarginLeft = isA4349 ? 8 : effectiveMarginLeft
+  const pageMarginRight = isA4349 ? 8 : effectiveMarginLeft
+  const pageMarginBottom = isA4349 ? 14 : effectiveMarginTop
   const effectiveGapX = template.gapHorizontalMm + (manualOffsets.gapHorizontal || 0)
   const effectiveGapY = template.gapVerticalMm + (manualOffsets.gapVertical || 0)
-  // Gap horizontal aplicado na IMPRESSÃO: +0,5mm só para a A4349 (prova física
-  // v0.0.235: espaço visível entre etiquetas estava 0,5mm largo do gabarito).
-  // Nos demais gabaritos o valor é idêntico ao da prévia em tela (nenhuma mudança).
-  const printGapX = isA4349 ? effectiveGapX + 0.5 : effectiveGapX
+  // Gap horizontal impresso = gap do gabarito (2mm) para a A4349: a grade
+  // impressa fecha exatamente em 190mm (7×26 + 6×2) dentro dos 194mm úteis
+  // (210 − 8 − 8). Sem mais compensação de +0,5mm.
+  const printGapX = effectiveGapX
+  // Respiro interno da arte dentro da etiqueta: A4349 pede 1mm em todos os
+  // lados (código de barras + número legível não encostam na borda dos 26×15mm).
+  // Demais gabaritos mantêm o padding atual.
+  const labelInnerPadding = isA4349 ? '1mm' : template.isJewelryTag ? '0.5mm 1.5mm' : '0.5mm 1mm'
 
   const handlePrint = () => {
     window.print()
@@ -297,7 +289,7 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
                         width: `${template.labelWidthMm}mm`,
                         height: `${template.labelHeightMm}mm`,
                         boxSizing: 'border-box',
-                        padding: template.isJewelryTag ? '0.5mm 1.5mm' : '0.5mm 1mm',
+                        padding: labelInnerPadding,
                       }}
                     >
                       {/* Borda sutil apenas na prévia na tela, invisível na impressão */}
@@ -481,18 +473,19 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
         .label-guide-border {
           display: none !important;
         }
-        /* A4349: gap horizontal +0,5mm SÓ na impressão (grade impressa 197mm:
-           7×26 + 6×2,5). A prévia em tela continua com o gap do template (2mm)
-           para não alterar a visualização; demais gabaritos ficam intactos. */
+        /* A4349 v0.0.241: gap horizontal da impressão = gabarito (2mm), sem a
+           compensação de +0,5mm das versões anteriores. A prévia em tela
+           continua com o gap do template para não alterar a visualização. */
         #print-sheets-container .sheet-grid {
           ${isA4349 ? `column-gap: ${printGapX}mm !important;` : ''}
         }
       @page {
           size: ${template.sheetType === 'Carta' ? 'letter' : 'A4'} portrait;
           /* O navegador aplica estas margens quando a opção de margens fica em
-             "Padrão". A4349 compensa o desvio da prova real: sup 13,5→10,5 /
-             inf 16,5 / esq 5,5 / dir 7,5 (grade impressa 197mm com o gap de
-             2,5mm entre colunas: 5,5 + 197 + 7,5 = 210). */
+             "Padrão". A4349 v0.0.241, geometria confirmada pelo usuário contra a
+             folha real: sup 13 / inf 14 / esq 8 / dir 8.
+             Horizontal: 8 + (7×26) + (6×2) + 8 = 210mm.
+             Vertical: 13 + (18×15) + 14 = 297mm (0mm entre linhas). */
           margin: ${pageMarginTop}mm ${pageMarginRight}mm ${pageMarginBottom}mm ${pageMarginLeft}mm !important;
         }
       }

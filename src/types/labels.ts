@@ -50,7 +50,7 @@ export const LABEL_TEMPLATES: Record<string, LabelTemplateModel> = {
     rows: 18,
     labelWidthMm: 26.0,
     labelHeightMm: 15.0,
-    marginTopMm: 13.5,
+    marginTopMm: 13.0, // v0.0.241: geometria confirmada (sup 13 / inf 14 / esq 8 / dir 8)
     marginLeftMm: 8.0,
     gapHorizontalMm: 2.0, // passo horizontal 28.0mm - 26.0 = 2.0mm
     gapVerticalMm: 0, // passo vertical 15.0mm = sem gap
