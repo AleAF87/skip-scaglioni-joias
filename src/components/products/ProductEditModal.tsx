@@ -77,7 +77,8 @@ export function ProductEditModal({
       ])
       setBrands(brandList)
       setCategories(catList)
-      setCategoriaIds(links.map((l) => l.category)) - setCategoryError('')
+      setCategoriaIds(links.map((l) => l.category))
+      setCategoryError('')
     } catch (err) {
       console.warn('Erro ao carregar metadados na edição:', err)
     }

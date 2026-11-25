@@ -297,10 +297,60 @@ onRecordUpdateRequest((e) => {
       }
     }
 
-    // SKU e-commerce: normaliza vazio para string vazia (não geramos SKU na edição,
-    // nem sobrescrevemos a SKU enviada pelo importador/usuário)
+    // SKU e-commerce: normaliza vazio para string vazia
     const rawEcomSku = (record.getString('sku_ecommerce') || '').trim()
     record.set('sku_ecommerce', rawEcomSku)
+
+    // REGERAÇÃO da SKU e-commerce na EDIÇÃO (regra compartilhada $app_skuRule):
+    // o modal de edição envia skuTipo/skuMetal/skuNomeLivre via QUERY PARAMS.
+    // Só regenera quando o PREFIXO da regra (tipo+metal+iniciais) mudou ou a SKU
+    // está vazia — nunca em todo update (estoque, preço, importadores não enviam
+    // dicas). Sem letras suficientes o prefixo fica vazio e NADA é gerado:
+    // produtos antigos sem Tipo/Metal continuam sem SKU inventada.
+    let skuTipoHint = ''
+    let skuMetalHint = ''
+    let skuNomeLivreHint = ''
+    try {
+      const q = e.requestInfo().query || {}
+      skuTipoHint = String(q.skuTipo || '')
+      skuMetalHint = String(q.skuMetal || '')
+      skuNomeLivreHint = String(q.skuNomeLivre || '')
+    } catch (_) {}
+
+    if (skuTipoHint || skuMetalHint) {
+      try {
+        var partsUpd = $app_skuRule.resolveParts(
+          $app,
+          record,
+          skuTipoHint,
+          skuMetalHint,
+          skuNomeLivreHint,
+        )
+        var prefixUpd = $app_skuRule.buildPrefix(partsUpd.tipo, partsUpd.metal, partsUpd.nomeLivre)
+        var skuAtualUpd = (record.getString('sku_ecommerce') || '').trim()
+        // O numerador da regra tem sempre 2 dígitos: o prefixo atual é a SKU sem os 2 últimos chars
+        var prefixAtualUpd = skuAtualUpd.length > 2 ? skuAtualUpd.slice(0, -2) : ''
+        // Só regenera se a SKU atual está vazia (produto antigo sem Tipo/Metal) ou
+        // já é do formato da regra (letras + numerador de 2 dígitos). SKUs herdadas
+        // de planilha (ex. Scaglioni/Tecson) NÃO são sobrescritas pela edição.
+        var skuAtualFormatoRegra = /^[A-Z]+[0-9]{2}$/.test(skuAtualUpd)
+        if (prefixUpd && (skuAtualFormatoRegra || !skuAtualUpd)) {
+          var geradaUpd = $app_skuRule.generateForRecord(
+            record,
+            skuTipoHint,
+            skuMetalHint,
+            skuNomeLivreHint,
+            $app,
+          )
+          console.log(
+            'SKU e-commerce regenerada na edição do produto:',
+            geradaUpd || '(não gerada — letras insuficientes)',
+          )
+        }
+      } catch (skuUpdErr) {
+        console.log('Aviso: falha ao regenerar SKU e-commerce na edição:', skuUpdErr.message)
+      }
+    }
   }
   e.next()
 }, 'products')

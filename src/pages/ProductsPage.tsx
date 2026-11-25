@@ -36,6 +36,18 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 
+// Coluna CATEGORIAS da tabela: exibe os TIPOS selecionados primeiro e os METAIS
+// depois (pedido do usuário). O mapa de links é ordenado no lugar, produto por produto.
+const sortCategoriesTiposFirst = (map: Record<string, string[]>, categories: ProductCategory[]) => {
+  const isMetalName = (name: string) =>
+    categories.some((c) => c.name === name && c.group === 'metal')
+  Object.keys(map).forEach((pId) => {
+    const tipos = map[pId].filter((n) => !isMetalName(n))
+    const metais = map[pId].filter((n) => isMetalName(n))
+    map[pId] = [...tipos, ...metais]
+  })
+}
+
 export function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -222,6 +234,8 @@ export function ProductsPage() {
             map[pId].push(catName)
           }
         })
+        // Coluna CATEGORIAS: Tipos primeiro, Metais depois (pedido do usuário)
+        sortCategoriesTiposFirst(map, categories)
         setCategoryLinksMap(map)
       }
     } catch (err: any) {
@@ -258,6 +272,8 @@ export function ProductsPage() {
           map[pId].push(catName)
         }
       })
+      // Coluna CATEGORIAS: Tipos primeiro, Metais depois (pedido do usuário)
+      sortCategoriesTiposFirst(map, categories)
 
       setCategoryLinksMap((prev) => {
         const next = { ...prev }
@@ -520,7 +536,12 @@ export function ProductsPage() {
                 <tbody className="divide-y divide-[#E5DFD5]/70">
                   {products.map((p) => {
                     const photo = getProductDisplayPhoto(p)
-                    const pCategories = categoryLinksMap[p.id] || []
+                    // Tipos primeiro, Metais depois (idempotente: ordena mesmo se
+                    // o mapa foi construído antes do carregamento das categorias)
+                    const pCategories = sortCategoriesTiposFirst(
+                      { [p.id]: categoryLinksMap[p.id] || [] },
+                      categories,
+                    )[p.id]
                     const brandName = p.expand?.marca_id?.name || 'Scaglioni'
 
                     return (
