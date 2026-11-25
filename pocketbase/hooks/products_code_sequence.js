@@ -1,10 +1,14 @@
 // Helper e Hooks para geração atômica e sequencial de código numérico crescente
 // Regra do negócio (v0.0.206): a sequência inicia em 1001 (piso 1000; 1001, 1002, 1003...)
+// JSVM (v0.0.257): a regra de SKU vem DUPLICADA inline em cada handler (funções
+// puras + $app via parâmetro) — nem global, nem require(), nem declaração de
+// outro arquivo chegam ao handler (contexto isolado da JSVM).
 // Se o próximo número já estiver ocupado por outro produto, pula e segue a sequência.
 // Sem zeros à esquerda: o código é gravado e exibido como número puro
 // Válido para TODOS os caminhos de criação (importadores Tecson/Scaglioni e produto manual),
 // independentemente de limpeza do banco.
-// A SKU e-commerce usa a NOVA REGRA compartilhada ($app_skuRule, products_sku_rule.js).
+// A SKU e-commerce usa a NOVA REGRA (products_sku_rule.js — cópia INLINE dentro
+// de cada handler; JSVM: handlers rodam em contexto isolado, v0.0.257).
 // All helper logic is declared inline inside callbacks to avoid JSVM top-level scoping errors.
 
 // 1. Endpoint para preview do próximo código numérico sequencial (somente leitura / consulta prévia)
@@ -85,6 +89,127 @@ routerAdd(
 // 2. onRecordCreateRequest hook for 'products' collection
 // Garante que sku_novo e code sejam preenchidos com o código numérico sequencial crescente seguro contra concorrência
 onRecordCreateRequest((e) => {
+  // ===== Início da regra INLINE (copiada de products_sku_rule.js — fonte de
+  // verdade textual; cole em TODA atualização da regra) =====
+  const skuRuleNormalize = (value) =>
+    String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase()
+      .replace(/\s+/g, ' ')
+      .trim()
+  const skuRuleTipoMap = { BRINCO: 'BR', COLAR: 'CO', PULSEIRA: 'PU', ANEL: 'AN' }
+  const skuRuleMetalMap = { PRATA: 'PR', OURO: 'OU', RODIO: 'RO' }
+  const skuRuleTipoLetters = (tipo) => {
+    const t = skuRuleNormalize(tipo)
+    if (!t) return ''
+    if (skuRuleTipoMap[t]) return skuRuleTipoMap[t]
+    const words = t.split(' ')
+    for (let i = 0; i < words.length; i++) {
+      if (skuRuleTipoMap[words[i]]) return skuRuleTipoMap[words[i]]
+    }
+    return t.replace(/[^A-Z]/g, '').slice(0, 2)
+  }
+  const skuRuleMetalLetters = (metal) => {
+    const m = skuRuleNormalize(metal)
+    if (!m) return ''
+    const words = m.split(' ')
+    for (let i = 0; i < words.length; i++) {
+      if (skuRuleMetalMap[words[i]]) return skuRuleMetalMap[words[i]]
+    }
+    return m.replace(/[^A-Z]/g, '').slice(0, 2)
+  }
+  const skuRuleNomeLivreLetters = (nomeLivre) => {
+    const n = skuRuleNormalize(nomeLivre)
+    if (!n) return ''
+    const words = n.split(' ').filter(Boolean)
+    let out = ''
+    for (let i = 0; i < words.length; i++) {
+      const clean = words[i].replace(/[^A-Z]/g, '')
+      if (clean) out += clean.charAt(0)
+    }
+    return out
+  }
+  const skuRuleBuildPrefix = (tipo, metal, nomeLivre) => {
+    const t = skuRuleTipoLetters(tipo)
+    const m = skuRuleMetalLetters(metal)
+    const n = skuRuleNomeLivreLetters(nomeLivre)
+    if (!t && !m && !n) return ''
+    return t + m + n
+  }
+  const skuRuleDetectTipo = (nomeNorm) => {
+    const words = skuRuleNormalize(nomeNorm).split(' ').filter(Boolean)
+    for (let i = 0; i < words.length; i++) {
+      const w = words[i]
+      const singular = w.replace(/S$/, '')
+      if (skuRuleTipoMap[w]) return w
+      if (skuRuleTipoMap[singular]) return singular
+    }
+    return ''
+  }
+  const skuRuleDetectMetal = (nomeNorm) => {
+    const words = skuRuleNormalize(nomeNorm).split(' ').filter(Boolean)
+    for (let i = 0; i < words.length; i++) {
+      if (skuRuleMetalMap[words[i]]) return words[i]
+    }
+    return ''
+  }
+  const skuRuleStripWords = (nomeNorm, phrases) => {
+    let out = skuRuleNormalize(nomeNorm)
+    for (let i = 0; i < phrases.length; i++) {
+      const p = skuRuleNormalize(phrases[i])
+      if (!p) continue
+      const esc = p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      out = out
+        .replace(new RegExp('(^|\\s)' + esc + '(?=\\s|$)'), ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+    }
+    return out
+  }
+  const skuRuleIsTaken = (app, candidate, excludeId) => {
+    try {
+      const rec = app.findFirstRecordByFilter(
+        'products',
+        "sku_ecommerce = '" + candidate.replace(/'/g, "\\'") + "'",
+      )
+      if (rec && (!excludeId || rec.id !== excludeId)) return true
+    } catch (_) {}
+    return false
+  }
+  const skuRuleGenerateFromHints = (app, record, tipoHint, metalHint, nomeLivreHint) => {
+    let tipo = String(tipoHint || '')
+    let metal = String(metalHint || '')
+    let nomeLivre = String(nomeLivreHint || '')
+    const nome = record.getString('nome_produto') || record.getString('description') || ''
+    try {
+      if (!tipo) {
+        const tRec = record.get('type')
+        if (tRec && tRec.getString('name')) tipo = tRec.getString('name')
+      }
+      if (!metal) {
+        const mRec = record.get('material')
+        if (mRec && mRec.getString('name')) metal = mRec.getString('name')
+      }
+    } catch (_) {}
+    if (!tipo) tipo = skuRuleDetectTipo(nome)
+    if (!metal) metal = skuRuleDetectMetal(nome)
+    if (!nomeLivre) nomeLivre = skuRuleStripWords(nome, [tipo, metal])
+    const prefix = skuRuleBuildPrefix(tipo, metal, nomeLivre)
+    if (!prefix) return ''
+    const excludeId = record.id || ''
+    let n = 1
+    while (n < 100) {
+      const candidate = prefix + (n < 10 ? '0' + n : String(n))
+      if (!skuRuleIsTaken(app, candidate, excludeId)) {
+        record.set('sku_ecommerce', candidate)
+        return candidate
+      }
+      n++
+    }
+    return ''
+  }
+  // ===== Fim da regra INLINE =====
   const record = e.record
   if (record) {
     const stripZeros = (s) => {
@@ -131,9 +256,7 @@ onRecordCreateRequest((e) => {
       } catch (_) {}
       let skuGerada = ''
       try {
-        // JSVM: handler isolado — helper compartilhado via require() aqui dentro
-        const $app_skuRule = require(`${__hooks}/products_sku_rule.js`)
-        skuGerada = $app_skuRule.generateForRecord(record, tipoHint, metalHint, nomeLivreHint, $app)
+        skuGerada = skuRuleGenerateFromHints($app, record, tipoHint, metalHint, nomeLivreHint)
       } catch (skuErr) {
         console.log('Aviso: falha ao gerar SKU e-commerce:', skuErr.message)
       }
@@ -276,6 +399,127 @@ onRecordCreateRequest((e) => {
 // 3. onRecordUpdateRequest hook for 'products' collection
 // Garante que qualquer atualização manual ou via API de código numérico remova zeros à esquerda
 onRecordUpdateRequest((e) => {
+  // ===== Início da regra INLINE (copiada de products_sku_rule.js — fonte de
+  // verdade textual; cole em TODA atualização da regra) =====
+  const skuRuleNormalize = (value) =>
+    String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase()
+      .replace(/\s+/g, ' ')
+      .trim()
+  const skuRuleTipoMap = { BRINCO: 'BR', COLAR: 'CO', PULSEIRA: 'PU', ANEL: 'AN' }
+  const skuRuleMetalMap = { PRATA: 'PR', OURO: 'OU', RODIO: 'RO' }
+  const skuRuleTipoLetters = (tipo) => {
+    const t = skuRuleNormalize(tipo)
+    if (!t) return ''
+    if (skuRuleTipoMap[t]) return skuRuleTipoMap[t]
+    const words = t.split(' ')
+    for (let i = 0; i < words.length; i++) {
+      if (skuRuleTipoMap[words[i]]) return skuRuleTipoMap[words[i]]
+    }
+    return t.replace(/[^A-Z]/g, '').slice(0, 2)
+  }
+  const skuRuleMetalLetters = (metal) => {
+    const m = skuRuleNormalize(metal)
+    if (!m) return ''
+    const words = m.split(' ')
+    for (let i = 0; i < words.length; i++) {
+      if (skuRuleMetalMap[words[i]]) return skuRuleMetalMap[words[i]]
+    }
+    return m.replace(/[^A-Z]/g, '').slice(0, 2)
+  }
+  const skuRuleNomeLivreLetters = (nomeLivre) => {
+    const n = skuRuleNormalize(nomeLivre)
+    if (!n) return ''
+    const words = n.split(' ').filter(Boolean)
+    let out = ''
+    for (let i = 0; i < words.length; i++) {
+      const clean = words[i].replace(/[^A-Z]/g, '')
+      if (clean) out += clean.charAt(0)
+    }
+    return out
+  }
+  const skuRuleBuildPrefix = (tipo, metal, nomeLivre) => {
+    const t = skuRuleTipoLetters(tipo)
+    const m = skuRuleMetalLetters(metal)
+    const n = skuRuleNomeLivreLetters(nomeLivre)
+    if (!t && !m && !n) return ''
+    return t + m + n
+  }
+  const skuRuleDetectTipo = (nomeNorm) => {
+    const words = skuRuleNormalize(nomeNorm).split(' ').filter(Boolean)
+    for (let i = 0; i < words.length; i++) {
+      const w = words[i]
+      const singular = w.replace(/S$/, '')
+      if (skuRuleTipoMap[w]) return w
+      if (skuRuleTipoMap[singular]) return singular
+    }
+    return ''
+  }
+  const skuRuleDetectMetal = (nomeNorm) => {
+    const words = skuRuleNormalize(nomeNorm).split(' ').filter(Boolean)
+    for (let i = 0; i < words.length; i++) {
+      if (skuRuleMetalMap[words[i]]) return words[i]
+    }
+    return ''
+  }
+  const skuRuleStripWords = (nomeNorm, phrases) => {
+    let out = skuRuleNormalize(nomeNorm)
+    for (let i = 0; i < phrases.length; i++) {
+      const p = skuRuleNormalize(phrases[i])
+      if (!p) continue
+      const esc = p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      out = out
+        .replace(new RegExp('(^|\\s)' + esc + '(?=\\s|$)'), ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+    }
+    return out
+  }
+  const skuRuleIsTaken = (app, candidate, excludeId) => {
+    try {
+      const rec = app.findFirstRecordByFilter(
+        'products',
+        "sku_ecommerce = '" + candidate.replace(/'/g, "\\'") + "'",
+      )
+      if (rec && (!excludeId || rec.id !== excludeId)) return true
+    } catch (_) {}
+    return false
+  }
+  const skuRuleGenerateFromHints = (app, record, tipoHint, metalHint, nomeLivreHint) => {
+    let tipo = String(tipoHint || '')
+    let metal = String(metalHint || '')
+    let nomeLivre = String(nomeLivreHint || '')
+    const nome = record.getString('nome_produto') || record.getString('description') || ''
+    try {
+      if (!tipo) {
+        const tRec = record.get('type')
+        if (tRec && tRec.getString('name')) tipo = tRec.getString('name')
+      }
+      if (!metal) {
+        const mRec = record.get('material')
+        if (mRec && mRec.getString('name')) metal = mRec.getString('name')
+      }
+    } catch (_) {}
+    if (!tipo) tipo = skuRuleDetectTipo(nome)
+    if (!metal) metal = skuRuleDetectMetal(nome)
+    if (!nomeLivre) nomeLivre = skuRuleStripWords(nome, [tipo, metal])
+    const prefix = skuRuleBuildPrefix(tipo, metal, nomeLivre)
+    if (!prefix) return ''
+    const excludeId = record.id || ''
+    let n = 1
+    while (n < 100) {
+      const candidate = prefix + (n < 10 ? '0' + n : String(n))
+      if (!skuRuleIsTaken(app, candidate, excludeId)) {
+        record.set('sku_ecommerce', candidate)
+        return candidate
+      }
+      n++
+    }
+    return ''
+  }
+  // ===== Fim da regra INLINE =====
   const record = e.record
   if (record) {
     const stripZeros = (s) => {
@@ -303,7 +547,7 @@ onRecordUpdateRequest((e) => {
     const rawEcomSku = (record.getString('sku_ecommerce') || '').trim()
     record.set('sku_ecommerce', rawEcomSku)
 
-    // REGERAÇÃO da SKU e-commerce na EDIÇÃO (regra compartilhada $app_skuRule):
+    // REGERAÇÃO da SKU e-commerce na EDIÇÃO (regra INLINE, products_sku_rule.js):
     // o modal de edição envia skuTipo/skuMetal/skuNomeLivre via QUERY PARAMS.
     // Só regenera quando o PREFIXO da regra (tipo+metal+iniciais) mudou ou a SKU
     // está vazia — nunca em todo update (estoque, preço, importadores não enviam
@@ -321,31 +565,39 @@ onRecordUpdateRequest((e) => {
 
     if (skuTipoHint || skuMetalHint) {
       try {
-        // JSVM: handler isolado — helper compartilhado via require() aqui dentro
-        var $app_skuRule = require(`${__hooks}/products_sku_rule.js`)
-        var partsUpd = $app_skuRule.resolveParts(
-          $app,
-          record,
-          skuTipoHint,
-          skuMetalHint,
-          skuNomeLivreHint,
+        // Resolve Tipo/Metal: hint do modal > relações do record > nome do produto
+        let tipoUpd = skuTipoHint
+        let metalUpd = skuMetalHint
+        try {
+          if (!tipoUpd) {
+            const tRec = record.get('type')
+            if (tRec && tRec.getString('name')) tipoUpd = tRec.getString('name')
+          }
+          if (!metalUpd) {
+            const mRec = record.get('material')
+            if (mRec && mRec.getString('name')) metalUpd = mRec.getString('name')
+          }
+          if (!tipoUpd)
+            tipoUpd = skuRuleDetectTipo(
+              record.getString('nome_produto') || record.getString('description') || '',
+            )
+          if (!metalUpd)
+            metalUpd = skuRuleDetectMetal(
+              record.getString('nome_produto') || record.getString('description') || '',
+            )
+        } catch (_) {}
+        const nomeLivreUpd = skuRuleStripWords(
+          record.getString('nome_produto') || record.getString('description') || '',
+          [tipoUpd, metalUpd],
         )
-        var prefixUpd = $app_skuRule.buildPrefix(partsUpd.tipo, partsUpd.metal, partsUpd.nomeLivre)
-        var skuAtualUpd = (record.getString('sku_ecommerce') || '').trim()
-        // O numerador da regra tem sempre 2 dígitos: o prefixo atual é a SKU sem os 2 últimos chars
-        var prefixAtualUpd = skuAtualUpd.length > 2 ? skuAtualUpd.slice(0, -2) : ''
+        const prefixUpd = skuRuleBuildPrefix(tipoUpd, metalUpd, nomeLivreUpd)
+        const skuAtualUpd = (record.getString('sku_ecommerce') || '').trim()
         // Só regenera se a SKU atual está vazia (produto antigo sem Tipo/Metal) ou
         // já é do formato da regra (letras + numerador de 2 dígitos). SKUs herdadas
         // de planilha (ex. Scaglioni/Tecson) NÃO são sobrescritas pela edição.
-        var skuAtualFormatoRegra = /^[A-Z]+[0-9]{2}$/.test(skuAtualUpd)
+        const skuAtualFormatoRegra = /^[A-Z]+[0-9]{2}$/.test(skuAtualUpd)
         if (prefixUpd && (skuAtualFormatoRegra || !skuAtualUpd)) {
-          var geradaUpd = $app_skuRule.generateForRecord(
-            record,
-            skuTipoHint,
-            skuMetalHint,
-            skuNomeLivreHint,
-            $app,
-          )
+          const geradaUpd = skuRuleGenerateFromHints($app, record, tipoUpd, metalUpd, nomeLivreUpd)
           console.log(
             'SKU e-commerce regenerada na edição do produto:',
             geradaUpd || '(não gerada — letras insuficientes)',
