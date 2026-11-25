@@ -51,7 +51,10 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
   if (!isOpen) return null
 
   // 1. Expande a fila de itens respeitando:
-  // - Etiquetas vazias vêm na ordem que estão no topo (cada linha vazia tem quantidade)
+  // - A fila chega com os mais recentes primeiro (ordem exibida na tela); a
+  //   IMPRESSÃO continua como sempre: as primeiras etiquetas adicionadas ficam
+  //   no topo das páginas impressas — por isso a fila é invertida aqui.
+  // - Etiquetas vazias (pular posições) continuam no começo da folha
   // - Cada produto se multiplica pela quantidade especificada
   const flattenedCells: Array<{
     type: 'empty' | 'product'
@@ -64,7 +67,10 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
     key: string
   }> = []
 
-  items.forEach((item, itemIdx) => {
+  // Impressão: a fila chega com os mais recentes primeiro (tela) — invertemos de
+  // volta para a ordem de adição, mantendo a impressão exatamente como era.
+  const itemsInPrintOrder = [...items].reverse()
+  itemsInPrintOrder.forEach((item, itemIdx) => {
     const qty = Math.max(1, Math.floor(item.quantity || 1))
     for (let i = 0; i < qty; i++) {
       flattenedCells.push({

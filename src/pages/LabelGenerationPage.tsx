@@ -276,6 +276,17 @@ export const LabelGenerationPage: React.FC = () => {
     }
   }
 
+  // Estoque ATUAL da linha, na MESMA regra da página de estoque (/estoque):
+  // o saldo único do produto é o campo quantity (v0.0.161); a posse das revendedoras
+  // fica em detalhe e NÃO entra na contagem (o estoque mostra "2" quando quantity = 2).
+  // Variações: cada linha/etiqueta usa o quantity da própria variação.
+  // Isso resolve o bug do estoque 2 adicionar 7 etiquetas: antes a quantidade vinha
+  // de qtde_inicial (estoque inicial, p.ex. 7), desatualizada em relação ao saldo real.
+  const getStockQuantityForLabels = (p: Product): number => {
+    const qty = Number(p.quantity) || 0
+    return qty > 0 ? Math.floor(qty) : 1
+  }
+
   // Foto de exibição da linha da tabela/fila: cobre photos[] E image_url (produtos
   // importados Scaglioni têm photos=[] e só image_url). Variações (id composto
   // "produtoId:variaçãoId") herdam a foto do produto-pai, removendo o sufixo do id.
@@ -286,32 +297,31 @@ export const LabelGenerationPage: React.FC = () => {
     }
     return getProductDisplayPhoto(p)
   }
-  // Ação 2: Adicionar produto à fila
+  // Ação 2: Adicionar produto à fila.
+  // Quantidade = ESTOQUE ATUAL do produto/variação (fonte: getStockQuantityForLabels,
+  // a MESMA usada pela coluna "Estoque atual" da tabela) — nunca qtde_inicial.
+  // Se já está na fila, apenas sobe para o topo (não soma de novo): a quantidade
+  // continua sendo o estoque atual e pode ser ajustada manualmente na fila.
   const handleAddProduct = (p: Product) => {
     const { code, barcodeValue } = getProductDisplayBarcode(p)
-    const initialQty = p.qtde_inicial && p.qtde_inicial > 0 ? Math.floor(p.qtde_inicial) : 1
+    const initialQty = getStockQuantityForLabels(p)
     const price = typeof p.selling_price === 'number' ? p.selling_price : 0
     const fullName = getProductFullName(p, p.selected_variation)
 
-    // Se já estiver na fila, incrementa ou atualiza
     setPrintQueue((prev) => {
       const existingIdx = prev.findIndex(
         (item) => item.productId === p.id && item.type === 'product',
       )
       if (existingIdx >= 0) {
         const updated = [...prev]
-        updated[existingIdx] = {
-          ...updated[existingIdx],
-          quantity: updated[existingIdx].quantity + initialQty,
-        }
-        return updated
+        const [moved] = updated.splice(existingIdx, 1)
+        return [{ ...moved, quantity: initialQty }, ...updated]
       }
 
       return [
-        ...prev,
         {
           id: `prod-${p.id}-${Date.now()}`,
-          type: 'product',
+          type: 'product' as const,
           productId: p.id,
           code,
           barcodeValue,
@@ -320,6 +330,7 @@ export const LabelGenerationPage: React.FC = () => {
           price,
           quantity: initialQty,
         },
+        ...prev,
       ]
     })
   }
@@ -329,7 +340,7 @@ export const LabelGenerationPage: React.FC = () => {
     return printQueue.some((item) => item.productId === productId && item.type === 'product')
   }
 
-  // Ação 4: Adicionar etiqueta vazia no topo
+  // Ação 4: Adicionar etiqueta vazia no topo (cabeça da fila, como sempre foi)
   const handleAddEmptyLabelOnTop = () => {
     setPrintQueue((prev) => [
       {
@@ -1085,7 +1096,10 @@ export const LabelGenerationPage: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#EFEAE1]">
-                    {printQueue.map((item) => {
+                    {/* Tela: mais recente primeiro (últimos adicionados no topo).
+                        Impressão: LabelPrintModal inverte de volta para a ordem de
+                        adição, então o que sai no papel continua como sempre esteve. */}
+                    {[...printQueue].reverse().map((item) => {
                       const isEmpty = item.type === 'empty'
 
                       return (
