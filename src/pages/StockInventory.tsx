@@ -525,7 +525,9 @@ export default function StockInventory() {
 
     setEditForm({
       code: p.code,
-      description: p.description,
+      // Pré-preenche com o nome exibido na lista (nome_produto tem prioridade sobre description),
+      // para que o usuário edite exatamente o nome que vê na coluna "NOME DO PRODUTO".
+      description: p.nome_produto?.trim() || p.description,
       type: p.type || '',
       material: p.material || '',
       size: p.size || '',
@@ -615,7 +617,10 @@ export default function StockInventory() {
       // NÃO recalcular minimum_quantity automaticamente na edição — preserva o gravado no cadastro se não foi editado manualmente.
       const fields: Record<string, any> = {
         code: editingProduct.code,
+        // A coluna da lista exibe nome_produto (com fallback para description):
+        // salvar os dois campos garante que o nome novo apareça imediatamente após o save.
         description: editForm.description.trim(),
+        nome_produto: editForm.description.trim(),
         type: editForm.type || '',
         material: editForm.material || '',
         size: editForm.size || '',
