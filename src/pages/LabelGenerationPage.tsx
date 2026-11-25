@@ -340,9 +340,12 @@ export const LabelGenerationPage: React.FC = () => {
     return printQueue.some((item) => item.productId === productId && item.type === 'product')
   }
 
-  // Ação 4: Adicionar etiqueta vazia no topo (cabeça da fila, como sempre foi)
-  const handleAddEmptyLabelOnTop = () => {
+  // Ação 4: Adicionar etiqueta vazia no FINAL da fila (cauda). A impressão
+  // inverte a lista (LabelPrintModal), então as vazias saem nas PRIMEIRAS
+  // posições da 1ª folha — permitindo reaproveitar folhas parcialmente usadas.
+  const handleAddEmptyLabelAtEnd = () => {
     setPrintQueue((prev) => [
+      ...prev,
       {
         id: `empty-${Date.now()}-${Math.random()}`,
         type: 'empty',
@@ -353,7 +356,6 @@ export const LabelGenerationPage: React.FC = () => {
         price: 0,
         quantity: 1,
       },
-      ...prev,
     ])
   }
 
@@ -1010,17 +1012,17 @@ export const LabelGenerationPage: React.FC = () => {
         <div className="flex items-center gap-2 text-xs text-[#6B655E]">
           <span className="font-semibold text-[#7A5C2E]">Reaproveitamento de folhas:</span>
           Se a primeira folha já teve etiquetas destacadas anteriormente, adicione etiquetas vazias
-          no topo para pular essas posições.
+          (elas entram no final da lista e imprimem nas primeiras posições da folha).
         </div>
         <Button
           type="button"
           variant="outline"
           size="sm"
-          onClick={handleAddEmptyLabelOnTop}
+          onClick={handleAddEmptyLabelAtEnd}
           className="bg-white border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] font-semibold shrink-0 h-9"
         >
           <Plus className="h-3.5 w-3.5 mr-1.5" />
-          Adicionar etiqueta vazia no topo
+          Adicionar etiqueta vazia
         </Button>
       </div>
 
@@ -1033,7 +1035,7 @@ export const LabelGenerationPage: React.FC = () => {
                 Lista de etiquetas a imprimir
               </CardTitle>
               <CardDescription className="text-xs text-[#6B655E]">
-                {productItemsCount} produto(s) • {emptyLabelsCount} posição(ões) vazia(s) no topo
+                {productItemsCount} produto(s) na lista
               </CardDescription>
             </div>
             <div className="flex items-center gap-3">
@@ -1041,7 +1043,7 @@ export const LabelGenerationPage: React.FC = () => {
                 variant="secondary"
                 className="bg-[#F3EAD8] text-[#7A5C2E] font-bold text-sm px-3 py-1"
               >
-                Total de etiquetas: {totalLabelsCount}
+                {totalLabelsCount} etiquetas · {emptyLabelsCount} vazias
               </Badge>
               {printQueue.length > 0 && (
                 <Button
@@ -1096,9 +1098,10 @@ export const LabelGenerationPage: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#EFEAE1]">
-                    {/* Tela: ordem canônica da fila = mais recente no topo, a MESMA
-                        da impressão (LabelPrintModal pagina sem inverter). O que
-                        está no topo da lista sai no topo da 1ª folha impressa. */}
+                    {/* Tela: ordem canônica da fila = mais recente no topo. A
+                       impressão INVERTE a lista (LabelPrintModal): o final da
+                       lista (vazias) sai no topo da 1ª folha impressa e os
+                       produtos mais recentes imprimem por último. */}
                     {printQueue.map((item) => {
                       const isEmpty = item.type === 'empty'
 
@@ -1156,9 +1159,10 @@ export const LabelGenerationPage: React.FC = () => {
                           <td className="p-3">
                             {isEmpty ? (
                               <div className="text-xs text-amber-900 font-medium">
-                                Etiqueta vazia no topo{' '}
+                                Etiqueta vazia{' '}
                                 <span className="text-[11px] text-amber-700 font-normal">
-                                  (pula {item.quantity} posição/ões da folha)
+                                  (pula {item.quantity} posição/ões da folha; imprime no topo da
+                                  folha)
                                 </span>
                               </div>
                             ) : (
