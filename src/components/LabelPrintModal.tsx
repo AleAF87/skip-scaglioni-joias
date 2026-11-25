@@ -145,10 +145,16 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
   // impressa fecha exatamente em 190mm (7×26 + 6×2) dentro dos 194mm úteis
   // (210 − 8 − 8). Sem mais compensação de +0,5mm.
   const printGapX = effectiveGapX
-  // Respiro interno da arte dentro da etiqueta: A4349 pede 1mm em todos os
-  // lados (código de barras + número legível não encostam na borda dos 26×15mm).
-  // Demais gabaritos mantêm o padding atual.
-  const labelInnerPadding = isA4349 ? '1mm' : template.isJewelryTag ? '0.5mm 1.5mm' : '0.5mm 1mm'
+  // Respiro interno da arte dentro da etiqueta: A4349 v0.0.246 pede 1mm em
+  // todos os lados, EXCETO 2mm na DIREITA (usuário pediu mais respiro para o
+  // código de barras + número não encostarem na borda direita dos 26×15mm).
+  // Antes (v0.0.241 a v0.0.245): 1mm em todos os lados. Backup em
+  // src/types/labels.backup.ts. Demais gabaritos mantêm o padding atual.
+  const labelInnerPadding = isA4349
+    ? '1mm 2mm 1mm 1mm'
+    : template.isJewelryTag
+      ? '0.5mm 1.5mm'
+      : '0.5mm 1mm'
 
   const handlePrint = () => {
     window.print()
