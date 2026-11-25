@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   Printer,
   Search,
@@ -11,7 +11,10 @@ import {
   Check,
   RotateCcw,
   ListChecks,
+  Barcode,
+  X,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -35,11 +38,24 @@ import {
   formatVariationAttributeLabel,
 } from '@/types/labelContent'
 import { LabelPrintModal, PrintQueueItem } from '@/components/LabelPrintModal'
+import { BarcodeScannerModal } from '@/components/pos/BarcodeScannerModal'
 import { productService } from '@/services/productService'
 import { fetchResellerStockQuantityMap, getProductTotalStock } from '@/services/totalStockService'
 import { formatCurrency, formatDate, getProductDisplayPhoto } from '@/lib/formatters'
 import { stripLeadingZeros, matchesProductQuery } from '@/lib/barcodeSearch'
 import pb from '@/lib/pocketbase/client'
+
+// Mesmo formato do estoque (v0.0.238): numérico puro ou código + sufixo de variação
+// ("1106", "1106 V1", "1106-V1"). Texto livre (nome/descrição) NÃO dispara o resolvedor.
+const BARCODE_CODE_PATTERN = /^\d+([\s\-_].+)?$/
+
+const loadPersistedSearch = (): string => {
+  try {
+    return sessionStorage.getItem('label_generation_search') || ''
+  } catch {
+    return ''
+  }
+}
 
 export const LabelGenerationPage: React.FC = () => {
   // 1. Estado do modelo de etiqueta
@@ -65,9 +81,13 @@ export const LabelGenerationPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true)
   // Erro de carregamento exibido na tabela de produtos
   const [loadError, setLoadError] = useState<string>('')
+  // Busca em andamento no servidor (debounce da digitação)
+  const [isSearching, setIsSearching] = useState<boolean>(false)
 
   // Filtros e busca de produtos
-  const [searchTerm, setSearchTerm] = useState<string>('')
+  // O valor lido pelo leitor fica FIXO no campo: só sai quando o usuário lê o próximo
+  // código, digita por cima ou limpa à mão. sessionStorage cobre remontagens da rota.
+  const [searchTerm, setSearchTerm] = useState<string>(loadPersistedSearch)
   const [selectedBrand, setSelectedBrand] = useState<string>('all')
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
   const [productPage, setProductPage] = useState<number>(1)
@@ -79,12 +99,81 @@ export const LabelGenerationPage: React.FC = () => {
   // Modal de prévia e impressão
   const [isPreviewOpen, setIsPreviewOpen] = useState<boolean>(false)
 
-  // Carrega produtos reais, revendedoras, marcas e categorias
-  const loadData = useCallback(async () => {
+  // Leitor de código de barras (consulta/filtro)
+  const [scannerOpen, setScannerOpen] = useState<boolean>(false)
+  const [highlightedProductId, setHighlightedProductId] = useState<string | null>(null)
+
+  // Resolve o produto-pai de uma linha de variação (id composto "produtoId:variaçãoId")
+  const findParentProduct = useCallback(
+    (rowId: string): Product | undefined => {
+      const parentId = rowId.includes(':') ? rowId.split(':')[0] : rowId
+      return products.find((prod) => prod.id === parentId)
+    },
+    [products],
+  )
+
+  // Busca no SERVIDOR quando há texto na busca (achar TODOS os produtos, independente
+  // de idade — não só os 500 mais recentes). Sem busca, listagem paginada local dos
+  // 500 mais recentes, como antes.
+  const hasActiveSearch = searchTerm.trim().length > 0
+  const searchRequestRef = useRef(0)
+
+  const loadProducts = useCallback(async (search: string) => {
+    const trimmed = search.trim()
     setIsLoading(true)
     try {
-      const [productsRes, resellerMap, brandsRes, categoriesRes] = await Promise.all([
-        productService.getProducts({ perPage: 500, sort: '-created' }),
+      if (trimmed) {
+        const requestId = ++searchRequestRef.current
+        setIsSearching(true)
+        const filterStr = productService.buildProductFilterString({
+          search: trimmed,
+        })
+        const allFiltered = await pb.collection('products').getFullList<Product>({
+          filter: filterStr,
+          sort: '-created',
+          expand:
+            'type,material,size,marca_id,product_category_links(product).category,product_variations(product)',
+        })
+        if (requestId !== searchRequestRef.current) return
+        setProducts(allFiltered)
+      } else {
+        const productsRes = await productService.getProducts({ perPage: 500, sort: '-created' })
+        setProducts(productsRes.items || [])
+      }
+      setLoadError('')
+    } catch (err) {
+      console.error('Erro ao carregar produtos para etiquetas:', err)
+      setLoadError(err instanceof Error ? err.message : 'Erro ao carregar produtos para etiquetas.')
+    } finally {
+      if (trimmed) {
+        setIsSearching(false)
+      }
+      setIsLoading(false)
+    }
+  }, [])
+
+  // Debounce da digitação: busca no servidor 400ms após parar de digitar
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void loadProducts(searchTerm)
+    }, 400)
+    return () => clearTimeout(timer)
+  }, [searchTerm, loadProducts])
+
+  // Persiste o valor do campo de busca (inclusive o código lido pelo leitor) entre
+  // remontagens da rota — trocar de página no menu e voltar NÃO apaga o valor lido.
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('label_generation_search', searchTerm)
+    } catch {
+      // sessionStorage indisponível: o valor simplesmente não sobrevive à remontagem
+    }
+  }, [searchTerm])
+
+  // Carrega marcas, categorias e mapa de estoque de revendedoras (uma vez)
+  const loadAuxData = useCallback(async () => {
+    try {
+      const [resellerMap, brandsRes, categoriesRes] = await Promise.all([
         fetchResellerStockQuantityMap(),
         pb
           .collection('brands')
@@ -98,22 +187,17 @@ export const LabelGenerationPage: React.FC = () => {
           })
           .catch(() => []),
       ])
-
-      setProducts(productsRes.items || [])
       setResellerStockMap(resellerMap)
       setBrands(brandsRes)
       setCategories(categoriesRes)
     } catch (err) {
-      console.error('Erro ao carregar produtos para etiquetas:', err)
-      setLoadError(err instanceof Error ? err.message : 'Erro ao carregar produtos para etiquetas.')
-    } finally {
-      setIsLoading(false)
+      console.error('Erro ao carregar dados auxiliares das etiquetas:', err)
     }
   }, [])
 
   useEffect(() => {
-    loadData()
-  }, [loadData])
+    void loadAuxData()
+  }, [loadAuxData])
 
   // Para produtos com variações, cada variação é uma linha/etiqueta independente.
   // O produto-pai nunca gera uma etiqueta genérica que poderia movimentar estoque errado.
@@ -135,8 +219,10 @@ export const LabelGenerationPage: React.FC = () => {
     })
   }, [products])
 
-  // Produtos filtrados (ordenados do mais recente para o mais antigo por padrão)
+  // Produtos filtrados por marca/categoria e (sem busca ativa no servidor) pelo texto local.
+  // Com busca ativa, o servidor já filtra por texto — aqui sobra só marca/categoria.
   const filteredProducts = useMemo(() => {
+    const filterLocally = !hasActiveSearch
     return productsForLabels.filter((p) => {
       // Filtro de marca
       if (selectedBrand !== 'all' && p.marca_id !== selectedBrand) {
@@ -150,14 +236,14 @@ export const LabelGenerationPage: React.FC = () => {
         if (!hasCat) return false
       }
 
-      // Busca universal por nome, Produto ID, SKU novo e código de barras
-      if (searchTerm.trim()) {
+      // Sem busca no servidor, filtra localmente por nome, Produto ID, SKU novo e código de barras
+      if (filterLocally && searchTerm.trim()) {
         return matchesProductQuery(p, searchTerm)
       }
 
       return true
     })
-  }, [productsForLabels, selectedBrand, selectedCategory, searchTerm])
+  }, [productsForLabels, selectedBrand, selectedCategory, searchTerm, hasActiveSearch])
 
   // Paginação da tabela de produtos
   const paginatedProducts = useMemo(() => {
@@ -166,6 +252,11 @@ export const LabelGenerationPage: React.FC = () => {
   }, [filteredProducts, productPage])
 
   const totalPages = Math.ceil(filteredProducts.length / itemsPerPage) || 1
+
+  // Reset da paginação quando a busca ou filtros mudam
+  useEffect(() => {
+    setProductPage(1)
+  }, [searchTerm, selectedBrand, selectedCategory])
 
   // Código da etiqueta: deve ser EXATAMENTE o código que os leitores resolvem
   // (backend products_barcode_resolver.js), SEM zeros à esquerda:
@@ -189,9 +280,8 @@ export const LabelGenerationPage: React.FC = () => {
   // importados Scaglioni têm photos=[] e só image_url). Variações (id composto
   // "produtoId:variaçãoId") herdam a foto do produto-pai, removendo o sufixo do id.
   const getProductRowPhoto = (p: Product): string => {
-    const parentId = p.id.includes(':') ? p.id.split(':')[0] : p.id
-    if (parentId !== p.id) {
-      const parent = products.find((prod) => prod.id === parentId)
+    if (p.id.includes(':')) {
+      const parent = findParentProduct(p.id)
       if (parent) return getProductDisplayPhoto(parent)
     }
     return getProductDisplayPhoto(p)
@@ -323,6 +413,49 @@ export const LabelGenerationPage: React.FC = () => {
   // Alterna uma opção de conteúdo da etiqueta
   const handleToggleContentOption = (key: keyof LabelContentOptions, checked: boolean) => {
     setContentOptions((prev) => ({ ...prev, [key]: checked }))
+  }
+
+  // Leitor de código de barras e Enter no formato de código (consulta/filtro):
+  // resolve via productService.resolveBarcode e posiciona a lista no produto/variação,
+  // preenchendo o campo de busca com o texto EXATAMENTE lido (que fica FIXO no campo,
+  // substituindo o anterior — nunca acumula/anexa, a leitura seguinte troca o valor).
+  const handleBarcodeScan = async (barcode: string): Promise<boolean> => {
+    const code = barcode.trim()
+    if (!code) return true
+    try {
+      const res = await productService.resolveBarcode(code)
+      if (res?.matched && res.product) {
+        // O valor lido SUBSTITUI o conteúdo do campo de busca (requisito do usuário:
+        // "quando ler, sempre apaga o que estiver preenchido anteriormente").
+        // O texto EXATAMENTE lido (ex. "1106", "1106 V1") permanece fixo no campo.
+        setSearchTerm(code)
+        setHighlightedProductId(res.product.id)
+        setProductPage(1)
+        // Rola até a linha destacada depois que a lista re-renderiza filtrada
+        setTimeout(() => {
+          document
+            .getElementById(`label-row-${res.product!.id}`)
+            ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }, 300)
+        if (res.resolution === 'variation' && res.variations?.length) {
+          const v = res.variations[0]
+          toast.success(`Variação localizada: ${res.product.code} — ${v.variacao || v.code || ''}`)
+        } else {
+          toast.success(`Produto localizado: ${res.product.code}`)
+        }
+        return true
+      }
+      if (res?.matched && res.ambiguous) {
+        toast.info('Código ambíguo: refine a busca (leia a etiqueta completa do produto).')
+        return true
+      }
+      toast.error('Código não encontrado.')
+      return false
+    } catch (err) {
+      console.error('Erro ao resolver código de barras:', err)
+      toast.error('Código não encontrado.')
+      return false
+    }
   }
 
   return (
@@ -599,26 +732,52 @@ export const LabelGenerationPage: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
             <div className="sm:col-span-6 relative">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-[#8C8275]" />
+              <button
+                type="button"
+                onClick={() => setScannerOpen(true)}
+                className="absolute left-9 top-1.5 h-8 w-8 rounded-md text-[#7A5C2E] hover:bg-[#F3EAD8] flex items-center justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C6A664]"
+                title="Ler código de barras com a câmera"
+                aria-label="Ler código de barras com a câmera"
+              >
+                <Barcode className="h-4.5 w-4.5" />
+              </button>
               <Input
                 type="text"
                 placeholder="Buscar por nome, Produto ID, SKU novo ou código de barras..."
                 value={searchTerm}
                 onChange={(e) => {
                   setSearchTerm(e.target.value)
-                  setProductPage(1)
                 }}
-                className="pl-9 h-10 bg-white border-[#D9D1C5] text-sm"
+                onKeyDown={(e) => {
+                  // Formato de código de barras: numérico puro ou código + variação
+                  // ("1106", "1106 V1", "1106-V1"). Busca por texto livre (nome/descrição)
+                  // NÃO dispara o resolvedor ao dar Enter.
+                  const looksLikeCode = BARCODE_CODE_PATTERN.test(searchTerm.trim())
+                  if (e.key === 'Enter' && searchTerm.trim() && looksLikeCode) {
+                    e.preventDefault()
+                    void handleBarcodeScan(searchTerm)
+                  }
+                }}
+                className="pl-16 pr-9 h-10 bg-white border-[#D9D1C5] text-sm"
               />
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchTerm('')
+                    setHighlightedProductId(null)
+                  }}
+                  className="absolute right-2 top-2 h-6 w-6 rounded-md text-[#7A5C2E] hover:bg-[#F3EAD8] flex items-center justify-center"
+                  title="Limpar busca"
+                  aria-label="Limpar busca"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
             </div>
 
             <div className="sm:col-span-3">
-              <Select
-                value={selectedBrand}
-                onValueChange={(val) => {
-                  setSelectedBrand(val)
-                  setProductPage(1)
-                }}
-              >
+              <Select value={selectedBrand} onValueChange={(val) => setSelectedBrand(val)}>
                 <SelectTrigger className="h-10 bg-white border-[#D9D1C5] text-sm">
                   <SelectValue placeholder="Marca..." />
                 </SelectTrigger>
@@ -634,13 +793,7 @@ export const LabelGenerationPage: React.FC = () => {
             </div>
 
             <div className="sm:col-span-3">
-              <Select
-                value={selectedCategory}
-                onValueChange={(val) => {
-                  setSelectedCategory(val)
-                  setProductPage(1)
-                }}
-              >
+              <Select value={selectedCategory} onValueChange={(val) => setSelectedCategory(val)}>
                 <SelectTrigger className="h-10 bg-white border-[#D9D1C5] text-sm">
                   <SelectValue placeholder="Categoria..." />
                 </SelectTrigger>
@@ -692,7 +845,7 @@ export const LabelGenerationPage: React.FC = () => {
                   {isLoading ? (
                     <tr>
                       <td colSpan={8} className="p-8 text-center text-[#6B655E]">
-                        Carregando produtos reais do sistema...
+                        Carregando produtos do sistema...
                       </td>
                     </tr>
                   ) : loadError ? (
@@ -704,7 +857,9 @@ export const LabelGenerationPage: React.FC = () => {
                   ) : paginatedProducts.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="p-8 text-center text-[#6B655E]">
-                        Nenhum produto encontrado com os filtros selecionados.
+                        {isSearching
+                          ? 'Buscando no servidor...'
+                          : 'Nenhum produto encontrado com os filtros selecionados.'}
                       </td>
                     </tr>
                   ) : (
@@ -713,9 +868,17 @@ export const LabelGenerationPage: React.FC = () => {
                       const resellerQty = resellerStockMap.get(p.id) || 0
                       const totalStock = getProductTotalStock(p, resellerQty)
                       const added = isProductInQueue(p.id)
+                      const isHighlighted = highlightedProductId === p.id
+                      const parent = findParentProduct(p.id)
 
                       return (
-                        <tr key={p.id} className="hover:bg-[#FCFAF6] transition-colors">
+                        <tr
+                          key={p.id}
+                          id={`label-row-${p.id}`}
+                          className={`transition-colors ${
+                            isHighlighted ? 'bg-[#F3EAD8] hover:bg-[#F3EAD8]' : 'hover:bg-[#FCFAF6]'
+                          }`}
+                        >
                           <td className="p-2 text-center">
                             {getProductRowPhoto(p) ? (
                               <img
@@ -737,6 +900,11 @@ export const LabelGenerationPage: React.FC = () => {
                           </td>
                           <td className="p-3 text-[#6B655E] whitespace-nowrap">
                             {formatDate(p.created)}
+                            {parent && p.id.includes(':') && (
+                              <span className="block text-[10px] text-[#8C8275]">
+                                variação de {parent.code}
+                              </span>
+                            )}
                           </td>
                           <td className="p-3 font-mono text-xs text-[#4A453E]">
                             {p.produto_id || '—'}
@@ -847,7 +1015,7 @@ export const LabelGenerationPage: React.FC = () => {
 
       {/* 3. LISTA DE ETIQUETAS A IMPRIMIR */}
       <Card className="border-[#E5DFD5] shadow-xs bg-white">
-        <CardHeader className="pb-3 border-b border-[#F0EBE1] bg-[#FCFAF6]/60">
+        <CardHeader className="pb-3 border-b border-[#F0EBE1] bg-[#FCFCFC]/60">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <CardTitle className="text-base font-semibold text-[#2D2A26]">
@@ -894,7 +1062,7 @@ export const LabelGenerationPage: React.FC = () => {
             <div className="border border-[#E5DFD5] rounded-lg overflow-hidden bg-white">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs sm:text-sm">
-                  <thead className="bg-[#F7F4EE] text-[#5A544A] border-b border-[#E5DFD5] font-semibold text-xs">
+                  <thead className="bg-[#F7F4EE] products table-left text-xs">
                     <tr>
                       <th scope="col" className="p-3 w-20 text-center">
                         Foto
@@ -1040,6 +1208,14 @@ export const LabelGenerationPage: React.FC = () => {
           </div>
         </CardContent>
       </Card>
+
+      {/* BarcodeScannerModal (leitor por câmera) — somente consulta/filtro */}
+      <BarcodeScannerModal
+        isOpen={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onScan={handleBarcodeScan}
+        originTitle="Emissão de etiquetas"
+      />
 
       {/* MODAL DE PRÉVIA E IMPRESSÃO PAGINADA */}
       {currentTemplate && (
