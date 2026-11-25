@@ -364,8 +364,28 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto bg-white p-0 gap-0 border-[#E5DFD5]">
-        <DialogHeader className="p-6 border-b border-[#E5DFD5] bg-gradient-to-r from-white via-[#FDFBF7] to-white sticky top-0 z-10">
+      <DialogContent
+        className="max-w-4xl max-h-[92vh] overflow-y-auto bg-white p-0 gap-0 border-[#E5DFD5]"
+        onPointerDownOutside={(e) => e.preventDefault()}
+        onInteractOutside={(e) => e.preventDefault()}
+        onEscapeKeyDown={(e) => {
+          // Esc cancela o cadastro explicitamente (comportamento igual ao botão X / Cancelar)
+          e.preventDefault()
+          if (!isSaving) onOpenChange(false)
+        }}
+      >
+        {/* Botão X no topo direito para cancelar o cadastro (clique fora NÃO fecha) */}
+        <button
+          type="button"
+          onClick={() => !isSaving && onOpenChange(false)}
+          disabled={isSaving}
+          aria-label="Cancelar cadastro do produto"
+          title="Cancelar cadastro (Esc)"
+          className="absolute right-3 top-3 z-20 h-9 w-9 rounded-full flex items-center justify-center text-[#6B655E] hover:text-[#2D2A26] hover:bg-[#F3EAD8] focus-visible:ring-2 focus-visible:ring-[#C6A664] focus-visible:outline-none transition-colors disabled:opacity-50"
+        >
+          <X className="h-5 w-5" />
+        </button>
+        <DialogHeader className="p-6 border-b border-[#E5DFD5] bg-gradient-to-r from-white via-[#FDFBF7] to-white sticky top-0 z-10 pr-14">
           <div className="flex items-center gap-3">
             <span className="p-2.5 rounded-xl bg-gradient-to-tr from-[#7A5C2E]/20 via-[#C6A664]/30 to-[#E8D5A3]/40 text-[#7A5C2E] shadow-xs">
               <PackagePlus className="h-6 w-6" />

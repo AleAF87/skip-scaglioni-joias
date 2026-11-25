@@ -3,7 +3,9 @@ import pb from '@/lib/pocketbase/client'
 import { Product, Brand, ProductCategory } from '@/types'
 import { productService } from '@/services/productService'
 import { productCreationService } from '@/services/productCreationService'
-import { formatCurrency, formatDate, getProductDisplayPhoto } from '@/lib/formatters'
+import { formatCurrency, formatDate, getProductDisplayPhoto, getFileUrl } from '@/lib/formatters'
+import { useAuth } from '@/contexts/AuthContext'
+import { ImageLightbox } from '@/components/ImageLightbox'
 import { getProductTotalStock, fetchResellerStockQuantityMap } from '@/services/totalStockService'
 import { ProductCreateModal } from '@/components/products/ProductCreateModal'
 import { ProductViewModal } from '@/components/products/ProductViewModal'
@@ -29,6 +31,8 @@ import {
   ChevronRight,
   CheckCircle2,
   XCircle,
+  Plus,
+  Trash2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -62,6 +66,14 @@ export function ProductsPage() {
 
   const [locationProduct, setLocationProduct] = useState<Product | null>(null)
   const [isLocationOpen, setIsLocationOpen] = useState(false)
+
+  // Exclusão definitiva (dupla confirmação) — somente admin/superadmin
+  const { isAdmin } = useAuth()
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
+
+  // Lightbox de fotos (visualização em tamanho grande com navegação)
+  const [lightboxProduct, setLightboxProduct] = useState<Product | null>(null)
 
   // Carrega metadados (marcas e categorias)
   useEffect(() => {
@@ -283,6 +295,42 @@ export function ProductsPage() {
     setPage(1)
   }
 
+  // Primeiro clique ativa a confirmação; o clique em "Confirmar" (segundo) exclui de fato
+  const handleDeleteClick = (p: Product) => {
+    if (deleteConfirmId !== p.id) {
+      setDeleteConfirmId(p.id)
+      return
+    }
+    handleDeleteProduct(p)
+  }
+
+  const handleDeleteProduct = async (p: Product) => {
+    setIsDeleting(true)
+    try {
+      await pb.collection('products').delete(p.id)
+      setProducts((prev) => prev.filter((x) => x.id !== p.id))
+      setTotalItems((prev) => Math.max(0, prev - 1))
+      toast.success(
+        `Produto "${(p.nome_produto || p.description || '').trim()}" removido definitivamente.`,
+      )
+    } catch (err: any) {
+      console.error('Erro ao remover produto:', err)
+      toast.error('Erro ao remover produto: ' + (err.message || ''))
+    } finally {
+      setIsDeleting(false)
+      setDeleteConfirmId(null)
+    }
+  }
+
+  // Todas as fotos do produto (photos Scaglioni + image_url de importação)
+  const getProductPhotos = (p: Product): string[] => {
+    const urls = (p.photos || []).map((f) => getFileUrl('products', p.id, f)).filter(Boolean)
+    if (p.image_url && !urls.includes(p.image_url)) {
+      urls.push(p.image_url)
+    }
+    return urls
+  }
+
   const hasActiveFilters =
     Boolean(searchQuery) ||
     Boolean(selectedBrand) ||
@@ -318,6 +366,7 @@ export function ProductsPage() {
           onClick={() => setIsCreateOpen(true)}
           className="bg-gradient-to-r from-[#7A5C2E] via-[#A88742] to-[#7A5C2E] hover:from-[#634924] hover:to-[#634924] text-white px-5 h-11 rounded-xl font-bold shadow-md flex items-center gap-2 shrink-0"
         >
+          <Plus className="h-4 w-4" />
           <span>Adicionar novo produto</span>
         </Button>
       </div>
@@ -456,10 +505,10 @@ export function ProductsPage() {
                   <tr className="border-b border-[#E5DFD5] bg-[#FDFBF7] text-[#6B655E] font-semibold uppercase tracking-wider text-[10px]">
                     <th className="py-3 px-3 w-14 text-center">Foto</th>
                     <th className="py-3 px-3">CÓDIGO</th>
-                    <th className="py-3 px-3 min-w-[200px]">Nome do produto</th>
                     <th className="py-3 px-3">SKU novo</th>
-                    <th className="py-3 px-3">Marca</th>
                     <th className="py-3 px-3 min-w-[140px]">Categorias</th>
+                    <th className="py-3 px-3 min-w-[200px]">Nome do produto</th>
+                    <th className="py-3 px-3">Marca</th>
                     <th className="py-3 px-3 text-right">Preço de venda</th>
                     <th className="py-3 px-3 text-center">Estoque total</th>
                     <th className="py-3 px-3 text-center">Publicação</th>
@@ -479,19 +528,29 @@ export function ProductsPage() {
                         key={p.id}
                         className="hover:bg-[#FDFBF7]/80 transition-colors group text-[#2D2A26]"
                       >
-                        {/* Imagem Principal */}
+                        {/* Imagem Principal (clique abre lightbox em tamanho grande) */}
                         <td className="py-2.5 px-3 text-center">
-                          <div className="h-10 w-10 rounded-lg border border-[#E5DFD5] bg-white overflow-hidden mx-auto flex items-center justify-center shrink-0">
-                            {photo ? (
+                          {photo ? (
+                            <button
+                              type="button"
+                              onClick={() => setLightboxProduct(p)}
+                              aria-label={`Ampliar foto de ${(p.nome_produto || p.description || 'produto').trim()}`}
+                              title="Clique para ampliar a foto"
+                              className="h-10 w-10 rounded-lg border border-[#E5DFD5] bg-white overflow-hidden mx-auto flex items-center justify-center shrink-0 transition-all hover:ring-2 hover:ring-[#C6A664] focus-visible:ring-2 focus-visible:ring-[#C6A664] focus-visible:outline-none"
+                            >
                               <img
                                 src={photo}
                                 alt={p.nome_produto || 'Joia'}
+                                width={40}
+                                height={40}
                                 className="h-full w-full object-cover"
                               />
-                            ) : (
+                            </button>
+                          ) : (
+                            <div className="h-10 w-10 rounded-lg border border-[#E5DFD5] bg-white overflow-hidden mx-auto flex items-center justify-center shrink-0">
                               <Package className="h-4 w-4 text-[#C6A664]/60" />
-                            )}
-                          </div>
+                            </div>
+                          )}
                         </td>
 
                         {/* CÓDIGO (código da peça / código de barras de referência) */}
@@ -504,40 +563,31 @@ export function ProductsPage() {
                             '—'}
                         </td>
 
-                        {/* Nome do produto (sem prefixo Cód. Barras: #) */}
-                        <td className="py-2.5 px-3">
-                          <span className="font-semibold text-xs text-[#2D2A26] block truncate max-w-[260px]">
-                            {p.nome_produto || p.description}
-                          </span>
-                        </td>
-
-                        {/* SKU Novo / SKU Herdado / Código */}
+                        {/* SKU NOVO: SKU e-commerce gerada (ex.: BROULCPV01); fallback código sequencial gerado */}
                         <td className="py-2.5 px-3 font-mono font-bold text-[#2D2A26]">
                           <span
                             title={
-                              p.sku_novo
-                                ? `SKU Novo: ${p.sku_novo}`
-                                : p.sku_scaglioni
-                                  ? `SKU Scaglioni: ${p.sku_scaglioni}`
+                              p.sku_ecommerce
+                                ? `SKU e-commerce: ${p.sku_ecommerce}`
+                                : p.sku_novo
+                                  ? `SKU novo: ${p.sku_novo}`
                                   : ''
                             }
                           >
-                            {p.sku_novo || p.sku_scaglioni || p.code || p.codigo_barras || '—'}
+                            {p.sku_ecommerce || p.sku_novo || '—'}
                           </span>
-                          {p.sku_scaglioni && p.sku_novo && p.sku_scaglioni !== p.sku_novo && (
-                            <span
-                              className="text-[10px] text-[#8C8275] font-normal block truncate max-w-[120px]"
-                              title={`SKU Scaglioni herdado: ${p.sku_scaglioni}`}
-                            >
-                              Scaglioni: {p.sku_scaglioni}
-                            </span>
-                          )}
+                          {p.sku_scaglioni &&
+                            p.sku_scaglioni !== (p.sku_ecommerce || p.sku_novo) && (
+                              <span
+                                className="text-[10px] text-[#8C8275] font-normal block truncate max-w-[120px]"
+                                title={`SKU Scaglioni herdado: ${p.sku_scaglioni}`}
+                              >
+                                Scaglioni: {p.sku_scaglioni}
+                              </span>
+                            )}
                         </td>
 
-                        {/* Marca */}
-                        <td className="py-2.5 px-3 text-[#6B655E] font-medium">{brandName}</td>
-
-                        {/* Categorias */}
+                        {/* Categorias (ANTES de Nome do produto, conforme pedido) */}
                         <td className="py-2.5 px-3">
                           <div className="flex flex-wrap gap-1 max-w-[180px]">
                             {pCategories.length > 0 ? (
@@ -559,6 +609,16 @@ export function ProductsPage() {
                             )}
                           </div>
                         </td>
+
+                        {/* Nome do produto (sem prefixo Cód. Barras: #) */}
+                        <td className="py-2.5 px-3">
+                          <span className="font-semibold text-xs text-[#2D2A26] block truncate max-w-[260px]">
+                            {p.nome_produto || p.description}
+                          </span>
+                        </td>
+
+                        {/* Marca */}
+                        <td className="py-2.5 px-3 text-[#6B655E] font-medium">{brandName}</td>
 
                         {/* Preço de venda */}
                         <td className="py-2.5 px-3 text-right font-mono font-bold text-[#2E7D4F]">
@@ -674,6 +734,52 @@ export function ProductsPage() {
                             >
                               <MapPin className="h-3.5 w-3.5" />
                             </Button>
+
+                            {isAdmin &&
+                              (deleteConfirmId === p.id ? (
+                                <>
+                                  <Button
+                                    type="button"
+                                    variant="destructive"
+                                    size="icon"
+                                    onClick={() => handleDeleteProduct(p)}
+                                    disabled={isDeleting}
+                                    className="h-7 w-7"
+                                    title="Confirmar exclusão definitiva"
+                                    aria-label={`Confirmar exclusão definitiva de ${(p.nome_produto || p.description || 'produto').trim()}`}
+                                  >
+                                    {isDeleting ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    )}
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => setDeleteConfirmId(null)}
+                                    disabled={isDeleting}
+                                    className="h-7 w-7 text-[#6B655E]"
+                                    title="Cancelar exclusão"
+                                    aria-label="Cancelar exclusão"
+                                  >
+                                    <X className="h-3.5 w-3.5" />
+                                  </Button>
+                                </>
+                              ) : (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => handleDeleteClick(p)}
+                                  className="h-7 w-7 text-[#B3261E] hover:text-[#B3261E] hover:bg-red-50"
+                                  title="Remover produto (clique para confirmar)"
+                                  aria-label={`Remover produto ${(p.nome_produto || p.description || '').trim()}`}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              ))}
                           </div>
                         </td>
                       </tr>
@@ -747,6 +853,18 @@ export function ProductsPage() {
         product={locationProduct}
         open={isLocationOpen}
         onOpenChange={setIsLocationOpen}
+      />
+
+      {/* Lightbox: foto em tamanho grande com navegação entre as fotos do produto */}
+      <ImageLightbox
+        open={!!lightboxProduct}
+        onClose={() => setLightboxProduct(null)}
+        photos={lightboxProduct ? getProductPhotos(lightboxProduct) : []}
+        title={
+          lightboxProduct
+            ? (lightboxProduct.nome_produto || lightboxProduct.description || 'Produto').trim()
+            : undefined
+        }
       />
     </div>
   )

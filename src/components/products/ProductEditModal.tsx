@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
-import { Edit3, Loader2, Check, DollarSign, Tag, Globe, Lock } from 'lucide-react'
+import { Edit3, Loader2, Check, DollarSign, Tag, Globe, Lock, X } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface ProductEditModalProps {
@@ -167,8 +167,28 @@ export function ProductEditModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl bg-white border-[#E5DFD5] max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent
+        className="max-w-2xl bg-white border-[#E5DFD5] max-h-[90vh] overflow-y-auto"
+        onPointerDownOutside={(e) => e.preventDefault()}
+        onInteractOutside={(e) => e.preventDefault()}
+        onEscapeKeyDown={(e) => {
+          // Esc cancela a edição explicitamente (clique fora NÃO fecha)
+          e.preventDefault()
+          if (!isSaving) onOpenChange(false)
+        }}
+      >
+        {/* Botão X no topo direito para cancelar a edição (clique fora NÃO fecha) */}
+        <button
+          type="button"
+          onClick={() => !isSaving && onOpenChange(false)}
+          disabled={isSaving}
+          aria-label="Cancelar edição do produto"
+          title="Cancelar edição (Esc)"
+          className="absolute right-3 top-3 z-20 h-9 w-9 rounded-full flex items-center justify-center text-[#6B655E] hover:text-[#2D2A26] hover:bg-[#F3EAD8] focus-visible:ring-2 focus-visible:ring-[#C6A664] focus-visible:outline-none transition-colors disabled:opacity-50"
+        >
+          <X className="h-5 w-5" />
+        </button>
+        <DialogHeader className="pr-12">
           <div className="flex items-center gap-2 text-[#7A5C2E]">
             <Edit3 className="h-5 w-5" />
             <DialogTitle className="font-serif text-xl text-[#2D2A26]">Editar Produto</DialogTitle>
