@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-25T19:45:41.581Z",
+  "generatedAt": "2026-11-25T20:06:42.200Z",
   "collections": [
     {
       "name": "users",
@@ -2591,6 +2591,85 @@
       "indexes": [
         "CREATE UNIQUE INDEX idx_tecson_imports_reseller_hash ON tecson_reseller_imports (reseller, content_hash)"
       ]
+    },
+    {
+      "name": "stock_movements",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": null,
+        "update": null,
+        "delete": null
+      },
+      "fields": [
+        {
+          "name": "product",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "products"
+        },
+        {
+          "name": "tipo",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["ajuste_manual", "entrada", "saida", "importacao"]
+        },
+        {
+          "name": "quantidade_anterior",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "quantidade_nova",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "diferenca",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "origem",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "operador",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "observacao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": ["CREATE INDEX idx_stock_movements_product ON stock_movements (product)"]
     }
   ]
 }

@@ -117,17 +117,13 @@ export function sortProductsList(
         break
       }
       case 'quantity': {
-        const resA = resellerMap?.get(a.id) || 0
-        const resB = resellerMap?.get(b.id) || 0
-        const totalA =
-          (typeof a.quantity === 'number' ? a.quantity : 0) +
-          (typeof a.qtde_loja_virtual === 'number' ? a.qtde_loja_virtual : 0) +
-          resA
-        const totalB =
-          (typeof b.quantity === 'number' ? b.quantity : 0) +
-          (typeof b.qtde_loja_virtual === 'number' ? b.qtde_loja_virtual : 0) +
-          resB
-        diff = totalA - totalB
+        // Modelo invertido: products.quantity é o ESTOQUE FÍSICO (o valor exibido
+        // na coluna ESTOQUE). qtde_loja_virtual é interruptor 1/0 (não é saldo) e a
+        // posse das revendedoras não entra aqui — Total = Físico + posse é mostrado
+        // em outra coluna, e a ordenação segue o valor exibido.
+        const physA = typeof a.quantity === 'number' ? a.quantity : 0
+        const physB = typeof b.quantity === 'number' ? b.quantity : 0
+        diff = physA - physB
         break
       }
       default:

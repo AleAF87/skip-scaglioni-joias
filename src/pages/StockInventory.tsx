@@ -66,7 +66,12 @@ import {
   getProductDisplayCode,
   getProductDisplayName,
 } from '@/lib/stockSort'
-import { getProductTotalStock, fetchResellerStockQuantityMap } from '@/services/totalStockService'
+import {
+  fetchResellerStockQuantityMap,
+  fetchResellerStockDetailsMap,
+  type ResellerItemDetail,
+} from '@/services/totalStockService'
+import { Users } from 'lucide-react'
 
 export default function StockInventory() {
   const [products, setProducts] = useState<Product[]>([])
@@ -121,6 +126,13 @@ export default function StockInventory() {
     totalItems: 0,
   })
   const [totalsLoading, setTotalsLoading] = useState(false)
+
+  // Detalhamento por revendedora (quanto cada revendedora tem de cada produto)
+  const [resellerDetailsMap, setResellerDetailsMap] = useState<Map<string, ResellerItemDetail[]>>(
+    new Map(),
+  )
+  // Linha do detalhamento por revendedora expandida na tabela
+  const [expandedResellerRow, setExpandedResellerRow] = useState<string | null>(null)
 
   // Selection for bulk action & barcode printing
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -196,8 +208,12 @@ export default function StockInventory() {
 
   const loadResellerAllocations = async () => {
     try {
-      const map = await fetchResellerStockQuantityMap()
+      const [map, details] = await Promise.all([
+        fetchResellerStockQuantityMap(),
+        fetchResellerStockDetailsMap(),
+      ])
       setResellerStockMap(map)
+      setResellerDetailsMap(details)
       const allocatedSet = new Set<string>()
       map.forEach((qty, prodId) => {
         if (qty > 0) allocatedSet.add(prodId)
@@ -944,11 +960,11 @@ export default function StockInventory() {
           </div>
         </Card>
 
-        {/* Card Em Estoque */}
+        {/* Card Estoque Físico */}
         <Card className="border-[#E5DFD5] bg-white shadow-xs p-4 relative overflow-hidden">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-[#6B655E]">
-              Em Estoque
+              Estoque Físico
             </span>
             <span className="p-2 rounded-lg bg-[#7A5C2E]/10 text-[#7A5C2E]">
               <Boxes className="h-4 w-4" />
@@ -976,10 +992,22 @@ export default function StockInventory() {
           </div>
         </Card>
       </div>
+      {/* Com Revendedoras: posse total das peças filtradas */}
 
       {/* Filter Toolbar (Multi-choice style) */}
       <Card className="border-[#E5DFD5] bg-white shadow-xs">
         <CardContent className="p-4 space-y-4">
+          {/* Fórmula do modelo de estoque (modelo invertido) */}
+          <div className="flex flex-wrap items-center gap-2 text-xs text-[#6B655E] bg-[#FDFBF7] border border-[#E5DFD5] rounded-lg px-3 py-2">
+            <span className="font-semibold text-[#2D2A26]">Estoque físico</span>
+            <span>=</span>
+            <span className="font-semibold text-[#7A5C2E]">Estoque atual total</span>
+            <span>−</span>
+            <span className="font-semibold text-[#7A5C2E]">posse das revendedoras</span>
+            <span className="text-[11px] text-[#6B655E]">
+              (o Total é sempre calculado: Físico + Com Revendedoras)
+            </span>
+          </div>
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
             {/* Search */}
             <div className="relative flex-1">
@@ -1481,12 +1509,21 @@ export default function StockInventory() {
                     type="button"
                     onClick={() => handleSortToggle('quantity')}
                     className="group inline-flex items-center gap-1.5 focus:outline-none hover:text-[#7A5C2E] transition-colors justify-center"
-                    title="Ordenar por Quantidade em Estoque (menor/maior)"
+                    title="Ordenar por Estoque Físico (menor/maior)"
                   >
-                    <span>ESTOQUE</span>
+                    <span>ESTOQUE FÍSICO</span>
                     {renderSortIndicator('quantity')}
                   </button>
                 </th>
+                <th className="py-3 px-4 text-center whitespace-nowrap">
+                  <span
+                    className="inline-flex items-center gap-1.5"
+                    title="Estoque Atual Total = Estoque Físico + posse das revendedoras (calculado)"
+                  >
+                    ESTOQUE ATUAL TOTAL
+                  </span>
+                </th>
+                <th className="py-3 px-4 text-center">COM REVENDEDORAS</th>
                 <th className="py-3 px-4 whitespace-nowrap">
                   <button
                     type="button"
@@ -1505,7 +1542,7 @@ export default function StockInventory() {
             <tbody className="divide-y divide-[#E5DFD5] text-sm">
               {loading ? (
                 <tr>
-                  <td colSpan={13} className="py-12 text-center text-[#6B655E]">
+                  <td colSpan={17} className="py-12 text-center text-[#6B655E]">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#C6A664] border-t-transparent" />
                       <span>Carregando joias do estoque...</span>
@@ -1514,7 +1551,7 @@ export default function StockInventory() {
                 </tr>
               ) : products.length === 0 ? (
                 <tr>
-                  <td colSpan={13} className="py-12 text-center text-[#6B655E]">
+                  <td colSpan={17} className="py-12 text-center text-[#6B655E]">
                     <PackageCheck className="h-10 w-10 text-[#C6A664] mx-auto mb-2 opacity-50" />
                     <p className="font-semibold text-[#2D2A26]">Nenhuma peça encontrada.</p>
                     <p className="text-xs text-[#6B655E] mt-1">
@@ -1528,8 +1565,11 @@ export default function StockInventory() {
                   const isSelected = selectedIds.includes(p.id)
                   const isEditingThisQty = editingQtyId === p.id
                   const resellerUnits = resellerStockMap.get(p.id) || 0
-                  // Estoque único: o saldo real da peça é o campo quantity; o que está com revendedoras continua em posse
+                  // Modelo invertido: quantity = ESTOQUE FÍSICO (gravado);
+                  // Estoque Atual Total é SEMPRE calculado = Físico + posse das revendedoras.
                   const currentTotalStock = p.quantity || 0
+                  const computedTotalStock = currentTotalStock + resellerUnits
+                  const productResellerDetails = resellerDetailsMap.get(p.id) || []
 
                   // Regra da usuária: o alerta ativa quando a quantidade atual atinge o mínimo (30% do inicial gravado).
                   // Se por algum motivo o mínimo vier ausente ou zero, usa o fallback dinâmico de 30% da quantidade (mínimo 1), nunca um valor fixo.
@@ -1697,7 +1737,7 @@ export default function StockInventory() {
                           : 'R$ ••••'}
                       </td>
 
-                      {/* Coluna Estoque: estoque único (quantity) com a posse das revendedoras em detalhe */}
+                      {/* Coluna Estoque Físico: valor gravado (editável = ajuste de contagem com log) */}
                       <td className="py-3 px-4 text-center">
                         {isEditingThisQty ? (
                           <div className="flex items-center justify-center gap-1.5">
@@ -1731,7 +1771,7 @@ export default function StockInventory() {
                               setTempQty((p.quantity || 0).toString())
                             }}
                             className="inline-flex flex-col items-center justify-center px-2 py-1 rounded-md hover:bg-[#F3EAD8] cursor-pointer group"
-                            title={`Estoque: ${currentTotalStock} un. | Com revendedoras: ${resellerUnits} un.\nClique para editar o estoque único da peça`}
+                            title={`Estoque Físico: ${currentTotalStock} un. (valor gravado)\nTotal: ${computedTotalStock} un. = Físico + Com Revendedoras (${resellerUnits})\nClique para ajustar a contagem física (a alteração fica registrada em movimentações)`}
                           >
                             <div className="inline-flex items-center gap-1.5">
                               <span
@@ -1757,14 +1797,69 @@ export default function StockInventory() {
                               )}
                               <Edit className="h-3 w-3 text-[#6B655E] opacity-0 group-hover:opacity-100 transition-opacity" />
                             </div>
-                            {resellerUnits ? (
-                              <span className="text-[10px] text-[#6B655E] leading-tight font-normal">
-                                Com revendedoras: {resellerUnits}
-                              </span>
-                            ) : null}
                           </div>
                         )}
                       </td>
+
+                      {/* Coluna Estoque Atual Total: SEMPRE calculado = Físico + Com Revendedoras */}
+                      <td className="py-3 px-4 text-center">
+                        <span className="font-bold text-[#7A5C2E] font-mono">
+                          {computedTotalStock}
+                        </span>
+                      </td>
+
+                      {/* Coluna Com Revendedoras: posse total + detalhamento por revendedora */}
+                      <td className="py-3 px-4 text-center">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedResellerRow((prev) => (prev === p.id ? null : p.id))
+                          }
+                          className="inline-flex flex-col items-center justify-center px-2 py-1 rounded-md hover:bg-[#F3EAD8] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C6A664]"
+                          title="Ver quanto cada revendedora tem desta peça"
+                          aria-label={`Detalhar posse por revendedora de ${getProductDisplayName(p)}`}
+                          aria-expanded={expandedResellerRow === p.id}
+                        >
+                          <span className="font-semibold text-[#7A5C2E]">{resellerUnits}</span>
+                          {resellerUnits > 0 && (
+                            <span className="text-[10px] text-[#6B655E] underline decoration-dotted">
+                              {expandedResellerRow === p.id ? 'ocultar' : 'detalhar'}
+                            </span>
+                          )}
+                        </button>
+                      </td>
+
+                      {/* Linha expandida: detalhamento por revendedora */}
+                      {expandedResellerRow === p.id && (
+                        <tr className="bg-[#FDFBF7]">
+                          <td colSpan={17} className="px-6 py-3">
+                            {productResellerDetails.length === 0 ? (
+                              <p className="text-xs text-[#6B655E]">
+                                Nenhuma revendedora está com peças deste produto em posse.
+                              </p>
+                            ) : (
+                              <div className="space-y-1">
+                                <p className="text-xs font-semibold text-[#2D2A26]">
+                                  Posse por revendedora
+                                </p>
+                                {productResellerDetails.map((detail) => (
+                                  <div
+                                    key={`${detail.resellerId}-${detail.productId}`}
+                                    className="flex items-center justify-between gap-4 text-xs bg-white border border-[#E5DFD5] rounded-md px-3 py-1.5"
+                                  >
+                                    <span className="font-medium text-[#2D2A26]">
+                                      {detail.resellerName}
+                                    </span>
+                                    <span className="text-[#6B655E]">
+                                      {detail.quantity} un. em posse
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )}
 
                       {/* Coluna Data de Cadastro */}
                       <td className="py-3 px-4 whitespace-nowrap text-xs text-[#6B655E]">
@@ -2112,8 +2207,8 @@ export default function StockInventory() {
 
                 <div>
                   <div className="flex items-center justify-between">
-                    <Label className="text-xs font-semibold text-[#2D2A26]">Estoque Atual *</Label>
-                    <span className="text-[10px] text-[#6B655E]">Total Peça</span>
+                    <Label className="text-xs font-semibold text-[#2D2A26]">Estoque Físico *</Label>
+                    <span className="text-[10px] text-[#6B655E]">Ajuste de contagem</span>
                   </div>
                   <Input
                     type="number"
@@ -2122,7 +2217,7 @@ export default function StockInventory() {
                     required
                     value={editForm.quantity}
                     onChange={(e) => setEditForm({ ...editForm, quantity: e.target.value })}
-                    title="Estoque único da peça (físico + e-commerce + posse de revendedoras)"
+                    title="Estoque Físico gravado da peça. O Total passa a ser calculado: Físico + Com Revendedoras. A alteração fica registrada em movimentações."
                     className="mt-1 font-bold text-[#2E7D4F]"
                   />
                 </div>
@@ -2198,7 +2293,7 @@ export default function StockInventory() {
                     </h4>
                   </div>
                   <span className="text-[11px] text-[#6B655E]">
-                    Estoque Atual Total:{' '}
+                    Estoque Físico:{' '}
                     <strong className="text-[#2D2A26] font-mono">
                       {parseInt(editForm.quantity || '0', 10) || 0}
                     </strong>
@@ -2216,17 +2311,17 @@ export default function StockInventory() {
                   return (
                     <div className="space-y-3">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                        {/* 1. Estoque (único) */}
+                        {/* 1. Estoque Físico */}
                         <div className="p-2.5 rounded-lg bg-white border border-[#2E7D4F]/30 shadow-2xs">
                           <span className="text-[10px] font-bold uppercase tracking-wider text-[#2E7D4F] block">
-                            Estoque
+                            Estoque Físico
                           </span>
                           <div className="flex items-baseline justify-between mt-1">
                             <span className="font-serif text-lg font-bold text-[#2E7D4F]">
                               {totalAtual}
                             </span>
                             <span className="text-[10px] text-[#2E7D4F] font-medium">
-                              Estoque único da peça
+                              Físico gravado (editável)
                             </span>
                           </div>
                         </div>
