@@ -332,7 +332,10 @@ var skuRuleGenerate = function (app, record, tipoHint, metalHint, nomeLivreHint)
   return ''
 }
 
-// Compat: nome usado pelos hooks que consomem este arquivo via escopo global do JSVM
+// Compat: nome usado pelos hooks que consomem este arquivo via require()
+// IMPORTANTE (JSVM): cada handler roda em contexto isolado — variáveis de
+// nível superior NUNCA são visíveis dentro do handler. Por isso este arquivo
+// é um módulo CommonJS: os consumidores fazem require() DENTRO do handler.
 var $app_skuRule = {
   normalize: skuRuleNormalize,
   tipoLetters: skuRuleTipoLetters,
@@ -349,3 +352,5 @@ var $app_skuRule = {
     return skuRuleGenerate(app || $app, record, tipoHint, metalHint, nomeLivreHint)
   },
 }
+
+module.exports = $app_skuRule

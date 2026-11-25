@@ -12,6 +12,9 @@ routerAdd(
   '/backend/v1/products/regenerate-sku',
   (e) => {
     try {
+      // JSVM: cada handler roda em contexto isolado — o helper compartilhado
+      // ($app_skuRule) precisa ser carregado via require() DENTRO do handler.
+      const $app_skuRule = require(`${__hooks}/products_sku_rule.js`)
       const body = e.requestInfo().body || {}
       const productId = String(body.productId || '').trim()
       if (!productId) {

@@ -131,6 +131,8 @@ onRecordCreateRequest((e) => {
       } catch (_) {}
       let skuGerada = ''
       try {
+        // JSVM: handler isolado — helper compartilhado via require() aqui dentro
+        const $app_skuRule = require(`${__hooks}/products_sku_rule.js`)
         skuGerada = $app_skuRule.generateForRecord(record, tipoHint, metalHint, nomeLivreHint, $app)
       } catch (skuErr) {
         console.log('Aviso: falha ao gerar SKU e-commerce:', skuErr.message)
@@ -319,6 +321,8 @@ onRecordUpdateRequest((e) => {
 
     if (skuTipoHint || skuMetalHint) {
       try {
+        // JSVM: handler isolado — helper compartilhado via require() aqui dentro
+        var $app_skuRule = require(`${__hooks}/products_sku_rule.js`)
         var partsUpd = $app_skuRule.resolveParts(
           $app,
           record,

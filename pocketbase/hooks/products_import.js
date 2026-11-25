@@ -206,6 +206,8 @@ routerAdd(
     // palavra do NOME LIVRE + numerador de 2 dígitos por combinação, começando em 01.
     // Os importadores usam $app.save/txApp.save, que NÃO disparam
     // onRecordCreateRequest — por isso a geração aqui é explícita, via $app_skuRule.
+    // JSVM: handler isolado — helper compartilhado via require() aqui dentro.
+    const $app_skuRule = require(`${__hooks}/products_sku_rule.js`)
     const genEcommerceSku = (prodRecord) => {
       try {
         $app_skuRule.generateForRecord(prodRecord, '', '', '', $app)
@@ -604,6 +606,9 @@ routerAdd(
       const brandsCol = $app.findCollectionByNameOrId('brands')
       const catsCol = $app.findCollectionByNameOrId('product_categories')
       const linksCol = $app.findCollectionByNameOrId('product_category_links')
+
+      // JSVM: handler isolado — helper compartilhado ($app_skuRule) via require()
+      const $app_skuRule = require(`${__hooks}/products_sku_rule.js`)
 
       const criados = []
       const atualizados = []
