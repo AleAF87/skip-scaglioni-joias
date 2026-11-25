@@ -15,7 +15,6 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import {
   Boxes,
-  Plus,
   Search,
   Filter,
   Eye,
