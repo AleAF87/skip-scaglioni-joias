@@ -1096,10 +1096,10 @@ export const LabelGenerationPage: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#EFEAE1]">
-                    {/* Tela: mais recente primeiro (últimos adicionados no topo).
-                        Impressão: LabelPrintModal inverte de volta para a ordem de
-                        adição, então o que sai no papel continua como sempre esteve. */}
-                    {[...printQueue].reverse().map((item) => {
+                    {/* Tela: ordem canônica da fila = mais recente no topo, a MESMA
+                        da impressão (LabelPrintModal pagina sem inverter). O que
+                        está no topo da lista sai no topo da 1ª folha impressa. */}
+                    {printQueue.map((item) => {
                       const isEmpty = item.type === 'empty'
 
                       return (
