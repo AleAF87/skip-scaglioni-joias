@@ -909,7 +909,7 @@ export default function PosSale() {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [products, resellerStockMap, filteredProducts, addToCart],
+    [products, filteredProducts, addToCart],
   )
 
   useEffect(() => {
