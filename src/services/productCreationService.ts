@@ -314,7 +314,8 @@ export const productCreationService = {
     // o servidor recusa com 400: tenta de novo (o hook então atribui o próximo código livre).
     // NOVA REGRA de SKU e-commerce (v0.0.215): dicas de tipo/metal vão como QUERY PARAMS
     // (skuTipo/skuMetal) para o hook gerar TIPO+METAL+iniciais+numerador no backend.
-    const skuHints = this.deriveSkuHints(payload, this.categoriesCache)
+    // payload.categoria_ids (não o payload inteiro): deriveSkuHints espera string[]
+    const skuHints = this.deriveSkuHints(payload.categoria_ids, this.categoriesCache)
     const createOptions: any = { query: {} as Record<string, string> }
     if (skuHints.tipo) createOptions.query.skuTipo = skuHints.tipo
     if (skuHints.metal) createOptions.query.skuMetal = skuHints.metal

@@ -71,6 +71,7 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
   const [marcaId, setMarcaId] = useState('')
   const [fornecedor, setFornecedor] = useState('')
   const [categoriaIds, setCategoriaIds] = useState<string[]>([])
+  const [categoryError, setCategoryError] = useState('')
   const [description, setDescription] = useState('')
 
   // 2. Valores
@@ -178,6 +179,7 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
       // Reset de campos
       setNomeProduto('')
       setCategoriaIds([])
+      setCategoryError('')
       setDescription('')
       setCustoUnitario('')
       setPrecoVenda('')
@@ -252,6 +254,7 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
 
   // Toggle Categoria no Multi-Select
   const toggleCategory = (catId: string) => {
+    setCategoryError('')
     setCategoriaIds((prev) =>
       prev.includes(catId) ? prev.filter((id) => id !== catId) : [...prev, catId],
     )
@@ -277,6 +280,21 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
       toast.error('Preço promocional não pode ser maior ou igual ao preço de venda.')
       return
     }
+
+    // 2b. Tipo e Metal obrigatórios (sem eles o e-commerce não recebe SKU alfabética)
+    const selectedCats = categoriaIds
+      .map((id) => categories.find((c) => c.id === id))
+      .filter((c): c is ProductCategory => Boolean(c))
+    const hasTipo = selectedCats.some((c) => c.group !== 'metal')
+    const hasMetal = selectedCats.some((c) => c.group === 'metal')
+    if (!hasTipo || !hasMetal) {
+      setCategoryError(
+        'Selecione ao menos um Tipo e um Metal — ambos são obrigatórios para gerar a SKU do e-commerce.',
+      )
+      toast.error('Selecione ao menos um Tipo e um Metal.')
+      return
+    }
+    setCategoryError('')
 
     // 3. Validação de Imagem obrigatória para E-commerce
     if (publicarNoEcommerce && galleryImages.length === 0) {
@@ -508,6 +526,14 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
                 <span className="text-[10px] text-[#8C8275]">
                   Selecione as categorias de Tipo e Metal da joia.
                 </span>
+                {categoryError && (
+                  <span
+                    role="alert"
+                    className="flex items-center gap-1 text-[11px] text-red-600 font-medium mt-0.5"
+                  >
+                    <AlertCircle className="h-3 w-3" /> {categoryError}
+                  </span>
+                )}
               </div>
 
               {/* Nome do produto (posicionado imediatamente após o grupo Metal) */}

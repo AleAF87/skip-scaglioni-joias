@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
-import { Edit3, Loader2, Check, DollarSign, Tag, Globe, Lock, X } from 'lucide-react'
+import { Edit3, Loader2, Check, DollarSign, Tag, Globe, Lock, X, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface ProductEditModalProps {
@@ -35,6 +35,7 @@ export function ProductEditModal({
   const [brands, setBrands] = useState<Brand[]>([])
   const [categories, setCategories] = useState<ProductCategory[]>([])
   const [categoriaIds, setCategoriaIds] = useState<string[]>([])
+  const [categoryError, setCategoryError] = useState('')
 
   const [nomeProduto, setNomeProduto] = useState('')
   const [marcaId, setMarcaId] = useState('')
@@ -61,6 +62,7 @@ export function ProductEditModal({
       setPublicarNoEcommerce(Boolean(product.publicar_no_ecommerce))
       setDestaqueEcommerce(Boolean(product.destaque_ecommerce))
       setSlug(product.slug || '')
+      setCategoryError('')
 
       loadAuxAndLinks(product.id)
     }
@@ -75,13 +77,14 @@ export function ProductEditModal({
       ])
       setBrands(brandList)
       setCategories(catList)
-      setCategoriaIds(links.map((l) => l.category))
+      setCategoriaIds(links.map((l) => l.category)) - setCategoryError('')
     } catch (err) {
       console.warn('Erro ao carregar metadados na edição:', err)
     }
   }
 
   const toggleCategory = (catId: string) => {
+    setCategoryError('')
     setCategoriaIds((prev) =>
       prev.includes(catId) ? prev.filter((id) => id !== catId) : [...prev, catId],
     )
@@ -108,6 +111,21 @@ export function ProductEditModal({
       return
     }
 
+    // Tipo e Metal obrigatórios (sem eles o e-commerce não recebe SKU alfabética)
+    const selectedCats = categoriaIds
+      .map((id) => categories.find((c) => c.id === id))
+      .filter((c): c is ProductCategory => Boolean(c))
+    const hasTipo = selectedCats.some((c) => c.group !== 'metal')
+    const hasMetal = selectedCats.some((c) => c.group === 'metal')
+    if (!hasTipo || !hasMetal) {
+      setCategoryError(
+        'Selecione ao menos um Tipo e um Metal — ambos são obrigatórios para gerar a SKU do e-commerce.',
+      )
+      toast.error('Selecione ao menos um Tipo e um Metal.')
+      return
+    }
+    setCategoryError('')
+
     const newCost = typeof custoUnitario === 'number' ? custoUnitario : 0
     const oldSell = product.selling_price || 0
     const oldPromo = product.preco_promocional || 0
@@ -115,22 +133,35 @@ export function ProductEditModal({
 
     setIsSaving(true)
     try {
+      // Dicas de Tipo/Metal para o hook do servidor regerar a SKU e-commerce
+      // quando a SKU atual estiver vazia/numérica — mesmo formato do cadastro
+      // (os links de categorias só são gravados depois do update do produto,
+      // então as dicas precisam ir na própria requisição, via query params).
+      const skuHints = productCreationService.deriveSkuHints(categoriaIds, categories)
+      const updateOptions: any = { query: {} as Record<string, string> }
+      if (skuHints.tipo) updateOptions.query.skuTipo = skuHints.tipo
+      if (skuHints.metal) updateOptions.query.skuMetal = skuHints.metal
+
       // 1. Atualizar produto
-      const updated = await pb.collection('products').update<Product>(product.id, {
-        nome_produto: nomeProduto.trim(),
-        description: description.trim() || nomeProduto.trim(),
-        marca_id: marcaId || null,
-        fornecedor: fornecedor.trim() || null,
-        selling_price: newSell,
-        preco_promocional: newPromo > 0 ? newPromo : null,
-        custo_unitario: newCost > 0 ? newCost : null,
-        invested_value: newCost > 0 ? newCost : null,
-        publicar_no_ecommerce: publicarNoEcommerce,
-        destaque_ecommerce: publicarNoEcommerce && destaqueEcommerce,
-        // Interruptor de publicação: 1 = publicado, 0 = não publicado (nunca saldo)
-        qtde_loja_virtual: publicarNoEcommerce ? 1 : 0,
-        slug: slug.trim() || undefined,
-      })
+      const updated = await pb.collection('products').update<Product>(
+        product.id,
+        {
+          nome_produto: nomeProduto.trim(),
+          description: description.trim() || nomeProduto.trim(),
+          marca_id: marcaId || null,
+          fornecedor: fornecedor.trim() || null,
+          selling_price: newSell,
+          preco_promocional: newPromo > 0 ? newPromo : null,
+          custo_unitario: newCost > 0 ? newCost : null,
+          invested_value: newCost > 0 ? newCost : null,
+          publicar_no_ecommerce: publicarNoEcommerce,
+          destaque_ecommerce: publicarNoEcommerce && destaqueEcommerce,
+          // Interruptor de publicação: 1 = publicado, 0 = não publicado (nunca saldo)
+          qtde_loja_virtual: publicarNoEcommerce ? 1 : 0,
+          slug: slug.trim() || undefined,
+        },
+        updateOptions,
+      )
 
       // 2. Se preço de venda, promocional ou custo mudou, registrar automaticamente no histórico de preços
       const priceChanged =
@@ -249,56 +280,19 @@ export function ProductEditModal({
             </div>
           </div>
 
-          {/* Categorias (agrupadas por Metal e Tipo) */}
+          {/* Categorias (agrupadas com Tipo ANTES de Metal, igual ao cadastro) */}
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="text-xs font-semibold text-[#2D2A26]">
-                Categorias (seleção múltipla — Metal e Tipo)
+                Categorias (seleção múltipla — Tipo e Metal)
               </label>
               <span className="text-[11px] font-medium text-[#7A5C2E]">
                 {categoriaIds.length} selecionada(s)
               </span>
             </div>
             <div className="p-3 rounded-xl border border-[#E5DFD5] bg-[#FDFBF7] space-y-2.5 max-h-48 overflow-y-auto">
-              {/* Grupo Metal */}
+              {/* Grupo Tipo (vem ANTES do grupo Metal conforme solicitado) */}
               <div>
-                <div className="flex items-center gap-1.5 mb-1">
-                  <span className="h-1.5 w-1.5 rounded-full bg-[#C6A664]" />
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-[#7A5C2E]">
-                    Metal
-                  </span>
-                </div>
-                <div className="flex flex-wrap gap-1.5 pl-3">
-                  {categories
-                    .filter((c) => c.group === 'metal')
-                    .map((cat) => {
-                      const isSelected = categoriaIds.includes(cat.id)
-                      return (
-                        <button
-                          key={cat.id}
-                          type="button"
-                          onClick={() => toggleCategory(cat.id)}
-                          className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-all flex items-center gap-1.5 ${
-                            isSelected
-                              ? 'bg-[#7A5C2E] text-white border-[#7A5C2E]'
-                              : 'bg-white text-[#6B655E] border-[#E5DFD5] hover:border-[#C6A664]'
-                          }`}
-                        >
-                          {cat.name}
-                          {isSelected && <Check className="h-3 w-3" />}
-                        </button>
-                      )
-                    })}
-                  {categories.filter((c) => c.group === 'metal').length === 0 && (
-                    <span className="text-[11px] text-[#8C8275] italic">
-                      Nenhum metal cadastrado ainda.
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* Grupo Tipo */}
-              <div className="pt-1.5 border-t border-[#E5DFD5]/70">
                 <div className="flex items-center gap-1.5 mb-1">
                   <span className="h-1.5 w-1.5 rounded-full bg-[#7A5C2E]" />
                   <span className="text-[11px] font-bold uppercase tracking-wider text-[#7A5C2E]">
@@ -333,7 +327,52 @@ export function ProductEditModal({
                   )}
                 </div>
               </div>
+
+              {/* Grupo Metal (abaixo do Tipo) */}
+              <div className="pt-1.5 border-t border-[#E5DFD5]/70">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#C6A664]" />
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-[#7A5C2E]">
+                    Metal
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5 pl-3">
+                  {categories
+                    .filter((c) => c.group === 'metal')
+                    .map((cat) => {
+                      const isSelected = categoriaIds.includes(cat.id)
+                      return (
+                        <button
+                          key={cat.id}
+                          type="button"
+                          onClick={() => toggleCategory(cat.id)}
+                          className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-all flex items-center gap-1.5 ${
+                            isSelected
+                              ? 'bg-[#7A5C2E] text-white border-[#7A5C2E]'
+                              : 'bg-white text-[#6B655E] border-[#E5DFD5] hover:border-[#C6A664]'
+                          }`}
+                        >
+                          {cat.name}
+                          {isSelected && <Check className="h-3 w-3" />}
+                        </button>
+                      )
+                    })}
+                  {categories.filter((c) => c.group === 'metal').length === 0 && (
+                    <span className="text-[11px] text-[#8C8275] italic">
+                      Nenhum metal cadastrado ainda.
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
+            {categoryError && (
+              <span
+                role="alert"
+                className="flex items-center gap-1 text-[11px] text-red-600 font-medium mt-0.5"
+              >
+                <AlertCircle className="h-3 w-3" /> {categoryError}
+              </span>
+            )}
             <span className="text-[10px] text-[#8C8275]">
               O produto pode conter categorias de ambos os grupos.
             </span>
