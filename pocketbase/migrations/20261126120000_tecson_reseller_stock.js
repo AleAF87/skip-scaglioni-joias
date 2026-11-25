@@ -22,7 +22,7 @@ migrate(
     // 1) product_variations.codigo_barras — cada variação passa a ter código de barras próprio
     const variations = app.findCollectionByNameOrId('product_variations')
     if (!fieldExists(variations, 'codigo_barras')) {
-      variations.fields.add(new Field({ name: 'codigo_barras', type: 'text' }))
+      variations.fields.add(new TextField({ name: 'codigo_barras' }))
       app.save(variations)
     }
 
@@ -30,10 +30,9 @@ migrate(
     const deliveries = app.findCollectionByNameOrId('reseller_deliveries')
     if (!fieldExists(deliveries, 'origem')) {
       deliveries.fields.add(
-        new Field({
+        new SelectField({
           name: 'origem',
-          type: 'select',
-          selectValues: ['manual', 'tecson_import'],
+          values: ['manual', 'tecson_import'],
           maxSelect: 1,
         }),
       )
@@ -79,16 +78,8 @@ migrate(
           fields: [
             { name: 'key', type: 'text', required: true },
             { name: 'value', type: 'text' },
-            {
-              name: 'created',
-              type: 'autodate',
-              autodateTriggers: ['onCreate'],
-            },
-            {
-              name: 'updated',
-              type: 'autodate',
-              autodateTriggers: ['onCreate', 'onUpdate'],
-            },
+            { name: 'created', type: 'autodate', onCreate: true, onUpdate: false },
+            { name: 'updated', type: 'autodate', onCreate: true, onUpdate: true },
           ],
           indexes: ['CREATE UNIQUE INDEX idx_app_settings_key ON app_settings (key)'],
         }),
@@ -119,6 +110,7 @@ migrate(
     try {
       app.findCollectionByNameOrId('tecson_reseller_imports')
     } catch (_) {
+      const resellersCol = app.findCollectionByNameOrId('resellers')
       app.save(
         new Collection({
           name: 'tecson_reseller_imports',
@@ -137,24 +129,16 @@ migrate(
               name: 'reseller',
               type: 'relation',
               required: true,
-              collectionRef: 'resellers',
+              collectionId: resellersCol.id,
               maxSelect: 1,
             },
             { name: 'content_hash', type: 'text', required: true },
             { name: 'file_name', type: 'text' },
             { name: 'summary', type: 'json' },
             { name: 'items', type: 'json' },
-            { name: 'created_by', type: 'relation', collectionRef: 'users', maxSelect: 1 },
-            {
-              name: 'created',
-              type: 'autodate',
-              autodateTriggers: ['onCreate'],
-            },
-            {
-              name: 'updated',
-              type: 'autodate',
-              autodateTriggers: ['onCreate', 'onUpdate'],
-            },
+            { name: 'created_by', type: 'relation', collectionId: '_pb_users_auth_', maxSelect: 1 },
+            { name: 'created', type: 'autodate', onCreate: true, onUpdate: false },
+            { name: 'updated', type: 'autodate', onCreate: true, onUpdate: true },
           ],
           indexes: [
             'CREATE UNIQUE INDEX idx_tecson_imports_reseller_hash ON tecson_reseller_imports (reseller, content_hash)',
@@ -182,16 +166,18 @@ migrate(
         variations.indexes = kept
       }
       try {
-        const f = variations.fields.getByName('codigo_barras')
-        if (f) variations.fields.removeByName('codigo_barras')
+        if (variations.fields.getByName('codigo_barras')) {
+          variations.fields.removeByName('codigo_barras')
+        }
       } catch (_) {}
       app.save(variations)
     } catch (_) {}
     try {
       const deliveries = app.findCollectionByNameOrId('reseller_deliveries')
       try {
-        const f = deliveries.fields.getByName('origem')
-        if (f) deliveries.fields.removeByName('origem')
+        if (deliveries.fields.getByName('origem')) {
+          deliveries.fields.removeByName('origem')
+        }
       } catch (_) {}
       app.save(deliveries)
     } catch (_) {}
