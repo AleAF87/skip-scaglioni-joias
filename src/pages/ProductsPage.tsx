@@ -38,14 +38,25 @@ import { toast } from 'sonner'
 
 // Coluna CATEGORIAS da tabela: exibe os TIPOS selecionados primeiro e os METAIS
 // depois (pedido do usuário). O mapa de links é ordenado no lugar, produto por produto.
-const sortCategoriesTiposFirst = (map: Record<string, string[]>, categories: ProductCategory[]) => {
-  const isMetalName = (name: string) =>
-    categories.some((c) => c.name === name && c.group === 'metal')
+// BLINDAGEM: entradas ausentes/undefined/não-array são tratadas como "sem categorias"
+// (e ids sem nome correspondente ficam apenas fora da exibição) — nunca quebram o render.
+const sortCategoriesTiposFirst = (
+  map: Record<string, string[]>,
+  categories: ProductCategory[],
+): Record<string, string[]> => {
+  const isMetalName = (name: unknown): name is string =>
+    typeof name === 'string' && categories.some((c) => c.name === name && c.group === 'metal')
   Object.keys(map).forEach((pId) => {
-    const tipos = map[pId].filter((n) => !isMetalName(n))
-    const metais = map[pId].filter((n) => isMetalName(n))
+    const entry = map[pId]
+    if (!Array.isArray(entry)) {
+      map[pId] = []
+      return
+    }
+    const tipos = entry.filter((n) => !isMetalName(n))
+    const metais = entry.filter((n) => isMetalName(n))
     map[pId] = [...tipos, ...metais]
   })
+  return map
 }
 
 export function ProductsPage() {
@@ -229,8 +240,8 @@ export function ProductsPage() {
         allLinks.forEach((l: any) => {
           const pId = l.product
           const catName = l.expand?.category?.name || ''
-          if (catName) {
-            if (!map[pId]) map[pId] = []
+          if (pId && catName) {
+            if (!Array.isArray(map[pId])) map[pId] = []
             map[pId].push(catName)
           }
         })
@@ -267,8 +278,8 @@ export function ProductsPage() {
       allLinks.forEach((l: any) => {
         const pId = l.product
         const catName = l.expand?.category?.name || ''
-        if (catName) {
-          if (!map[pId]) map[pId] = []
+        if (pId && catName) {
+          if (!Array.isArray(map[pId])) map[pId] = []
           map[pId].push(catName)
         }
       })
@@ -537,11 +548,15 @@ export function ProductsPage() {
                   {products.map((p) => {
                     const photo = getProductDisplayPhoto(p)
                     // Tipos primeiro, Metais depois (idempotente: ordena mesmo se
-                    // o mapa foi construído antes do carregamento das categorias)
-                    const pCategories = sortCategoriesTiposFirst(
-                      { [p.id]: categoryLinksMap[p.id] || [] },
-                      categories,
-                    )[p.id]
+                    // o mapa foi construído antes do carregamento das categorias).
+                    // BLINDAGEM: produto sem entrada no mapa (ou com valor corrompido)
+                    // cai em [] — id de categoria excluído/inexistente simplesmente
+                    // não aparece, sem quebrar o render da página.
+                    const pCategories =
+                      sortCategoriesTiposFirst(
+                        { [p.id]: categoryLinksMap[p.id] || [] },
+                        categories,
+                      )[p.id] || []
                     const brandName = p.expand?.marca_id?.name || 'Scaglioni'
 
                     return (
@@ -858,7 +873,11 @@ export function ProductsPage() {
         product={viewProduct}
         open={isViewOpen}
         onOpenChange={setIsViewOpen}
-        categoryNames={viewProduct ? categoryLinksMap[viewProduct.id] : []}
+        categoryNames={
+          (viewProduct && Array.isArray(categoryLinksMap[viewProduct.id])
+            ? categoryLinksMap[viewProduct.id]
+            : []) || []
+        }
       />
 
       {/* Modal 3: Editar Produto */}
