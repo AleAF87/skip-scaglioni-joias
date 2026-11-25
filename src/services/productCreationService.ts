@@ -1,5 +1,14 @@
 import pb from '@/lib/pocketbase/client'
-import { Brand, Reseller, ProductCategory, Product, ProductVariation, InitialStock } from '@/types'
+import {
+  Brand,
+  Reseller,
+  ProductCategory,
+  Product,
+  ProductVariation,
+  InitialStock,
+  ProductType,
+  ProductMaterial,
+} from '@/types'
 
 export interface StockDistributionItem {
   id: string
@@ -126,6 +135,19 @@ export const productCreationService = {
   categoriesCache: [] as ProductCategory[],
 
   /**
+   * Normaliza texto para casar categoria (CAIXA ALTA) com as relações
+   * product_types/product_materials (Nome Próprio): sem acentos, maiúsculas,
+   * só letras e números.
+   */
+  relationKeyOf(text: string): string {
+    return String(text || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '')
+  },
+
+  /**
    * NOVA REGRA de SKU e-commerce (v0.0.215): deriva dicas de TIPO e METAL
    * a partir das categorias selecionadas no cadastro/edição manual. O TIPO é a
    * categoria não-metal e o METAL a categoria de grupo 'metal' (quando houver).
@@ -152,6 +174,38 @@ export const productCreationService = {
       }
     }
     return hints
+  },
+
+  /**
+   * Resolve os IDs das relações `type` (product_types) e `material`
+   * (product_materials) a partir das categorias marcadas no cadastro/edição:
+   * o primeiro Tipo marcado (categoria não-metal) casa com product_types por
+   * nome (chave de letras/números sem acento) e o primeiro Metal marcado
+   * (grupo 'metal') casa com product_materials. Retorna '' quando não há
+   * relação correspondente — nunca inventa ID.
+   */
+  async resolveTypeMaterialIds(
+    categoriaIds: string[],
+    categories: ProductCategory[],
+  ): Promise<{ typeId: string; materialId: string }> {
+    const hints = this.deriveSkuHints(categoriaIds, categories)
+    let typeId = ''
+    let materialId = ''
+    try {
+      if (hints.tipo) {
+        const wanted = this.relationKeyOf(hints.tipo)
+        const list = await pb.collection('product_types').getFullList<ProductType>()
+        typeId = list.find((t) => this.relationKeyOf(t.name) === wanted)?.id || ''
+      }
+      if (hints.metal) {
+        const wanted = this.relationKeyOf(hints.metal)
+        const list = await pb.collection('product_materials').getFullList<ProductMaterial>()
+        materialId = list.find((m) => this.relationKeyOf(m.name) === wanted)?.id || ''
+      }
+    } catch (err) {
+      console.warn('Erro ao resolver relações type/material:', err)
+    }
+    return { typeId, materialId }
   },
 
   /**
@@ -307,6 +361,18 @@ export const productCreationService = {
       payload.galleryImages.find((img) => img.isPrincipal) || payload.galleryImages[0]
     if (principalImage?.file) {
       formData.append('photos', principalImage.file)
+    }
+
+    // Relações type/material (v0.0.255): derivadas das categorias marcadas
+    // (primeiro Tipo não-metal -> product_types; primeiro Metal -> product_materials).
+    // O hook do servidor também resolve/grava a partir das categorias; enviar aqui
+    // garante que o cadastro manual grave as relações de imediato.
+    try {
+      const relIds = await this.resolveTypeMaterialIds(payload.categoria_ids, this.categoriesCache)
+      if (relIds.typeId) formData.append('type', relIds.typeId)
+      if (relIds.materialId) formData.append('material', relIds.materialId)
+    } catch (relErr) {
+      console.warn('Erro ao derivar type/material das categorias:', relErr)
     }
 
     // Criar o produto. O código é gerado SOMENTE pelo hook do servidor (products_code_sequence.js),

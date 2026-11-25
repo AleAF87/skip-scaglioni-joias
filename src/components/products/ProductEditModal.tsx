@@ -15,7 +15,18 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
-import { Edit3, Loader2, Check, DollarSign, Tag, Globe, Lock, X, AlertCircle } from 'lucide-react'
+import {
+  Edit3,
+  Loader2,
+  Check,
+  DollarSign,
+  Tag,
+  Globe,
+  Lock,
+  X,
+  AlertCircle,
+  RefreshCw,
+} from 'lucide-react'
 import { toast } from 'sonner'
 
 interface ProductEditModalProps {
@@ -50,6 +61,11 @@ export function ProductEditModal({
   const [destaqueEcommerce, setDestaqueEcommerce] = useState(false)
   const [slug, setSlug] = useState('')
 
+  // SKU e-commerce exibida no campo com botão regenerar (v0.0.255)
+  const [skuValue, setSkuValue] = useState('')
+  const [skuDirty, setSkuDirty] = useState(false)
+  const [isRegeneratingSku, setIsRegeneratingSku] = useState(false)
+
   useEffect(() => {
     if (open && product) {
       setNomeProduto(product.nome_produto || product.description || '')
@@ -63,6 +79,8 @@ export function ProductEditModal({
       setDestaqueEcommerce(Boolean(product.destaque_ecommerce))
       setSlug(product.slug || '')
       setCategoryError('')
+      setSkuValue((product.sku_ecommerce || '').trim())
+      setSkuDirty(false)
 
       loadAuxAndLinks(product.id)
     }
@@ -89,6 +107,47 @@ export function ProductEditModal({
     setCategoriaIds((prev) =>
       prev.includes(catId) ? prev.filter((id) => id !== catId) : [...prev, catId],
     )
+  }
+
+  /**
+   * Regenera a SKU e-commerce pela regra do servidor (tipo + metal + iniciais
+   * do nome + numerador, com anti-duplicidade). Apenas PREENCHE o campo —
+   * gravação acontece ao salvar o modal.
+   */
+  const handleRegenerateSku = async () => {
+    if (!product || isRegeneratingSku) return
+    const hints = productCreationService.deriveSkuHints(categoriaIds, categories)
+    if (!hints.tipo || !hints.metal) {
+      toast.error('Selecione ao menos um Tipo e um Metal para gerar a SKU.')
+      return
+    }
+    setIsRegeneratingSku(true)
+    try {
+      const res = await pb.send<{ sku: string; regra: string }>(
+        '/backend/v1/products/regenerate-sku',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            productId: product.id,
+            nome: nomeProduto.trim() || product.description || '',
+            tipo: hints.tipo,
+            metal: hints.metal,
+          }),
+        },
+      )
+      if (res?.sku) {
+        setSkuValue(res.sku)
+        setSkuDirty(true)
+        toast.success('SKU gerada: ' + res.sku)
+      } else {
+        toast.error('Não foi possível gerar a SKU (verifique Tipo/Metal/nome).')
+      }
+    } catch (err: any) {
+      console.error(err)
+      toast.error('Erro ao regenerar SKU: ' + (err?.message || ''))
+    } finally {
+      setIsRegeneratingSku(false)
+    }
   }
 
   const handleSave = async (e: React.FormEvent) => {
@@ -138,10 +197,24 @@ export function ProductEditModal({
       // quando a SKU atual estiver vazia/numérica — mesmo formato do cadastro
       // (os links de categorias só são gravados depois do update do produto,
       // então as dicas precisam ir na própria requisição, via query params).
-      const skuHints = productCreationService.deriveSkuHints(categoriaIds, categories)
+      // Dicas SOMENTE quando o usuário NÃO editou o campo SKU manualmente
+      // (neste caso o valor digitado/regenerado é gravado como está — o
+      // endpoint de regeneração já aplicou a anti-duplicidade do servidor).
+      const skuTrimmed = skuValue.trim()
+      const skuHints = skuDirty
+        ? { tipo: '', metal: '' }
+        : productCreationService.deriveSkuHints(categoriaIds, categories)
       const updateOptions: any = { query: {} as Record<string, string> }
       if (skuHints.tipo) updateOptions.query.skuTipo = skuHints.tipo
       if (skuHints.metal) updateOptions.query.skuMetal = skuHints.metal
+
+      // Relações type/material (v0.0.255): derivadas das categorias marcadas
+      // (primeiro Tipo não-metal -> product_types; primeiro Metal -> product_materials).
+      const relIds = await productCreationService.resolveTypeMaterialIds(categoriaIds, categories)
+
+      // SKU e-commerce: grava apenas quando mudou em relação à SKU original do
+      // produto (regenerada pelo botão ou digitada pelo usuário).
+      const skuOriginal = (product.sku_ecommerce || '').trim()
 
       // 1. Atualizar produto
       const updated = await pb.collection('products').update<Product>(
@@ -160,6 +233,9 @@ export function ProductEditModal({
           // Interruptor de publicação: 1 = publicado, 0 = não publicado (nunca saldo)
           qtde_loja_virtual: publicarNoEcommerce ? 1 : 0,
           slug: slug.trim() || undefined,
+          ...(relIds.typeId ? { type: relIds.typeId } : {}),
+          ...(relIds.materialId ? { material: relIds.materialId } : {}),
+          ...(skuTrimmed !== skuOriginal ? { sku_ecommerce: skuTrimmed } : {}),
         },
         updateOptions,
       )
@@ -376,6 +452,47 @@ export function ProductEditModal({
             )}
             <span className="text-[10px] text-[#8C8275]">
               O produto pode conter categorias de ambos os grupos.
+            </span>
+          </div>
+
+          {/* SKU e-commerce com botão regenerar (v0.0.255) */}
+          <div>
+            <label
+              htmlFor="sku-ecommerce-edit"
+              className="text-xs font-semibold text-[#2D2A26] block mb-1"
+            >
+              SKU (E-commerce)
+            </label>
+            <div className="flex gap-2">
+              <Input
+                id="sku-ecommerce-edit"
+                value={skuValue}
+                onChange={(e) => {
+                  setSkuValue(e.target.value)
+                  setSkuDirty(true)
+                }}
+                placeholder="Gerada pela regra: tipo + metal + iniciais do nome"
+                className="h-10 text-xs font-mono font-semibold flex-1"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isRegeneratingSku || isSaving}
+                onClick={handleRegenerateSku}
+                title="Regenerar SKU pela regra (tipo + metal + iniciais do nome + numerador)"
+                className="h-10 px-3 border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] font-semibold text-xs flex items-center gap-1.5"
+              >
+                {isRegeneratingSku ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+                Regenerar
+              </Button>
+            </div>
+            <span className="text-[10px] text-[#8C8275]">
+              Regenera pela regra (2 letras do tipo + 2 do metal + iniciais do nome + numerador),
+              evitando duplicidade. Gravado ao salvar.
             </span>
           </div>
 
