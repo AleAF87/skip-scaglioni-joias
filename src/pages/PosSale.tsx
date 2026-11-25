@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { salesService } from '@/services/salesService'
 import { productService } from '@/services/productService'
-import { useAuth } from '@/contexts/AuthContext'
 import { usePdvGuard } from '@/contexts/PdvGuardContext'
 import { useNavigate } from 'react-router-dom'
 import { Product, Customer, Sale, SaleItem } from '@/types'
@@ -10,11 +9,7 @@ import {
   getProductVariationBadge,
   formatVariationAttributeLabel,
 } from '@/types/labelContent'
-import {
-  fetchResellerStockDetailsMap,
-  getProductStockBreakdown,
-  ResellerItemDetail,
-} from '@/services/totalStockService'
+
 import { getProductBarcodeValue, isExactCodeMatch, matchesProductQuery } from '@/lib/barcodeSearch'
 import { BarcodeScannerModal } from '@/components/pos/BarcodeScannerModal'
 import { useMemo } from 'react'
@@ -89,8 +84,6 @@ export interface PosCartItem extends SaleItem {
 
 export default function PosSale() {
   const navigate = useNavigate()
-  const { isAdmin, isSuperAdmin } = useAuth()
-  const canSellFromExternal = isAdmin || isSuperAdmin
   const { setIsCartDirty, registerLeaveHandler } = usePdvGuard()
 
   // Cart state
@@ -99,9 +92,6 @@ export default function PosSale() {
   const [isScannerArmed, setIsScannerArmed] = useState(true)
   const [isGlobalScanBusy, setIsGlobalScanBusy] = useState(false)
   const [products, setProducts] = useState<Product[]>([])
-  const [resellerStockMap, setResellerStockMap] = useState<Map<string, ResellerItemDetail[]>>(
-    new Map(),
-  )
   const [customers, setCustomers] = useState<Customer[]>([])
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('')
 
@@ -192,14 +182,12 @@ export default function PosSale() {
 
   const loadInitialData = async () => {
     try {
-      const [prodRes, custRes, resellerMap] = await Promise.all([
+      const [prodRes, custRes] = await Promise.all([
         productService.getProducts({ perPage: 500 }),
         salesService.getCustomers(),
-        fetchResellerStockDetailsMap(),
       ])
       setProducts(prodRes.items)
       setCustomers(custRes)
-      setResellerStockMap(resellerMap)
     } catch (err) {
       console.error(err)
     }
@@ -424,14 +412,10 @@ export default function PosSale() {
     }
   }
 
-  // Determina disponibilidade total do produto considerando o perfil do usuário
-  const getProductAvailableStock = (p: Product) => {
-    const breakdown = getProductStockBreakdown(p, resellerStockMap.get(p.id) || [])
-    if (canSellFromExternal) {
-      return breakdown.total
-    }
-    return breakdown.general
-  }
+  // Disponibilidade no PDV da LOJA: SEMPRE o Estoque FÍSICO (p.quantity), nunca o
+  // total calculado (Físico + posse das revendedoras). Peças em posse de revendedora
+  // NÃO são vendáveis aqui — quem as vende é o PDV da revendedora (baixa a posse).
+  const getProductAvailableStock = (p: Product) => Math.max(0, Number(p.quantity) || 0)
 
   // Handle Search or Barcode Scan
   useEffect(() => {
@@ -450,7 +434,7 @@ export default function PosSale() {
       return available > 0
     })
     setFilteredProducts(matches.slice(0, 8))
-  }, [barcodeOrSearch, products, resellerStockMap, canSellFromExternal])
+  }, [barcodeOrSearch, products])
 
   // Origem padrão de um item novo no carrinho: sempre o estoque único (unificação).
   // qtde_loja_virtual virou apenas interruptor de publicação (1/0), nunca saldo.
@@ -471,12 +455,8 @@ export default function PosSale() {
       return Math.max(0, Number(product.quantity) || 0)
     }
     if (origin === 'reseller') {
-      const resellers = resellerStockMap.get(product.id) || []
-      if (resellerId) {
-        const found = resellers.find((r) => r.reseller_id === resellerId)
-        return found ? found.quantity : 0
-      }
-      return resellers.reduce((acc, r) => acc + r.quantity, 0)
+      // Posse de revendedora NÃO é vendável no PDV da loja (físico apenas).
+      return 0
     }
     return 0
   }

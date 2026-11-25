@@ -367,10 +367,14 @@ export default function ResellerPosSale() {
   const resellerProfit = round2((total * commissionRate) / 100)
   const scaglioniDue = round2(total - resellerProfit)
 
-  // Filter products by search (universal barcode / numeric zeros-stripped / Ç->C search)
+  // Modelo de posse: o catálogo do PDV da revendedora é o ESTOQUE EM POSSE DELA
+  // (reseller_stock_items.quantity > 0, filtrado pelo próprio serviço). A quantidade
+  // disponível é sempre a posse — nunca o estoque total do produto. Só sobra reforçar
+  // a busca (universal barcode / zeros-stripped / Ç->C).
   const filteredStock = stockItems.filter((it) => {
     const prod = it.expand?.product
     if (!prod) return false
+    if ((Number(it.quantity) || 0) <= 0) return false
     if (!searchFilter.trim()) return true
     return matchesProductQuery(prod, searchFilter.trim())
   })
@@ -800,11 +804,11 @@ export default function ResellerPosSale() {
               ) : filteredStock.length === 0 ? (
                 <div className="py-12 text-center text-xs text-[#8C8275] space-y-1">
                   <p className="font-semibold text-sm text-[#2D2A26]">
-                    Nenhuma joia encontrada no estoque desta revendedora.
+                    Nenhuma joia em posse desta revendedora.
                   </p>
                   <p>
                     {canManage
-                      ? 'Registre uma nova entrega para repor peças neste estoque.'
+                      ? 'Registre uma nova entrega para colocar peças em posse dela.'
                       : 'Solicite uma reposição de peças à equipe Scaglioni.'}
                   </p>
                 </div>

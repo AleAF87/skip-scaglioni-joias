@@ -343,10 +343,11 @@ export const productService = {
     let totalQuantity = 0
 
     list.forEach((p) => {
+      // Modelo unificado: quantity = estoque físico; Total calculado = Físico + posse das revendedoras.
+      // qtde_loja_virtual é apenas interruptor "publicar no e-commerce", não é saldo.
       const qtyGeral = p.quantity || 0
-      const qtyEcom = p.qtde_loja_virtual || 0
       const qtyReseller = resellerMap.get(p.id) || 0
-      const totalQty = qtyGeral + qtyEcom + qtyReseller
+      const totalQty = qtyGeral + qtyReseller
 
       const invested = p.invested_value || 0
       const selling = p.selling_price || 0

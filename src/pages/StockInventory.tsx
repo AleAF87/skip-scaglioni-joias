@@ -992,7 +992,6 @@ export default function StockInventory() {
           </div>
         </Card>
       </div>
-      {/* Com Revendedoras: posse total das peças filtradas */}
 
       {/* Filter Toolbar (Multi-choice style) */}
       <Card className="border-[#E5DFD5] bg-white shadow-xs">
@@ -1844,11 +1843,11 @@ export default function StockInventory() {
                                 </p>
                                 {productResellerDetails.map((detail) => (
                                   <div
-                                    key={`${detail.resellerId}-${detail.productId}`}
+                                    key={`${detail.reseller_id}-${detail.reseller_name}`}
                                     className="flex items-center justify-between gap-4 text-xs bg-white border border-[#E5DFD5] rounded-md px-3 py-1.5"
                                   >
                                     <span className="font-medium text-[#2D2A26]">
-                                      {detail.resellerName}
+                                      {detail.reseller_name}
                                     </span>
                                     <span className="text-[#6B655E]">
                                       {detail.quantity} un. em posse
