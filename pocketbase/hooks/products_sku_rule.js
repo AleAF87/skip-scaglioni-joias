@@ -121,10 +121,48 @@ var skuRuleStripWords = function (nomeNorm, phrases) {
   return out
 }
 
-// Resolve {tipo, metal, nomeLivre} de um produto:
+// Resolve o ID da relação type/material para a categoria marcada: categorias
+// (CAIXA ALTA) são casadas com as relações (Nome Próprio) por chave de letras
+// e números, sem acentos; fallback pelo slug ("ouro-18k" -> "OURO 18K").
+var skuRuleKeyOf = function (text) {
+  return skuRuleNormalize(text).replace(/[^A-Z0-9]/g, '')
+}
+
+var skuRuleFindTypeId = function (app, catName, catSlug) {
+  var wantedKey = skuRuleKeyOf(catName)
+  var wantedSlug = skuRuleKeyOf(String(catSlug || '').replace(/-/g, ' '))
+  if (!wantedKey && !wantedSlug) return ''
+  try {
+    var list = app.findRecordsByFilter('product_types', '', '', 200, 0)
+    for (var i = 0; i < list.length; i++) {
+      var nmKey = skuRuleKeyOf(list[i].getString('name'))
+      if (wantedKey && nmKey === wantedKey) return list[i].id
+      if (wantedSlug && nmKey === wantedSlug) return list[i].id
+    }
+  } catch (_) {}
+  return ''
+}
+
+var skuRuleFindMaterialId = function (app, catName, catSlug) {
+  var wantedKey = skuRuleKeyOf(catName)
+  var wantedSlug = skuRuleKeyOf(String(catSlug || '').replace(/-/g, ' '))
+  if (!wantedKey && !wantedSlug) return ''
+  try {
+    var list = app.findRecordsByFilter('product_materials', '', '', 200, 0)
+    for (var i = 0; i < list.length; i++) {
+      var nmKey = skuRuleKeyOf(list[i].getString('name'))
+      if (wantedKey && nmKey === wantedKey) return list[i].id
+      if (wantedSlug && nmKey === wantedSlug) return list[i].id
+    }
+  } catch (_) {}
+  return ''
+}
+
+// Resolve {tipo, metal, nomeLivre, typeId, materialId} de um produto:
 //   1. dicas explícitas do chamador (modal manual / importador)
 //   2. categorias vinculadas (product_category_links -> product_categories,
-//      group 'metal' / 'tipo' / vazio)
+//      group 'metal' / 'tipo' / vazio) — gravando também os IDs das relações
+//      type/material (match por nome ou slug)
 //   3. relações diretas (material -> product_materials, type -> product_types)
 //   4. campo texto tipo_produto_bruto (importação)
 //   5. detecção das palavras no próprio nome
@@ -165,9 +203,24 @@ var skuRuleResolveParts = function (app, record, tipoHint, metalHint, nomeLivreH
         if (cgroup === 'metal' || (!cgroup && skuRuleIsMetalName(cname))) {
           if (!metal) metal = cname
           metalWords.push(cname)
+          // Grava a relação material quando ainda está vazia (match por nome
+          // ou slug — o slug cobre nomes acentados das relações de estoque)
+          if (!record.getString('material')) {
+            var matId = skuRuleFindMaterialId(
+              app,
+              cat.getString('name'),
+              cat.getString('slug') || '',
+            )
+            if (matId) record.set('material', matId)
+          }
         } else {
           if (!tipo) tipo = cname
           tipoWords.push(cname)
+          // Grava a relação type quando ainda está vazia
+          if (!record.getString('type')) {
+            var tId = skuRuleFindTypeId(app, cat.getString('name'), cat.getString('slug') || '')
+            if (tId) record.set('type', tId)
+          }
         }
       }
     } catch (_) {}
@@ -237,7 +290,13 @@ var skuRuleResolveParts = function (app, record, tipoHint, metalHint, nomeLivreH
     nomeLivre = skuRuleStripWords(fullName, tipoWords.concat(metalWords))
   }
 
-  return { tipo: tipo, metal: metal, nomeLivre: nomeLivre }
+  return {
+    tipo: tipo,
+    metal: metal,
+    nomeLivre: nomeLivre,
+    typeId: record.getString('type') || '',
+    materialId: record.getString('material') || '',
+  }
 }
 
 // Verifica se um candidato já está ocupado por OUTRO produto
