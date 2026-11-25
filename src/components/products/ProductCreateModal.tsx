@@ -74,10 +74,36 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
   const [description, setDescription] = useState('')
 
   // 2. Valores
-  const [custoUnitario, setCustoUnitario] = useState<number | ''>('')
-  const [precoVenda, setPrecoVenda] = useState<number | ''>('')
-  const [precoPromocional, setPrecoPromocional] = useState<number | ''>('')
+  // Campos numéricos guardam o TEXTO digitado (evita "0" preso: digitar sobre o zero
+  // substitui em vez de concatenar — ex.: 0 + "5" vira 5, não 05).
+  const [custoUnitario, setCustoUnitario] = useState<number | string>('')
+  const [precoVenda, setPrecoVenda] = useState<number | string>('')
+  const [precoPromocional, setPrecoPromocional] = useState<number | string>('')
   const [priceError, setPriceError] = useState('')
+
+  // Digitação sobre zero: se o campo está com "0", o novo dígito substitui o zero
+  const handleNumericInput = (
+    raw: string,
+    setter: (v: number | string) => void,
+    opts?: { integer?: boolean },
+  ) => {
+    let txt = raw.trim()
+    if (opts?.integer) {
+      txt = txt.replace(/[^0-9]/g, '')
+    } else {
+      txt = txt.replace(',', '.')
+    }
+    // Zero à esquerda preso (ex.: "05" ou "0,5" ok, mas "0" seguido de dígito = substitui)
+    if (/^0\d+$/.test(txt)) {
+      txt = txt.replace(/^0+/, '')
+    }
+    if (txt === '') {
+      setter('')
+      return
+    }
+    const num = opts?.integer ? parseInt(txt, 10) : parseFloat(txt)
+    setter(isNaN(num) ? '' : num)
+  }
 
   // Cálculos automáticos de Lucro e Percentual de ganho (não editáveis)
   const sellNum = typeof precoVenda === 'number' ? precoVenda : 0
@@ -87,13 +113,13 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
 
   // 3. Imagens e medidas
   const [galleryImages, setGalleryImages] = useState<GalleryImageItem[]>([])
-  const [alturaCm, setAlturaCm] = useState<number | ''>('')
-  const [larguraCm, setLarguraCm] = useState<number | ''>('')
-  const [comprimentoCm, setComprimentoCm] = useState<number | ''>('')
-  const [pesoG, setPesoG] = useState<number | ''>('')
+  const [alturaCm, setAlturaCm] = useState<number | string>('')
+  const [larguraCm, setLarguraCm] = useState<number | string>('')
+  const [comprimentoCm, setComprimentoCm] = useState<number | string>('')
+  const [pesoG, setPesoG] = useState<number | string>('')
 
   // 4. Estoque Inicial
-  const [quantidadeInicial, setQuantidadeInicial] = useState<number>(0)
+  const [quantidadeInicial, setQuantidadeInicial] = useState<number | string>(0)
 
   // 5. E-commerce (interruptor apenas; sem saldo próprio — o estoque é único)
   const [publicarNoEcommerce, setPublicarNoEcommerce] = useState(false)
@@ -104,18 +130,10 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
   const [hasVariations, setHasVariations] = useState(false)
   const [variations, setVariations] = useState<ProductVariationInput[]>([])
 
-  // 7. Confirmação pós-salvar (v0.0.213): mostra código numérico e SKU E-commerce geradas
-  const [savedInfo, setSavedInfo] = useState<{
-    nome: string
-    code: string
-    skuEcommerce: string
-  } | null>(null)
-
   // Carrega metadados e inicializa campos ao abrir
   useEffect(() => {
     if (open) {
       loadMetaAndInitialize()
-      setSavedInfo(null)
     }
   }, [open])
 
@@ -191,7 +209,7 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
       return
     }
     const timer = setTimeout(async () => {
-      const generated = await productCreationService.generateUniqueSlug(nomeProduto)
+      const generated = await productCreationService.generateUniqueSlug(nomeProduto.trim())
       setSlug(generated)
     }, 250)
     return () => clearTimeout(timer)
@@ -203,10 +221,6 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
       setDestaqueEcommerce(false)
     }
   }, [publicarNoEcommerce])
-
-  const handleQuantidadeInicialChange = (val: number) => {
-    setQuantidadeInicial(val)
-  }
 
   // Validação de preço promocional
   const validatePrices = (): boolean => {
@@ -225,7 +239,7 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
   const handleCreateBrandInline = async () => {
     if (!newBrandName.trim()) return
     try {
-      const created = await productCreationService.createBrandInline(newBrandName)
+      const created = await productCreationService.createBrandInline(newBrandName.trim())
       setBrands((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)))
       setMarcaId(created.id)
       setNewBrandName('')
@@ -272,7 +286,7 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
 
     // 4. Validação do Estoque Inicial (estoque único)
     if (!hasVariations) {
-      if (quantidadeInicial < 0) {
+      if (Number(quantidadeInicial) < 0 || Number.isNaN(Number(quantidadeInicial))) {
         toast.error('A Quantidade inicial deve ser maior ou igual a zero.')
         return
       }
@@ -305,22 +319,22 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
     // Preparar payload
     const payload: CreateProductPayload = {
       produto_id: produtoId,
-      nome_produto: nomeProduto,
+      nome_produto: nomeProduto.trim(),
       marca_id: marcaId || undefined,
       fornecedor: fornecedor.trim() || undefined,
       categoria_ids: categoriaIds,
       description: description.trim() || nomeProduto.trim(),
-      custo_unitario: typeof custoUnitario === 'number' ? custoUnitario : undefined,
-      selling_price: Number(precoVenda),
-      preco_promocional: typeof precoPromocional === 'number' ? precoPromocional : undefined,
-      altura_cm: typeof alturaCm === 'number' ? alturaCm : undefined,
-      largura_cm: typeof larguraCm === 'number' ? larguraCm : undefined,
-      comprimento_cm: typeof comprimentoCm === 'number' ? comprimentoCm : undefined,
-      peso_g: typeof pesoG === 'number' ? pesoG : undefined,
+      custo_unitario: custoUnitario === '' ? undefined : Number(custoUnitario),
+      selling_price: Number(precoVenda) || 0,
+      preco_promocional: precoPromocional === '' ? undefined : Number(precoPromocional),
+      altura_cm: alturaCm === '' ? undefined : Number(alturaCm),
+      largura_cm: larguraCm === '' ? undefined : Number(larguraCm),
+      comprimento_cm: comprimentoCm === '' ? undefined : Number(comprimentoCm),
+      peso_g: pesoG === '' ? undefined : Number(pesoG),
       publicar_no_ecommerce: publicarNoEcommerce,
       destaque_ecommerce: publicarNoEcommerce && destaqueEcommerce,
-      slug: slug || productCreationService.slugify(nomeProduto),
-      qtde_inicial: quantidadeInicial,
+      slug: (slug || productCreationService.slugify(nomeProduto)).trim(),
+      qtde_inicial: Number(quantidadeInicial) || 0,
       qtde_loja_virtual: publicarNoEcommerce ? 1 : 0,
       has_variations: hasVariations,
       variations,
@@ -331,16 +345,15 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
     try {
       const created = await productCreationService.saveFullProduct(payload)
       toast.success(
-        `Produto "${created.nome_produto || created.description}" cadastrado com sucesso!`,
+        `Produto "${(created.nome_produto || created.description || '').trim()}" cadastrado com sucesso!`,
+        {
+          description: `Código: ${created.code || '—'}${created.sku_ecommerce ? ` • SKU E-commerce: ${created.sku_ecommerce}` : ''}`,
+        },
       )
-      // v0.0.213: mostra a SKU E-commerce gerada (somente leitura) junto ao código numérico,
-      // sem fechar o modal imediatamente.
-      setSavedInfo({
-        nome: created.nome_produto || created.description || '',
-        code: created.code || created.sku_novo || '',
-        skuEcommerce: productCreationService.previewEcommerceSkuFor(created),
-      })
+      // Fecha o modal automaticamente após salvar com sucesso (mantendo o toast de sucesso).
+      // Os códigos gerados (numérico e SKU) vão junto no toast, já que o painel pós-salvar não é mais exibido.
       onSuccess(created)
+      onOpenChange(false)
     } catch (err: any) {
       console.error('Erro ao salvar produto:', err)
       toast.error('Erro ao salvar produto: ' + (err.message || 'Verifique os dados digitados.'))
@@ -614,10 +627,7 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
                     step="0.01"
                     min="0"
                     value={custoUnitario}
-                    onChange={(e) => {
-                      const v = parseFloat(e.target.value)
-                      setCustoUnitario(isNaN(v) ? '' : v)
-                    }}
+                    onChange={(e) => handleNumericInput(e.target.value, setCustoUnitario)}
                     placeholder="0,00"
                     className="h-10 text-xs font-mono font-semibold"
                   />
@@ -633,10 +643,7 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
                     step="0.01"
                     min="0.01"
                     value={precoVenda}
-                    onChange={(e) => {
-                      const v = parseFloat(e.target.value)
-                      setPrecoVenda(isNaN(v) ? '' : v)
-                    }}
+                    onChange={(e) => handleNumericInput(e.target.value, setPrecoVenda)}
                     onBlur={validatePrices}
                     placeholder="0,00"
                     className="h-10 text-xs font-mono font-bold text-[#2E7D4F]"
@@ -654,10 +661,7 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
                     step="0.01"
                     min="0"
                     value={precoPromocional}
-                    onChange={(e) => {
-                      const v = parseFloat(e.target.value)
-                      setPrecoPromocional(isNaN(v) ? '' : v)
-                    }}
+                    onChange={(e) => handleNumericInput(e.target.value, setPrecoPromocional)}
                     onBlur={validatePrices}
                     placeholder="0,00"
                     className={`h-10 text-xs font-mono font-semibold ${
@@ -756,10 +760,7 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
                     step="0.1"
                     min="0"
                     value={alturaCm}
-                    onChange={(e) => {
-                      const v = parseFloat(e.target.value)
-                      setAlturaCm(isNaN(v) ? '' : v)
-                    }}
+                    onChange={(e) => handleNumericInput(e.target.value, setAlturaCm)}
                     placeholder="0.0"
                     className="h-9 text-xs"
                   />
@@ -774,10 +775,7 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
                     step="0.1"
                     min="0"
                     value={larguraCm}
-                    onChange={(e) => {
-                      const v = parseFloat(e.target.value)
-                      setLarguraCm(isNaN(v) ? '' : v)
-                    }}
+                    onChange={(e) => handleNumericInput(e.target.value, setLarguraCm)}
                     placeholder="0.0"
                     className="h-9 text-xs"
                   />
@@ -792,10 +790,7 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
                     step="0.1"
                     min="0"
                     value={comprimentoCm}
-                    onChange={(e) => {
-                      const v = parseFloat(e.target.value)
-                      setComprimentoCm(isNaN(v) ? '' : v)
-                    }}
+                    onChange={(e) => handleNumericInput(e.target.value, setComprimentoCm)}
                     placeholder="0.0"
                     className="h-9 text-xs"
                   />
@@ -810,10 +805,7 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
                     step="0.1"
                     min="0"
                     value={pesoG}
-                    onChange={(e) => {
-                      const v = parseFloat(e.target.value)
-                      setPesoG(isNaN(v) ? '' : v)
-                    }}
+                    onChange={(e) => handleNumericInput(e.target.value, setPesoG)}
                     placeholder="0.0"
                     className="h-9 text-xs"
                   />
@@ -841,10 +833,9 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
                       min="0"
                       step="1"
                       value={quantidadeInicial}
-                      onChange={(e) => {
-                        const v = parseInt(e.target.value, 10)
-                        handleQuantidadeInicialChange(isNaN(v) ? 0 : Math.max(0, v))
-                      }}
+                      onChange={(e) =>
+                        handleNumericInput(e.target.value, setQuantidadeInicial, { integer: true })
+                      }
                       className="h-10 text-sm font-mono font-bold"
                       required
                     />
@@ -981,46 +972,6 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
               )}
             </div>
 
-            {/* Confirmação pós-salvar (v0.0.213): código numérico + SKU E-commerce */}
-            {savedInfo && (
-              <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/70 space-y-2">
-                <div className="flex items-center gap-2">
-                  <Check className="h-4 w-4 text-emerald-600" />
-                  <span className="text-xs font-bold text-emerald-800">
-                    Produto "{savedInfo.nome}" cadastrado com sucesso!
-                  </span>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-[10px] font-semibold text-[#8C8275] block mb-0.5">
-                      Código do produto (numérico)
-                    </label>
-                    <Input
-                      value={savedInfo.code || '—'}
-                      readOnly
-                      disabled
-                      className="h-9 text-xs font-mono font-bold bg-white text-[#2D2A26]"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-semibold text-[#8C8275] block mb-0.5">
-                      SKU E-commerce (alfabética, gerada)
-                    </label>
-                    <Input
-                      value={savedInfo.skuEcommerce || '—'}
-                      readOnly
-                      disabled
-                      className="h-9 text-xs font-mono font-bold bg-white text-[#7A5C2E]"
-                    />
-                  </div>
-                </div>
-                <span className="text-[10px] text-[#8C8275] block">
-                  A SKU E-commerce é gerada automaticamente pelo sistema a partir das iniciais do
-                  nome — é distinta do código numérico e do código de barras.
-                </span>
-              </div>
-            )}
-
             {/* SEÇÃO 7: BOTÕES DO MODAL */}
             <DialogFooter className="p-6 border-t border-[#E5DFD5] bg-[#FDFBF7] sticky bottom-0 z-10 flex-col sm:flex-row gap-2 sm:gap-3">
               <Button
@@ -1030,36 +981,23 @@ export function ProductCreateModal({ open, onOpenChange, onSuccess }: ProductCre
                 disabled={isSaving}
                 className="border-[#E5DFD5] text-[#2D2A26] h-11 px-6 font-medium"
               >
-                {savedInfo ? 'Fechar' : 'Cancelar'}
+                Cancelar
               </Button>
 
-              {savedInfo ? (
-                <Button
-                  type="button"
-                  onClick={() => {
-                    setSavedInfo(null)
-                    loadMetaAndInitialize()
-                  }}
-                  className="bg-gradient-to-r from-[#7A5C2E] via-[#A88742] to-[#7A5C2E] hover:from-[#634924] hover:to-[#634924] text-white h-11 px-6 font-bold shadow-md"
-                >
-                  <Plus className="h-4 w-4 mr-2" /> Cadastrar outro produto
-                </Button>
-              ) : (
-                <Button
-                  type="submit"
-                  disabled={isSaving}
-                  className="bg-gradient-to-r from-[#7A5C2E] via-[#A88742] to-[#7A5C2E] hover:from-[#634924] hover:to-[#634924] text-white h-11 px-6 font-bold shadow-md"
-                >
-                  {isSaving ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Salvando e registrando estoque...
-                    </>
-                  ) : (
-                    'Salvar produto e registrar estoque inicial'
-                  )}
-                </Button>
-              )}
+              <Button
+                type="submit"
+                disabled={isSaving}
+                className="bg-gradient-to-r from-[#7A5C2E] via-[#A88742] to-[#7A5C2E] hover:from-[#634924] hover:to-[#634924] text-white h-11 px-6 font-bold shadow-md"
+              >
+                {isSaving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Salvando e registrando estoque...
+                  </>
+                ) : (
+                  'Salvar produto e registrar estoque inicial'
+                )}
+              </Button>
             </DialogFooter>
           </form>
         )}

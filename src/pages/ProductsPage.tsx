@@ -225,16 +225,55 @@ export function ProductsPage() {
     loadProducts()
   }, [loadProducts])
 
+  // Recalcula os nomes de categoria exibidos na coluna "Categorias" para os produtos informados
+  const refreshCategoryLinksFor = async (productIds: string[]) => {
+    if (productIds.length === 0) return
+    try {
+      const filterLinks = productIds.map((id) => `product = '${id}'`).join(' || ')
+      const allLinks = await pb
+        .collection('product_category_links')
+        .getFullList({
+          filter: filterLinks,
+          expand: 'category',
+        })
+        .catch(() => [])
+
+      const map: Record<string, string[]> = {}
+      allLinks.forEach((l: any) => {
+        const pId = l.product
+        const catName = l.expand?.category?.name || ''
+        if (catName) {
+          if (!map[pId]) map[pId] = []
+          map[pId].push(catName)
+        }
+      })
+
+      setCategoryLinksMap((prev) => {
+        const next = { ...prev }
+        productIds.forEach((id) => {
+          next[id] = map[id] || []
+        })
+        return next
+      })
+    } catch (err) {
+      console.warn('Erro ao atualizar categorias exibidas:', err)
+    }
+  }
+
   // Após salvar produto novo no modal: fechar o modal, atualizar a tabela e exibir o novo produto na primeira linha
   const handleProductCreated = (newProduct: Product) => {
     // Insere no topo imediatamente sem recarregar a página inteira
     setProducts((prev) => [newProduct, ...prev.filter((p) => p.id !== newProduct.id)])
     setTotalItems((prev) => prev + 1)
+    // Atualiza a coluna Categorias com o que foi selecionado no cadastro
+    refreshCategoryLinksFor([newProduct.id])
   }
 
   // Após editar
   const handleProductUpdated = (updated: Product) => {
     setProducts((prev) => prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)))
+    // Atualiza a coluna Categorias com o que foi selecionado na edição
+    refreshCategoryLinksFor([updated.id])
   }
 
   const clearFilters = () => {
@@ -280,8 +319,7 @@ export function ProductsPage() {
           onClick={() => setIsCreateOpen(true)}
           className="bg-gradient-to-r from-[#7A5C2E] via-[#A88742] to-[#7A5C2E] hover:from-[#634924] hover:to-[#634924] text-white px-5 h-11 rounded-xl font-bold shadow-md flex items-center gap-2 shrink-0"
         >
-          <Plus className="h-4 w-4" />
-          <span>+ Adicionar novo produto</span>
+          <span>Adicionar novo produto</span>
         </Button>
       </div>
 
