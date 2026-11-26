@@ -623,6 +623,19 @@ export default function StockInventory() {
       return
     }
 
+    // Estoque Atual Total não pode superar o Estoque Inicial: para salvar, o usuário
+    // deve liberar a edição do Estoque Inicial e aumentá-lo.
+    const baseInitialQty =
+      !isNaN(parsedInitQty) && parsedInitQty >= 0
+        ? parsedInitQty
+        : (editingProduct.qtde_inicial ?? 0)
+    if (parsedQty > baseInitialQty) {
+      toast.error(
+        'O Estoque Atual Total não pode ser maior que o Estoque Inicial. Libere o Estoque Inicial e aumente-o para salvar.',
+      )
+      return
+    }
+
     setIsSavingEdit(true)
     try {
       const normInvested = normalizeCurrencyValue(editForm.invested_value)
