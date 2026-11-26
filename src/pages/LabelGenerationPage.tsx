@@ -22,7 +22,18 @@ import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { toast } from '@/hooks/use-toast'
-import { PrintQueueItem, LabelPrintModal } from '@/components/LabelPrintModal'
+import {
+  PrintQueueItem,
+  LabelPrintModal,
+  ManualOffsets,
+  ZERO_OFFSETS,
+} from '@/components/LabelPrintModal'
+import {
+  LabelCalibrationSettings,
+  loadCalibration,
+  saveCalibration,
+  clearCalibration,
+} from '@/components/labels/LabelCalibrationSettings'
 import { LABEL_TEMPLATES, LabelTemplateModel } from '@/types/labels'
 import {
   DEFAULT_LABEL_CONTENT,
@@ -42,8 +53,12 @@ function productCategoryName(p: Product): string {
 }
 
 /**
- * Geração de Etiquetas (v0.0.266 — tabela 'Produtos encontrados' paginada em
- * 10 linhas por página, com coluna 'Data de cadastro', categoria e variação).
+ * Geração de Etiquetas (v0.0.273 — EBF23 com "Ajustes avançados de impressão":
+ * 4 campos em mm somados aos valores-base, persistidos por navegador via
+ * localStorage ("label-print-calibration-EBF23"), folha de calibração com as
+ * 40 posições numeradas e aviso de papel CARTA na impressão).
+ * v0.0.266 — tabela 'Produtos encontrados' paginada em 10 linhas por página,
+ * com coluna 'Data de cadastro', categoria e variação.
  * Regras consolidadas:
  * - Produto adicionado entra no TOPO da fila; etiqueta em branco entra no FINAL.
  * - Produto JÁ PRESENTE na fila: botão VERDE "Adicionado" DESABILITADO (como no
@@ -70,6 +85,31 @@ export default function LabelGenerationPage() {
   const [templateId, setTemplateId] = useState<string>('A4349')
   const [contentOptions, setContentOptions] = useState<LabelContentOptions>(DEFAULT_LABEL_CONTENT)
   const [printOpen, setPrintOpen] = useState(false)
+  const [calibrationOpen, setCalibrationOpen] = useState(false)
+
+  // ---------- Ajustes avançados de impressão (calibração, EBF23) ----------
+  // Offsets manuais SOMADOS aos valores-base do gabarito (0 = sem ajuste).
+  // Persistidos por navegador/dispositivo via localStorage na chave
+  // "label-print-calibration-<modelo>" (ex.: label-print-calibration-EBF23).
+  const [manualOffsets, setManualOffsets] = useState<ManualOffsets>({ ...ZERO_OFFSETS })
+  const isEBF23 = templateId === 'EBF23'
+
+  // Ao entrar na página ou trocar de gabarito: carrega a calibração salva
+  // neste navegador para o modelo selecionado (ou zeros).
+  useEffect(() => {
+    setManualOffsets(loadCalibration(templateId))
+  }, [templateId])
+
+  const handleSaveCalibration = () => {
+    saveCalibration(templateId, manualOffsets)
+    toast({ title: `Calibração salva neste navegador (${templateId}).` })
+  }
+
+  const handleResetCalibration = () => {
+    clearCalibration(templateId)
+    setManualOffsets({ ...ZERO_OFFSETS })
+    toast({ title: `Calibração restaurada para o padrão (${templateId}).` })
+  }
 
   // ---------- Busca (servidor) ----------
   const [search, setSearch] = useState('')
@@ -682,6 +722,26 @@ export default function LabelGenerationPage() {
               {contentToggle('showSellingPrice', 'Imprimir preço de venda')}
             </div>
           </div>
+
+          {/* Ajustes avançados de impressão (calibração) — só para a EBF23 */}
+          {isEBF23 && (
+            <div className="mt-4 pt-4 border-t border-[#E5DFD5]">
+              <LabelCalibrationSettings
+                templateId={templateId}
+                offsets={manualOffsets}
+                onChange={setManualOffsets}
+                onSave={handleSaveCalibration}
+                onReset={handleResetCalibration}
+                onPrintCalibration={() => setCalibrationOpen(true)}
+                base={{
+                  marginTop: template.marginTopMm,
+                  marginLeft: template.marginLeftMm,
+                  gapVertical: template.gapVerticalMm,
+                  gapHorizontal: template.gapHorizontalMm,
+                }}
+              />
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -796,13 +856,26 @@ export default function LabelGenerationPage() {
         onApplySelection={handleApplyBatch}
       />
 
-      {/* Prévia de impressão — ordem e geometria de folha intocadas */}
+      {/* Prévia de impressão — os offsets da calibração chegam ao modal e
+          valem para a PRÉVIA e para o CSS de impressão (@page + gaps) */}
       <LabelPrintModal
         isOpen={printOpen}
         onClose={() => setPrintOpen(false)}
         template={template}
         items={queue}
         contentOptions={contentOptions}
+        manualOffsets={manualOffsets}
+      />
+
+      {/* Folha de calibração EBF23 — 40 posições numeradas, sem dados reais */}
+      <LabelPrintModal
+        isOpen={calibrationOpen}
+        onClose={() => setCalibrationOpen(false)}
+        template={template}
+        items={[]}
+        contentOptions={contentOptions}
+        manualOffsets={manualOffsets}
+        calibrationSheet
       />
     </div>
   )

@@ -21,6 +21,20 @@ export interface PrintQueueItem {
   quantity: number
 }
 
+export interface ManualOffsets {
+  marginTop: number
+  marginLeft: number
+  gapHorizontal: number
+  gapVertical: number
+}
+
+export const ZERO_OFFSETS: ManualOffsets = {
+  marginTop: 0,
+  marginLeft: 0,
+  gapHorizontal: 0,
+  gapVertical: 0,
+}
+
 interface LabelPrintModalProps {
   isOpen: boolean
   onClose: () => void
@@ -28,12 +42,14 @@ interface LabelPrintModalProps {
   items: PrintQueueItem[]
   contentOptions: LabelContentOptions
 
-  manualOffsets?: {
-    marginTop: number
-    marginLeft: number
-    gapHorizontal: number
-    gapVertical: number
-  }
+  /** Ajustes avançados (calibração) SOMADOS aos valores-base do gabarito. */
+  manualOffsets?: ManualOffsets
+
+  /**
+   * Folha de calibração (EBF23): 40 posições numeradas (linha/coluna), sem
+   * dados de produto — para conferência física da impressão.
+   */
+  calibrationSheet?: boolean
 }
 
 export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
@@ -43,6 +59,7 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
   items,
   contentOptions,
   manualOffsets = { marginTop: 0, marginLeft: 0, gapHorizontal: 0, gapVertical: 0 },
+  calibrationSheet = false,
 }) => {
   const [zoom, setZoom] = React.useState<number>(100)
 
@@ -50,14 +67,20 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
 
   if (!isOpen) return null
 
-  // 1. Expande a fila de itens respeitando:
-  // - A fila chega com os mais recentes primeiro (ordem exibida na tela) e a
-  //   impressão INVERTE essa ordem: o FINAL da lista sai no topo da 1ª folha.
-  //   Etiquetas vazias entram no final da fila na tela e por isso imprimem nas
-  //   primeiras posições da 1ª folha (reaproveitamento de folhas usadas); os
-  //   produtos mais recentes imprimem por último.
-  // - Cada produto se multiplica pela quantidade especificada
-  const flattenedCells: Array<{
+  // ---------- Fila de células ----------
+  // Folha de calibração: 40 posições (2×20), SEM dados reais de produto —
+  // apenas número da posição, linha, coluna e marca discreta de centro.
+  // O valor vira TEXTO (não código de barras) para não imprimir barras.
+  interface CalibrationCell {
+    position: number
+    row: number
+    column: number
+    key: string
+  }
+
+  const isCalibration = calibrationSheet && template.id === 'EBF23'
+
+  let flattenedCells: Array<{
     type: 'empty' | 'product'
     code: string
     barcodeValue: string
@@ -68,23 +91,53 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
     key: string
   }> = []
 
-  // Impressão na ordem INVERSA à da lista (final da lista → topo do papel).
-  const orderedItems = [...items].reverse()
-  orderedItems.forEach((item, itemIdx) => {
-    const qty = Math.max(1, Math.floor(item.quantity || 1))
-    for (let i = 0; i < qty; i++) {
-      flattenedCells.push({
-        type: item.type,
-        code: item.code,
-        barcodeValue: item.barcodeValue,
-        skuEcommerce: item.skuEcommerce || '',
-        description: item.description,
-        fullName: item.fullName,
-        price: item.price,
-        key: `${item.id}-${itemIdx}-${i}`,
-      })
+  if (isCalibration) {
+    const calibCells: Array<(typeof flattenedCells)[number]> = []
+    let position = 0
+    for (let row = 1; row <= template.rows; row++) {
+      for (let col = 1; col <= template.columns; col++) {
+        position++
+        calibCells.push({
+          type: 'empty',
+          code: `L${row}·C${col}`,
+          barcodeValue: '',
+          skuEcommerce: '',
+          description: `Calibração — posição ${position}`,
+          fullName: '',
+          price: 0,
+          key: `calib-${position}`,
+        })
+      }
     }
-  })
+    flattenedCells = calibCells
+  } else {
+    // 1. Expande a fila de itens respeitando:
+    // - A fila chega com os mais recentes primeiro (ordem exibida na tela) e a
+    //   impressão INVERTE essa ordem: o FINAL da lista sai no topo da 1ª folha.
+    //   Etiquetas vazias entram no final da fila na tela e por isso imprimem nas
+    //   primeiras posições da 1ª folha (reaproveitamento de folhas usadas); os
+    //   produtos mais recentes imprimem por último.
+    // - Cada produto se multiplica pela quantidade especificada
+    const expanded: typeof flattenedCells = []
+    // Impressão na ordem INVERSA à da lista (final da lista → topo do papel).
+    const orderedItems = [...items].reverse()
+    orderedItems.forEach((item, itemIdx) => {
+      const qty = Math.max(1, Math.floor(item.quantity || 1))
+      for (let i = 0; i < qty; i++) {
+        expanded.push({
+          type: item.type,
+          code: item.code,
+          barcodeValue: item.barcodeValue,
+          skuEcommerce: item.skuEcommerce || '',
+          description: item.description,
+          fullName: item.fullName,
+          price: item.price,
+          key: `${item.id}-${itemIdx}-${i}`,
+        })
+      }
+    })
+    flattenedCells = expanded
+  }
 
   // 2. Paginação conforme o número de etiquetas por folha do gabarito
   const labelsPerPage = template.labelsPerSheet
@@ -126,7 +179,11 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
     pages.push(emptyPage)
   }
 
-  // Medidas reais em mm aplicadas às variáveis CSS
+  // Medidas reais em mm aplicadas às variáveis CSS.
+  // v0.0.273: os manualOffsets (Ajustes avançados de impressão) agora são
+  // aplicados a TODOS os gabaritos — inclusive a EBF23 — na PRÉVIA e na
+  // IMPRESSÃO (@page + gaps da grade). Antes, a EBF23 ignorava os offsets
+  // (usava as constantes fixas 15,5/24,5/2,73/4,9) e a tela nunca os entregava.
   const effectiveMarginTop = template.marginTopMm + (manualOffsets.marginTop || 0)
   const effectiveMarginLeft = template.marginLeftMm + (manualOffsets.marginLeft || 0)
   const isA4349 = template.id === 'A4349'
@@ -135,17 +192,14 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
   // usuário contra a folha real): sup 13 / inf 14 / esq 8 / dir 8.
   // Horizontal: 8 + (7×26) + (6×2) + 8 = 210mm ✓
   // Vertical:   13 + (18×15) + 14 = 297mm ✓ (0mm entre linhas)
-  // Demais gabaritos mantêm suas margens originais.
-  // EBF23 (medidas confirmadas pelo usuário contra a folha Carta física):
-  // @page sup 15,5 / esq 24,5 / dir 25,5 / inf 11,5.
-  // Horizontal: 24,5 + (2×80) + 4,9 + 25,5 = 214,9mm (cabe nos 215,9mm da Carta)
-  // Vertical:   15,5 + 200 + 51,87 + 11,5 ≈ 278,9mm (cabe na Carta, 279,4mm úteis)
-  //   Margem inferior reduzida de 13,5 para 11,5mm: não move etiqueta alguma
-  //   (a posição depende só da margem superior e do vão), apenas faz a soma
-  //   declarada caber nos 279,4mm úteis, evitando quebra para uma segunda folha.
-  //   Vão vertical 2,73mm (19 vãos = 51,87mm). Prévia e impressão usam o MESMO rowGap.
-  const pageMarginTop = isA4349 ? 13 : isEBF23 ? 15.5 : effectiveMarginTop
-  const pageMarginLeft = isA4349 ? 8 : isEBF23 ? 24.5 : effectiveMarginLeft
+  // EBF23 (folha CARTA 215,9 × 279,4mm — NÃO é A4): base sup 15,5 / esq 24,5 /
+  // dir 25,5 / inf 11,5 (backup em src/types/labels.ebf23.backup.ts).
+  // v0.0.273: as margens top/esq e os gaps da EBF23 passam a aceitar os
+  // offsets manuais da calibração (soma aos valores-base).
+  //   Horizontal: 24,5 + (2×80) + 4,9 + 25,5 = 214,9mm (cabe nos 215,9mm da Carta)
+  //   Vertical:   15,5 + 200 + 51,87 + 11,5 ≈ 278,9mm (cabe na Carta, 279,4mm úteis)
+  const pageMarginTop = isA4349 ? 13 : effectiveMarginTop
+  const pageMarginLeft = isA4349 ? 8 : effectiveMarginLeft
   const pageMarginRight = isA4349 ? 8 : isEBF23 ? 25.5 : effectiveMarginLeft
   const pageMarginBottom = isA4349 ? 14 : isEBF23 ? 11.5 : effectiveMarginTop
   const effectiveGapX = template.gapHorizontalMm + (manualOffsets.gapHorizontal || 0)
@@ -173,6 +227,27 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
     window.print()
   }
 
+  // Aviso específico EBF23: papel CARTA (não A4) na impressora.
+  const printTips = (
+    <span>
+      <strong>Dica de impressão:</strong> Na janela de impressão do navegador, mantenha as margens
+      em <strong>&quot;Padrão&quot;</strong> (as margens do gabarito são enviadas automaticamente
+      para a impressora), a escala em <strong>100%</strong> e desative cabeçalhos e rodapés para o
+      encaixe perfeito na folha do fabricante.
+      {isEBF23 && (
+        <>
+          {' '}
+          <strong className="text-[#E5C378]">
+            ATENÇÃO EBF23: a folha física é CARTA (215,9 × 279,4 mm) — NA IMPRESSORA, troque o tipo
+            de papel para &quot;Carta/Letter&quot; (NÃO use A4) e, na janela de impressão, use Carta
+            com margens &quot;Padrão&quot;, escala 100%, sem &quot;Ajustar à página&quot; e sem
+            &quot;Reduzir páginas grandes&quot;.
+          </strong>
+        </>
+      )}
+    </span>
+  )
+
   // O overlay vai via portal direto para <body>: na impressão, o CSS esconde com
   // display:none todo irmão do overlay (#root incluído), evitando que o conteúdo
   // da página (sidebar, tabelas) ocupe fluxo e gere páginas em branco no início.
@@ -186,15 +261,22 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
           </div>
           <div>
             <h2 className="text-base font-bold text-[#F3EAD8] flex items-center gap-2">
-              Prévia de Impressão de Etiquetas
+              {isCalibration ? 'Folha de Calibração EBF23' : 'Prévia de Impressão de Etiquetas'}
               <Badge variant="outline" className="text-xs border-[#C6A664]/50 text-[#C6A664]">
                 {template.label.split('—')[1]?.trim() || template.id}
               </Badge>
             </h2>
             <p className="text-xs text-[#A8A196]">
-              {flattenedCells.filter((c) => c.type === 'product').length} etiquetas de produtos •{' '}
-              {flattenedCells.filter((c) => c.type === 'empty').length} posições vazias •{' '}
-              {pages.length} folha(s) {template.sheetType}
+              {isCalibration ? (
+                <>Folha de teste com as {pages.length * labelsPerPage} posições numeradas</>
+              ) : (
+                <>
+                  {flattenedCells.filter((c) => c.type === 'product').length} etiquetas de produtos
+                  {' • '}
+                  {flattenedCells.filter((c) => c.type === 'empty').length} posições vazias •{' '}
+                  {pages.length} folha(s) {template.sheetType}
+                </>
+              )}
             </p>
           </div>
         </div>
@@ -207,6 +289,7 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
               onClick={() => setZoom((z) => Math.max(50, z - 10))}
               className="p-1.5 hover:bg-[#3D3833] rounded text-[#E5DFD5] transition-colors"
               title="Diminuir zoom"
+              aria-label="Diminuir zoom da prévia"
             >
               <ZoomOut className="h-3.5 w-3.5" />
             </button>
@@ -216,6 +299,7 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
               onClick={() => setZoom((z) => Math.min(150, z + 10))}
               className="p-1.5 hover:bg-[#3D3833] rounded text-[#E5DFD5] transition-colors"
               title="Aumentar zoom"
+              aria-label="Aumentar zoom da prévia"
             >
               <ZoomIn className="h-3.5 w-3.5" />
             </button>
@@ -241,20 +325,16 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
           </Button>
         </div>
       </header>
-      {/* Dica para o usuário sobre configuração de impressão do navegador */}
+      {/* Dicas para o usuário sobre configuração de impressão do navegador */}
       <div className="no-print bg-[#2A2418] border-b border-[#59441D] px-6 py-2 text-xs text-[#E5C378] flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <AlertCircle className="h-4 w-4 shrink-0 text-[#E5C378]" />
-          <span>
-            <strong>Dica de impressão:</strong> Na janela de impressão do navegador, mantenha as
-            margens em <strong>&quot;Padrão&quot;</strong> (as margens do gabarito são enviadas
-            automaticamente para a impressora), a escala em <strong>100%</strong> e desative
-            cabeçalhos e rodapés para o encaixe perfeito na folha do fabricante.
-          </span>
+          <span>{printTips}</span>
         </div>
-        <span className="text-[11px] opacity-75 hidden md:inline">
+        <span className="text-[11px] opacity-75 hidden md:inline shrink-0">
           Gabarito: {template.columns} colunas × {template.rows} linhas ({template.labelWidthMm} ×{' '}
-          {template.labelHeightMm} mm)
+          {template.labelHeightMm} mm) · Folha: {template.sheetType} {template.sheetWidthMm} ×{' '}
+          {template.sheetHeightMm} mm
         </span>
       </div>
       {/* Área da folha (ScrollView) */}
@@ -314,7 +394,31 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
                       {/* Borda sutil apenas na prévia na tela, invisível na impressão */}
                       <div className="label-guide-border absolute inset-0 pointer-events-none border border-dashed border-[#d1d5db] print:hidden" />
 
-                      {isEmpty ? (
+                      {isCalibration ? (
+                        /* ---------- CÉLULA DA FOLHA DE CALIBRAÇÃO ----------
+                           Número da posição + linha/coluna + marca de centro.
+                           Nenhum dado de produto, nenhum código de barras.
+                           Bordas finas só na PRÉVIA (calib-guide), como nas
+                           etiquetas reais; na impressão sai o texto puro nos
+                           cantos e a marca de centro, conferindo posição. */
+                        <div className="w-full h-full relative flex flex-col items-center justify-between py-[0.5mm]">
+                          <div className="w-full flex justify-between px-[1mm] text-[6.5px] font-mono leading-none text-black">
+                            <span>#{cell.code}</span>
+                            <span>{cell.description.replace('Calibração — ', '')}</span>
+                          </div>
+                          {/* Marca discreta de centro (cruz) — impressa, para
+                              conferir o centro físico da etiqueta */}
+                          <div
+                            aria-hidden="true"
+                            className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-black leading-none text-[8px]"
+                          >
+                            +
+                          </div>
+                          <div className="w-full flex justify-end px-[1mm] text-[6px] font-mono leading-none text-gray-500">
+                            <span className="print:hidden">80 × 10 mm</span>
+                          </div>
+                        </div>
+                      ) : isEmpty ? (
                         <div className="w-full h-full flex items-center justify-center">
                           <span className="text-[7.5px] font-mono text-[#9ca3af] uppercase tracking-wider print:hidden">
                             [ Vazia ]
@@ -325,13 +429,13 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
                            Tecson/Pimaco: aba esquerda 27mm + picote + aba direita
                            27mm + haste final 25mm SEM NENHUMA impressão (é a parte
                            que envolve a peça). Arte interna com 1mm de margem em
-todas as direções (25×8mm dentro de cada aba). O picote
-(linha pontilhada vertical) aparece na PRÉVIA da tela e
-some na IMPRESSÃO (classe print:border-0 — o espaço de
-1mm permanece, para a aba direita não mudar de posição). */
+                           todas as direções (25×8mm dentro de cada aba). O picote
+                           (linha pontilhada vertical) aparece na PRÉVIA da tela e
+                           some na IMPRESSÃO (classe print:border-0 — o espaço de
+                           1mm permanece, para a aba direita não mudar de posição). */
                         <div className="w-full h-full flex items-stretch font-sans text-black">
                           {/* Aba esquerda (27mm): apenas o código de barras, com 1mm
-   extra de respiro à direita (sem número/SKU embaixo) */}
+                               extra de respiro à direita (sem número/SKU embaixo) */}
                           <div
                             className="h-full flex flex-col items-center justify-center overflow-hidden"
                             style={{ width: '27mm', padding: '1mm 2mm 1mm 1mm' }}
@@ -347,7 +451,7 @@ some na IMPRESSÃO (classe print:border-0 — o espaço de
                           </div>
 
                           {/* Picote (linha pontilhada vertical) — guia de dobra:
-   visível na tela, oculto na folha impressa */}
+                               visível na tela, oculto na folha impressa */}
                           <div
                             aria-hidden="true"
                             className="h-full shrink-0 border-l border-dotted border-gray-600 print:border-l-0"
@@ -519,7 +623,9 @@ some na IMPRESSÃO (classe print:border-0 — o espaço de
              "Padrão". A4349 v0.0.241, geometria confirmada pelo usuário contra a
              folha real: sup 13 / inf 14 / esq 8 / dir 8.
              Horizontal: 8 + (7×26) + (6×2) + 8 = 210mm.
-             Vertical: 13 + (18×15) + 14 = 297mm (0mm entre linhas). */
+             Vertical: 13 + (18×15) + 14 = 297mm (0mm entre linhas).
+             EBF23: folha CARTA (não A4) — v0.0.273 aceita os offsets da
+             calibração somados aos valores-base. */
           margin: ${pageMarginTop}mm ${pageMarginRight}mm ${pageMarginBottom}mm ${pageMarginLeft}mm !important;
         }
       }
