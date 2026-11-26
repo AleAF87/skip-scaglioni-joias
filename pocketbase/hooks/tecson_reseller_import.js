@@ -1,18 +1,22 @@
 // Hook de importação Tecson → posse de revendedora.
 // Chamado pela página /importar-tecson-revendedora com pb.send('/backend/v1/tecson/reseller-import').
-// Recebe uma prévia pronta do frontend (linhas agrupadas por COD_PRODUTO do Tecson)
-// e executa TUDO-OU-NADA numa única transação.
+// Recebe as linhas JÁ parseadas por cabeçalho no frontend (tecsonCsvParser.ts) e
+// executa TUDO-OU-NADA numa única transação.
 //
 // Regras do modelo invertido (decisão do usuário):
 //  - products.quantity = ESTOQUE FÍSICO (gravado/editável)
 //  - Total = Físico + soma das posses em reseller_stock_items (calculado, nunca gravado)
 //  - Produto existente: aumenta a POSSE da revendedora; Físico não muda
-//  - Produto novo: Físico 0, qtde_inicial = quantidade importada, não publicado
-//  - CHAVE PRINCIPAL = COD_PRODUTO (código interno Scaglioni, 6 dígitos ou o que vier);
-//    CODIGO_BARRAS_TECSON é apenas auditoria/legado. Nunca inventa EAN/GTIN.
+//  - Produto novo: Físico 0, quantidade só na posse, não publicado
+//  - CHAVE PRINCIPAL = CODIGO_BARRAS (v0.0.276 — substitui COD_PRODUTO):
+//      comparação remove apenas zeros à esquerda ('0000000442497' = '442497');
+//      o valor ORIGINAL da Tecson é preservado para auditoria (inclusive zeros).
+//      COD_PRODUTO (código Tecson) é dado complementar/origem — NUNCA localiza
+//      produto nem vira quantidade. FORNECEDOR é informativo.
+//  - IMAGEM: produto novo → URL importada como imagem principal (image_url);
+//    produto existente → mantém a imagem cadastrada; só usa a importada se o
+//    produto não tiver nenhuma.
 //  - Quantidade 0: NÃO cria posse nem altera estoque — só cadastro/mapeamento.
-//  - Não é criada maleta/entrega (reseller_deliveries) nesta migração; a posse fica
-//    registrada em reseller_stock_items com origem/auditoria na própria importação.
 //  - JSVM: cada handler roda isolado — tudo duplicado inline aqui.
 
 routerAdd(
@@ -47,18 +51,26 @@ routerAdd(
       skipped: [],
     }
 
-    // Normalização: preserva o código ORIGINAL do Tecson como veio (com variação),
-    // mas deriva base numérica para busca/criação do produto (sem zeros à esquerda).
+    // Código de barras: preserva o ORIGINAL (auditoria, zeros à esquerda) e deriva
+    // a chave de comparação removendo APENAS zeros à esquerda.
+    const parseBarcode = (raw) => {
+      const original = String(raw || '').trim()
+      if (!original) return { original: '', key: '' }
+      if (!/^\d+$/.test(original)) return { original: original, key: original }
+      return { original: original, key: original.replace(/^0+/, '') || '0' }
+    }
+
+    // COD_PRODUTO Tecson: complementar. Deriva base + variação (ex.: '631587 37').
     const parseCodProduto = (raw) => {
       const original = String(raw || '')
         .trim()
         .replace(/\s+/g, ' ')
-      if (!original) return null
+      if (!original) return { original: '', base: '', variation: '' }
       const parts = original.split(' ')
       const baseNum = (parts[0] || '').replace(/\D/g, '')
       const base = baseNum ? baseNum.replace(/^0+/, '') || '0' : ''
       const variation = parts.length > 1 ? parts.slice(1).join(' ') : ''
-      return { original, base, variation }
+      return { original: original, base: base, variation: variation }
     }
 
     const escapeFilter = (s) => String(s).replace(/'/g, "\\'")
@@ -71,41 +83,54 @@ routerAdd(
         .replace(/\s+/g, ' ')
         .trim()
 
-    // Pré-validação fora da transação: falha rápido se algo inválido.
-    const perCod = {}
+    // Pré-validação fora da transação: agrupa por CÓDIGO DE BARRAS normalizado
+    // (+ variação do COD_PRODUTO, quando houver).
+    const perBarcode = {}
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i]
       const line = row.line || i + 2
-      const parsed = parseCodProduto(row.cod_produto)
-      if (!parsed || !parsed.base) {
-        result.skipped.push({ line, code: row.cod_produto || '', reason: 'COD_PRODUTO inválido.' })
+      const bc = parseBarcode(row.codigo_barras)
+      if (!bc.key || bc.key === '0') {
+        result.skipped.push({
+          line: line,
+          code: String(row.cod_produto || ''),
+          barcode: bc.original,
+          reason: 'CODIGO_BARRAS ilegível — é a chave principal da importação.',
+        })
         continue
       }
       const qty = parseInt(row.quantity, 10) || 0
       if (qty < 0) {
-        result.skipped.push({ line, code: parsed.original, reason: 'Quantidade negativa.' })
+        result.skipped.push({
+          line: line,
+          code: String(row.cod_produto || ''),
+          barcode: bc.original,
+          reason: 'Quantidade negativa.',
+        })
         continue
       }
-      const key = parsed.base + (parsed.variation ? ' | ' + normForCompare(parsed.variation) : '')
-      if (!perCod[key]) {
-        perCod[key] = {
-          base: parsed.base,
-          variation: parsed.variation,
-          cod_original: parsed.original,
-          codigo_barras_tecson: String(row.codigo_barras_tecson || '').trim(),
+      const cod = parseCodProduto(row.cod_produto)
+      const key = bc.key + (cod.variation ? ' | ' + normForCompare(cod.variation) : '')
+      if (!perBarcode[key]) {
+        perBarcode[key] = {
+          barcode_key: bc.key,
+          barcode_original: bc.original,
+          cod_produto_original: cod.original,
+          cod_base: cod.base,
+          variation: cod.variation,
           quantity: 0,
           row: row,
         }
       }
-      perCod[key].quantity += qty
+      perBarcode[key].quantity += qty
     }
 
-    const validKeys = Object.keys(perCod)
+    const validKeys = Object.keys(perBarcode)
     if (validKeys.length === 0) {
       return e.json(200, { ...result, success: true, message: 'Nada importável.' })
     }
 
-    // Encontra uma variação do produto cujo label/sku bata com a variação do CSV.
+    // Encontra uma variação do produto cujo label/sku bata com a variação do COD_PRODUTO.
     const findVariation = (txApp, productId, variationRaw) => {
       const vNorm = normForCompare(variationRaw)
       if (!vNorm) return null
@@ -132,7 +157,7 @@ routerAdd(
             new RegExp('^' + escapeFilter(productId) + '[\\s\\-_]*'),
             '',
           )
-          const candidates = [label, sku, skuSuffix, v.getString('codigo_barras') || '']
+          const candidates = [label, sku, skuSuffix]
           for (let j = 0; j < candidates.length; j++) {
             if (candidates[j] && normForCompare(candidates[j]) === vNorm) return v
           }
@@ -141,24 +166,34 @@ routerAdd(
       return null
     }
 
-    // Resolve TODOS os produtos com o mesmo código base (para detectar conflito).
-    // Busca por: code, sku_novo, sku_interno, codigo_produto_tecson, id_tecson.
-    // NOTA: codigo_barras_tecson NÃO é usado para localizar produto (auditoria).
-    const findProductsByBase = (txApp, base) => {
-      const esc = escapeFilter(base)
-      const filter =
-        "code = '" +
-        esc +
-        "' || sku_novo = '" +
-        esc +
-        "' || sku_interno = '" +
-        esc +
-        "' || codigo_produto_tecson = '" +
-        esc +
-        "' || id_tecson = '" +
-        esc +
-        "'"
-      return txApp.findRecordsByFilter('products', filter, '-created', 50, 0)
+    // Localiza produto APENAS por código de barras (codigo_barras e
+    // codigo_barras_tecson), comparando sem zeros à esquerda. COD_PRODUTO/id
+    // Tecson NÃO são usados como chave.
+    const findProductsByBarcode = (txApp, barcodeKey) => {
+      if (!barcodeKey) return []
+      const esc = escapeFilter(barcodeKey)
+      // '~' traz candidatos que CONTÊM o valor; a igualdade exata (sem zeros) é
+      // conferida em JS abaixo — cobre '442497' e '0000000442497' gravados.
+      const filter = "codigo_barras ~ '" + esc + "' || codigo_barras_tecson ~ '" + esc + "'"
+      let candidates = []
+      try {
+        candidates = txApp.findRecordsByFilter('products', filter, '-created', 50, 0)
+      } catch (_) {
+        candidates = []
+      }
+      const matches = []
+      for (let i = 0; i < candidates.length; i++) {
+        const p = candidates[i]
+        const bcs = [p.getString('codigo_barras'), p.getString('codigo_barras_tecson')]
+        for (let j = 0; j < bcs.length; j++) {
+          const parsed = parseBarcode(bcs[j])
+          if (parsed.key && parsed.key === barcodeKey) {
+            matches.push(p)
+            break
+          }
+        }
+      }
+      return matches
     }
 
     try {
@@ -168,22 +203,23 @@ routerAdd(
 
         for (let k = 0; k < validKeys.length; k++) {
           const key = validKeys[k]
-          const entry = perCod[key]
+          const entry = perBarcode[key]
           const qty = entry.quantity
           const row = entry.row
           const line = row.line
 
-          const matches = findProductsByBase(txApp, entry.base)
+          const matches = findProductsByBarcode(txApp, entry.barcode_key)
 
           if (matches.length > 1) {
             result.skipped.push({
-              line,
-              code: entry.cod_original,
+              line: line,
+              code: entry.cod_produto_original,
+              barcode: entry.barcode_original,
               reason:
                 'Conflito: ' +
                 matches.length +
-                ' produtos com o código ' +
-                entry.base +
+                ' produtos com o código de barras ' +
+                entry.barcode_original +
                 '. Resolva manualmente.',
             })
             continue
@@ -193,32 +229,35 @@ routerAdd(
           let isNew = false
           let isNewVariation = false
           let variationRecord = null
+          const importedImage = String(row.imagem || '').trim()
 
           if (!product) {
-            // Produto novo: Físico 0, qtde_inicial = quantidade importada,
-            // não publicado, origem "Migração Tecson — posse de revendedora".
-            // NÃO inventa EAN/GTIN: codigo_barras fica vazio (products_code_sequence
-            // gera o código sequencial numérico quando não há código puro).
+            // Produto novo: Físico 0, quantidade só na posse, não publicado.
+            // CHAVE = CODIGO_BARRAS original da Tecson (preservado com zeros à
+            // esquerda para auditoria). COD_PRODUTO vira complemento/origem.
             isNew = true
             const col = txApp.findCollectionByNameOrId('products')
             product = new Record(col)
             product.set('description', row.description || 'Produto importado Tecson')
             product.set('nome_produto', row.description || 'Produto importado Tecson')
             product.set('variacao', entry.variation || '')
-            product.set('codigo_barras', '')
-            product.set('codigo_barras_tecson', entry.codigo_barras_tecson)
-            product.set('codigo_produto_tecson', entry.base)
+            product.set('codigo_barras', entry.barcode_original)
+            product.set('codigo_barras_tecson', entry.barcode_original)
+            if (entry.cod_base) product.set('codigo_produto_tecson', entry.cod_base)
             product.set('quantity', 0)
-            product.set('qtde_inicial', qty)
+            product.set('qtde_inicial', 0)
             product.set('qtde_loja_virtual', 0)
             product.set('publicar_no_ecommerce', false)
             product.set('estado_ativo_ecommerce', false)
             product.set('status', 'unavailable')
             product.set('criado_em_origem', 'Migração Tecson — posse de revendedora')
             product.set('sku_ecommerce', '')
-            product.set('sku_interno', entry.base)
-            product.set('sku_novo', entry.base)
-            product.set('code', entry.base)
+            if (entry.cod_base) {
+              product.set('sku_interno', entry.cod_base)
+              product.set('sku_novo', entry.cod_base)
+            }
+            // IMAGEM: produto novo → URL importada como imagem principal.
+            if (importedImage) product.set('image_url', importedImage)
             if (row.description) product.set('nome_original_tecson', row.description)
             if (row.selling_price) product.set('selling_price', parseFloat(row.selling_price) || 0)
             txApp.save(product)
@@ -228,7 +267,7 @@ routerAdd(
               const colVar = txApp.findCollectionByNameOrId('product_variations')
               const varRec = new Record(colVar)
               varRec.set('product', product.id)
-              varRec.set('sku', entry.cod_original)
+              varRec.set('sku', entry.cod_produto_original || entry.barcode_original)
               varRec.set('attributes', JSON.stringify({ Variacao: entry.variation }))
               varRec.set('price', parseFloat(row.selling_price) || 0)
               varRec.set('quantity', 0)
@@ -236,16 +275,15 @@ routerAdd(
               result.variations_created++
             }
           } else {
-            // Produto existente: se o COD_PRODUTO trouxe variação, busca a variação real.
+            // Produto existente: variação derivada do COD_PRODUTO, se houver.
             if (entry.variation) {
               variationRecord = findVariation(txApp, product.id, entry.variation)
               if (!variationRecord) {
-                // Variação não existe no produto: cria a variação (novo, com preço Tecson).
                 isNewVariation = true
                 const colVar = txApp.findCollectionByNameOrId('product_variations')
                 const varRec = new Record(colVar)
                 varRec.set('product', product.id)
-                varRec.set('sku', entry.cod_original)
+                varRec.set('sku', entry.cod_produto_original || entry.barcode_original)
                 varRec.set('attributes', JSON.stringify({ Variacao: entry.variation }))
                 varRec.set('price', parseFloat(row.selling_price) || 0)
                 varRec.set('quantity', 0)
@@ -253,17 +291,23 @@ routerAdd(
                 result.variations_created++
               }
             }
-            // Auditoria: se o produto existente não tinha codigo_barras_tecson, grava.
-            if (entry.codigo_barras_tecson && !product.getString('codigo_barras_tecson')) {
-              product.set('codigo_barras_tecson', entry.codigo_barras_tecson)
+            // Auditoria: grava o código de barras da Tecson se o produto não tinha.
+            if (entry.barcode_original && !product.getString('codigo_barras_tecson')) {
+              product.set('codigo_barras_tecson', entry.barcode_original)
+              txApp.save(product)
+            }
+            // IMAGEM: mantém a imagem cadastrada; só usa a importada se não houver.
+            if (importedImage && !product.getString('image_url')) {
+              product.set('image_url', importedImage)
               txApp.save(product)
             }
           }
 
           if (qty === 0) {
             result.skipped.push({
-              line,
-              code: entry.cod_original,
+              line: line,
+              code: entry.cod_produto_original,
+              barcode: entry.barcode_original,
               reason: 'Quantidade zero — cadastro/mapeamento somente. Sem posse criada.',
             })
             continue
@@ -286,8 +330,9 @@ routerAdd(
             const cur = rec.getInt('quantity') || 0
             if (cur === qty) {
               result.skipped.push({
-                line,
-                code: entry.cod_original,
+                line: line,
+                code: entry.cod_produto_original,
+                barcode: entry.barcode_original,
                 reason: 'Já importado (mesmo saldo).',
               })
               continue

@@ -1,112 +1,288 @@
-/**
- * Parser do CSV Tecson → posse de revendedora.
- *
- * NOVO FORMATO (prioritário):
- *   COD_PRODUTO;CODIGO_BARRAS_TECSON;QUANTIDADE;DESCRICAO;PRECO
- *
- * - COD_PRODUTO é a CHAVE PRINCIPAL (código interno Scaglioni, ex. "631587 N15").
- *   Pode conter código + variação: "631587 N15" → base "631587", variação "N15";
- *   "927062 PRATA 20" → base "927062", variação "PRATA 20".
- * - CODIGO_BARRAS_TECSON é opcional — somente legado/auditoria, NUNCA chave de busca.
- * - QUANTIDADE aceita zero (prévia: "Sem posse atual — cadastro/mapeamento somente").
- * - DESCRICAO e PRECO são opcionais.
- *
- * Compatibilidade com o formato ANTIGO (header CODIGO_BARRAS/EAN/GTIN): se a
- * primeira coluna não existir mas houver código de barras, usa-o como base_code.
- */
+// Parser do CSV de importação de posse de revendedora (Tecson).
+// LEITURA POR CABEÇALHO — nunca por posição fixa de coluna.
+//
+// Formato padrão (igual ao da importação Tecson):
+//   IMAGEM;NOME;COD_PRODUTO;FORNECEDOR;CODIGO_BARRAS;QUANTIDADE;PRECO
+//
+// Regras:
+//  - Cada campo é identificado pelo CABEÇALHO da coluna, com aliases aceitos
+//    (incluindo os nomes usados em /importar-tecson: R$_VENDA para preço e
+//    QUANT_EM_ESTOQUES para quantidade).
+//  - CODIGO_BARRAS é a chave principal para localizar/criar o produto. O valor
+//    ORIGINAL da Tecson é preservado (auditoria, inclusive zeros à esquerda);
+//    na comparação interna só removemos zeros à esquerda:
+//    '0000000442497' ⇒ '442497' (código interno).
+//  - NOME = descrição inicial de produto novo; FORNECEDOR é informativo.
+//  - Codificações comuns (UTF-8 com/sem BOM, Latin-1) são tratadas.
 
 export interface ParsedTecsonRow {
   line: number
-  /** Linha bruta original (coluna 1). */
-  cod_produto: string
-  /** Código base separado (ex. "631587" de "631587 N15"). */
-  base_code: string
-  /** Sufixo de variação separado (ex. "N15"), vazio quando não há. */
-  variation: string
-  /** Audtoria: código de barras legado Tecson (não usado para localizar). */
-  codigo_barras_tecson: string
-  quantity: number
-  description: string
-  selling_price: string
-  /** Linhas sem COD_PRODUTO legível vão para inválidas (com motivo). */
-  invalid_reason?: string
+  imagem: string
+  nome: string
+  codProduto: string
+  codProdutoBase: string
+  variacao: string
+  fornecedor: string
+  codigoBarras: string
+  codigoBarrasNorm: string
+  quantidade: number
+  preco: number
+  erro?: string
 }
 
-/** Separa "631587 N15" → { baseCode: '631587', variation: 'N15' }. */
-export function splitCodProduto(raw: string): { baseCode: string; variation: string } {
-  const clean = String(raw || '')
-    .trim()
-    .replace(/\s+/g, ' ')
-  if (!clean) return { baseCode: '', variation: '' }
-  const spaceIdx = clean.indexOf(' ')
-  if (spaceIdx > 0) {
-    return {
-      baseCode: clean.slice(0, spaceIdx).trim(),
-      variation: clean.slice(spaceIdx + 1).trim(),
-    }
+export interface TecsonParseResult {
+  rows: ParsedTecsonRow[]
+  headers: string[]
+  delimiter: string
+  errors: string[]
+}
+
+/** Normaliza o valor ORIGINAL do código de barras (trim). */
+export function normalizeBarcodeOriginal(raw: string): string {
+  return String(raw || '').trim()
+}
+
+/** Chave de comparação: remove apenas zeros à esquerda (0000000442497 ⇒ 442497). */
+export function stripLeadingZerosBarcode(value: string): string {
+  const v = String(value || '').trim()
+  if (!v) return ''
+  if (!/^\d+$/.test(v)) return v // não numérico: compara como veio
+  return v.replace(/^0+/, '') || '0'
+}
+
+/** Converte preço brasileiro (ex.: '140,00', 'R$ 1.234,56') para número. */
+export function parseTecsonPriceBr(raw: string): number {
+  let v = String(raw ?? '').trim()
+  if (!v) return 0
+  v = v.replace(/[^\d,.-]/g, '')
+  if (!v) return 0
+  if (v.includes(',')) {
+    // formato BR: ponto = milhar, vírgula = decimal
+    v = v.replace(/\./g, '').replace(',', '.')
+  } else if (v.includes('.')) {
+    // sem vírgula: se o último grupo não tem 3 dígitos, é decimal
+    const parts = v.split('.')
+    const last = parts[parts.length - 1]
+    if (parts.length > 2 || last.length !== 3) v = v.replace(/\./g, ',')
   }
-  return { baseCode: clean, variation: '' }
+  const n = parseFloat(v)
+  return Number.isFinite(n) ? n : 0
 }
 
-/** Normaliza o código base para comparação (preserva zeros à esquerda). */
-export function normalizeTecsonBaseCode(raw: string): string {
+/** Converte quantidade para inteiro (aceita '3', '3,0', '3.0'). Nunca lê outro campo. */
+export function parseTecsonQuantityInt(raw: string): number {
+  const v = String(raw ?? '')
+    .trim()
+    .replace(/\s/g, '')
+  if (!v) return 0
+  const n = Number(v.replace(',', '.'))
+  if (!Number.isFinite(n)) return 0
+  return Math.trunc(n)
+}
+
+const HEADER_ALIASES: Record<string, string[]> = {
+  imagem: ['IMAGEM', 'IMAGE', 'FOTO', 'URL_IMAGEM', 'IMG'],
+  nome: ['NOME', 'DESCRICAO', 'DESCRIÇÃO', 'DESCRICAO_PRODUTO', 'NOME_PRODUTO', 'PRODUTO'],
+  codProduto: [
+    'COD_PRODUTO',
+    'CODIGO_PRODUTO',
+    'CÓDIGO_PRODUTO',
+    'COD_PROD_TECSON',
+    'COD_TECSON',
+    'CODIGO_TECSON',
+  ],
+  fornecedor: ['FORNECEDOR', 'FORNECEDORA', 'SUPPLIER'],
+  codigoBarras: [
+    'CODIGO_BARRAS',
+    'CÓDIGO_DE_BARRAS',
+    'CODIGO_DE_BARRAS',
+    'COD_BARRAS',
+    'EAN',
+    'EAN13',
+    'GTIN',
+    'CODIGO_BARRAS_TECSON',
+    'COD_BARRAS_TECSON',
+  ],
+  quantidade: [
+    'QUANTIDADE',
+    'QUANT_EM_ESTOQUES',
+    'QTD',
+    'QTDE',
+    'QTD_ESTOQUE',
+    'QUANTIDADE_ESTOQUE',
+  ],
+  preco: ['PRECO', 'PREÇO', 'R$_VENDA', 'VALOR_VENDA', 'PRECO_VENDA', 'R$_PRECO', 'VALOR'],
+}
+
+function normHeader(raw: string): string {
   return String(raw || '')
+    .replace(/^\uFEFF/, '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toUpperCase()
+    .replace(/[^A-Z0-9$]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
 }
 
-export function parseTecsonCsv(text: string): {
-  rows: ParsedTecsonRow[]
-  invalidRows: ParsedTecsonRow[]
-} {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0)
-  const rows: ParsedTecsonRow[] = []
-  const invalidRows: ParsedTecsonRow[] = []
+/** Mapeia cada coluna do CSV para o campo canônico pelo CABEÇALHO. */
+export function mapHeaders(headers: string[]): Record<string, number | null> {
+  const map: Record<string, number | null> = {
+    imagem: null,
+    nome: null,
+    codProduto: null,
+    fornecedor: null,
+    codigoBarras: null,
+    quantidade: null,
+    preco: null,
+  }
+  headers.forEach((h, index) => {
+    const n = normHeader(h)
+    if (!n) return
+    for (const [field, aliases] of Object.entries(HEADER_ALIASES)) {
+      if (aliases.includes(n) && map[field] === null) {
+        map[field] = index
+        break
+      }
+    }
+  })
+  return map
+}
 
-  for (let i = 0; i < lines.length; i++) {
-    const cols = lines[i].split(';').map((c) => c.trim().replace(/^"|"$/g, ''))
-    if (i === 0 && /COD[\s_]?PRODUTO|CODIGO[\s_]?BARRAS|EAN|GTIN/i.test(cols.join(' '))) continue // header
+function detectDelimiter(headerLine: string): string {
+  const semis = (headerLine.match(/;/g) || []).length
+  const commas = (headerLine.match(/,/g) || []).length
+  return commas > semis ? ',' : ';'
+}
 
-    const codProduto = cols[0] || ''
-    const codBarrasTecson = cols[1] || ''
-    const quantidadeRaw = cols[2] || '0'
-    const descricao = cols[3] || ''
-    const preco = cols[4] || ''
+function splitLine(line: string, delimiter: string): string[] {
+  const out: string[] = []
+  let cur = ''
+  let inQuotes = false
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        cur += '"'
+        i++
+      } else {
+        inQuotes = !inQuotes
+      }
+    } else if (ch === delimiter && !inQuotes) {
+      out.push(cur)
+      cur = ''
+    } else {
+      cur += ch
+    }
+  }
+  out.push(cur)
+  return out
+}
+
+function decodeText(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  if (
+    bytes.length >= 2 &&
+    ((bytes[0] === 0xff && bytes[1] === 0xfe) || (bytes[0] === 0xfe && bytes[1] === 0xff))
+  ) {
+    return new TextDecoder('utf-16le').decode(buffer).replace(/^\uFEFF/, '')
+  }
+  const utf8 = new TextDecoder('utf-8', { fatal: false }).decode(buffer)
+  if (utf8.includes('\uFFFD')) {
+    try {
+      return new TextDecoder('latin1').decode(buffer)
+    } catch {
+      /* latin1 não suportado: usa utf-8 */
+    }
+  }
+  return utf8
+}
+
+export function parseTecsonCsv(text: string): TecsonParseResult {
+  const result: TecsonParseResult = { rows: [], headers: [], delimiter: ';', errors: [] }
+  if (!text || !text.trim()) {
+    result.errors.push('Arquivo vazio.')
+    return result
+  }
+
+  const clean = text
+    .replace(/^\uFEFF/, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+  const rawLines = clean.split('\n')
+  const lines = rawLines.filter((l, i) => i === 0 || l.trim() !== '')
+  if (lines.length === 0) {
+    result.errors.push('Arquivo vazio.')
+    return result
+  }
+
+  const delimiter = detectDelimiter(lines[0])
+  result.delimiter = delimiter
+
+  const headerCells = splitLine(lines[0], delimiter)
+  result.headers = headerCells.map((h) => h.trim().replace(/^"|"$/g, ''))
+  const map = mapHeaders(result.headers)
+
+  if (map.codigoBarras === null) {
+    result.errors.push(
+      'Coluna CODIGO_BARRAS não encontrada no cabeçalho — ela é a chave principal da importação.',
+    )
+  }
+
+  // Deriva variação do COD_PRODUTO (parte após espaço, ex.: '631587 37' ⇒ '37').
+  const parseCodProduto = (raw: string) => {
+    const original = String(raw || '')
+      .trim()
+      .replace(/\s+/g, ' ')
+    if (!original) return { original: '', base: '', variacao: '' }
+    const parts = original.split(' ')
+    const baseNum = (parts[0] || '').replace(/\D/g, '')
+    const base = baseNum ? baseNum.replace(/^0+/, '') || '0' : ''
+    const variacao = parts.length > 1 ? parts.slice(1).join(' ') : ''
+    return { original, base, variacao }
+  }
+
+  for (let i = 1; i < lines.length; i++) {
+    const cells = splitLine(lines[i], delimiter)
+    const get = (field: string): string => {
+      const idx = map[field]
+      if (idx === null) return ''
+      const cell = cells[idx] ?? ''
+      return cell.trim().replace(/^"|"$/g, '')
+    }
+
+    const imagem = get('imagem')
+    const nome = get('nome')
+    const { original: codOriginal, base: codBase, variacao } = parseCodProduto(get('codProduto'))
+    const fornecedor = get('fornecedor')
+    const codigoBarras = get('codigoBarras')
+    const quantidade = parseTecsonQuantityInt(get('quantidade'))
+    const preco = parseTecsonPriceBr(get('preco'))
 
     const row: ParsedTecsonRow = {
       line: i + 1,
-      cod_produto: codProduto,
-      base_code: '',
-      variation: '',
-      codigo_barras_tecson: codBarrasTecson,
-      quantity: Math.max(0, parseInt(quantidadeRaw, 10) || 0),
-      description: descricao,
-      selling_price: preco,
+      imagem,
+      nome,
+      codProduto: codOriginal,
+      codProdutoBase: codBase,
+      variacao,
+      fornecedor,
+      codigoBarras,
+      codigoBarrasNorm: stripLeadingZerosBarcode(codigoBarras),
+      quantidade,
+      preco,
     }
-
-    if (!codProduto) {
-      // Sem COD_PRODUTO: no formato antigo a 1ª coluna ERA o código de barras.
-      const legacy = codBarrasTecson
-      if (legacy) {
-        row.base_code = normalizeTecsonBaseCode(legacy)
-        row.cod_produto = legacy
-        row.codigo_barras_tecson = legacy
-      } else {
-        row.invalid_reason = 'Linha sem COD_PRODUTO.'
-        invalidRows.push(row)
-        continue
-      }
-    } else {
-      const { baseCode, variation } = splitCodProduto(codProduto)
-      row.base_code = normalizeTecsonBaseCode(baseCode)
-      row.variation = normalizeTecsonBaseCode(variation)
+    if (!codigoBarras && !codOriginal) {
+      row.erro = 'Linha sem CODIGO_BARRAS e sem COD_PRODUTO — ignorada.'
+      result.errors.push(`Linha ${i + 1}: ${row.erro}`)
     }
-
-    rows.push(row)
+    result.rows.push(row)
   }
+  return result
+}
 
-  return { rows, invalidRows }
+/** Lê um File e devolve o texto decodificado (UTF-8/Latin-1/UTF-16). */
+export async function readTecsonFileAsText(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer()
+  return decodeText(buffer)
 }
