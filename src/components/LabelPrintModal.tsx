@@ -130,15 +130,20 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
   const effectiveMarginTop = template.marginTopMm + (manualOffsets.marginTop || 0)
   const effectiveMarginLeft = template.marginLeftMm + (manualOffsets.marginLeft || 0)
   const isA4349 = template.id === 'A4349'
+  const isEBF23 = template.id === 'EBF23'
   // Margens do @page na impressão. A4349 v0.0.241 (geometria confirmada pelo
   // usuário contra a folha real): sup 13 / inf 14 / esq 8 / dir 8.
   // Horizontal: 8 + (7×26) + (6×2) + 8 = 210mm ✓
   // Vertical:   13 + (18×15) + 14 = 297mm ✓ (0mm entre linhas)
   // Demais gabaritos mantêm suas margens originais.
-  const pageMarginTop = isA4349 ? 13 : effectiveMarginTop
-  const pageMarginLeft = isA4349 ? 8 : effectiveMarginLeft
-  const pageMarginRight = isA4349 ? 8 : effectiveMarginLeft
-  const pageMarginBottom = isA4349 ? 14 : effectiveMarginTop
+  // EBF23 v0.0.267 (medidas confirmadas pelo usuário contra a folha Carta
+  // física): @page sup 14,5 / esq 25,5 / dir 25,5 / inf 13,5.
+  // Horizontal: 25,5 + (2×80) + 4,9 + 25,5 = 215,9mm ✓
+  // Vertical:   14,5 + (20×10) + (19×2,5) + 13,5 = 279,4mm ✓
+  const pageMarginTop = isA4349 ? 13 : isEBF23 ? 14.5 : effectiveMarginTop
+  const pageMarginLeft = isA4349 ? 8 : isEBF23 ? 25.5 : effectiveMarginLeft
+  const pageMarginRight = isA4349 ? 8 : isEBF23 ? 25.5 : effectiveMarginLeft
+  const pageMarginBottom = isA4349 ? 14 : isEBF23 ? 13.5 : effectiveMarginTop
   const effectiveGapX = template.gapHorizontalMm + (manualOffsets.gapHorizontal || 0)
   const effectiveGapY = template.gapVerticalMm + (manualOffsets.gapVertical || 0)
   // Gap horizontal impresso = gap do gabarito (2mm) para a A4349: a grade
@@ -152,10 +157,12 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
   // textos são fluidos, width 100% da área útil) encolhe proporcionalmente
   // com o padding maior. Antes (v0.0.241 a v0.0.245): 1mm em todos os lados.
   // Backup em src/types/labels.backup.ts. Demais gabaritos mantêm o padding.
+  // EBF23: a célula NÃO tem padding — cada aba impressa cuida da própria
+  // margem interna de 1mm (arte de 25×8mm dentro de cada aba de 27mm).
   const labelInnerPadding = isA4349
     ? '1mm 2.5mm 1mm 1mm'
     : template.isJewelryTag
-      ? '0.5mm 1.5mm'
+      ? '0mm'
       : '0.5mm 1mm'
 
   const handlePrint = () => {
@@ -310,51 +317,75 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
                           </span>
                         </div>
                       ) : template.isJewelryTag ? (
-                        /* Layout específico Singularis EBF23 (80x10mm) com haste central e abas */
-                        <div className="w-full h-full flex items-center justify-between text-[7px] leading-tight px-1 font-sans">
-                          {/* Lado Esquerdo da Etiqueta de Joia: Código + Barcode */}
-                          <div className="w-[42%] h-full flex flex-col justify-center items-center overflow-hidden">
-                            <div className="w-full h-[5.5mm] flex items-center justify-center">
+                        /* Arte oficial Singularis EBF23 (80×10mm) conforme gabarito
+                           Tecson/Pimaco: aba esquerda 27mm + picote + aba direita
+                           27mm + haste final 25mm SEM NENHUMA impressão (é a parte
+                           que envolve a peça). Arte interna com 1mm de margem em
+                           todas as direções (25×8mm dentro de cada aba). O picote
+                           (linha pontilhada vertical) fica VISÍVEL TAMBÉM NA
+                           IMPRESSÃO como guia de dobra — nenhuma regra de print o
+                           esconde nas partes impressas. */
+                        <div className="w-full h-full flex items-stretch font-sans text-black">
+                          {/* Aba esquerda (27mm): código de barras + número legível embaixo */}
+                          <div
+                            className="h-full flex flex-col items-center justify-center overflow-hidden"
+                            style={{ width: '27mm', padding: '1mm' }}
+                          >
+                            <div className="w-full min-h-0 flex-1 flex items-center justify-center">
                               <BarcodeSvg
                                 value={cell.barcodeValue}
                                 displayText={showCode ? cell.code : ''}
-                                height={24}
+                                height={26}
                                 showText={false}
                               />
                             </div>
                             {showCode && (
-                              <span className="font-mono font-black text-[7.5px] tracking-tight mt-[0.3mm]">
-                                {cell.code}
+                              <span className="font-mono font-black text-[7.5px] tracking-tight leading-none mt-[0.2mm]">
+                                {cell.barcodeValue}
                               </span>
                             )}
                             {showCode && cell.skuEcommerce && (
-                              <span className="font-mono text-[6px] text-gray-600 tracking-tight">
+                              <span className="font-mono text-[6px] text-gray-600 tracking-tight leading-none mt-[0.2mm]">
                                 SKU {cell.skuEcommerce}
                               </span>
                             )}
                           </div>
 
-                          {/* Centro da haste fina (área dobrável do anel) */}
-                          <div className="w-[12%] h-full flex items-center justify-center border-l border-r border-dotted border-gray-300 print:border-none">
-                            <span className="text-[5px] text-gray-400 print:hidden">•</span>
-                          </div>
+                          {/* Picote (linha pontilhada vertical) — guia de dobra,
+                              presente na tela E na folha impressa */}
+                          <div
+                            aria-hidden="true"
+                            className="h-full shrink-0 border-l border-dotted border-gray-600"
+                            style={{ width: '1mm' }}
+                          />
 
-                          {/* Lado Direito: Nome da peça e Preço */}
-                          <div className="w-[42%] h-full flex flex-col justify-center items-end text-right overflow-hidden pr-0.5">
+                          {/* Aba direita (27mm): conteúdo empilhado e ALINHADO À ESQUERDA */}
+                          <div
+                            className="h-full flex flex-col justify-center items-start text-left overflow-hidden"
+                            style={{ width: '27mm', padding: '1mm' }}
+                          >
+                            {showCode && (
+                              <span className="w-full truncate font-mono font-bold text-[7px] leading-tight">
+                                Cód.: {cell.code}
+                              </span>
+                            )}
                             {showFullName && (
                               <span
-                                className="w-full truncate font-medium text-[6.5px] text-gray-800"
+                                className="w-full truncate text-[6.5px] text-gray-800 leading-tight"
                                 title={cell.fullName}
                               >
-                                {cell.fullName || 'Scaglioni Joias'}
+                                {cell.fullName}
                               </span>
                             )}
                             {showSellingPrice && cell.price > 0 && (
-                              <span className="font-bold text-[7.5px] text-black mt-[0.5mm]">
+                              <span className="font-bold text-[7.5px] text-black leading-tight">
                                 {formatCurrency(cell.price)}
                               </span>
                             )}
                           </div>
+
+                          {/* Haste final (25mm) — SEM NENHUMA impressão */}
+                          <div aria-hidden="true" className="h-full" style={{ width: '25mm' }} />
                         </div>
                       ) : (
                         /* Layout padrão (6187, A4349, A4351) */

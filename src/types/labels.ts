@@ -78,9 +78,13 @@ export const LABEL_TEMPLATES: Record<string, LabelTemplateModel> = {
   EBF23: {
     id: 'EBF23',
     label: 'A4 — Singularis EBF23 — Etiqueta para anel — 40 etiquetas por folha',
-    description: '2 colunas × 20 linhas | 80,0 × 10,0 mm (com haste de anel)',
+    description:
+      '2 colunas × 20 linhas | 80,0 × 10,0 mm (duas abas de 27mm + picote + haste de 25mm)',
     sheetType: 'Carta',
-    // Folha Carta 215.9 x 279.4 mm (ou A4 210x297 na impressora)
+    // Folha Carta 215.9 x 279.4 mm — encaixe confirmado pelo usuário (v0.0.267):
+    // @page sup 14,5 / esq 25,5 / dir 25,5 / inf 13,5.
+    // Horizontal: 25,5 + (2×80) + 4,9 + 25,5 = 215,9mm ✓
+    // Vertical: 14,5 + (20×10) + (19×2,5) + 13,5 = 279,4mm ✓
     sheetWidthMm: 215.9,
     sheetHeightMm: 279.4,
     labelsPerSheet: 40,
@@ -88,9 +92,9 @@ export const LABEL_TEMPLATES: Record<string, LabelTemplateModel> = {
     rows: 20,
     labelWidthMm: 80.0,
     labelHeightMm: 10.0,
-    marginTopMm: 15.0,
-    marginLeftMm: 22.0,
-    gapHorizontalMm: 11.9,
+    marginTopMm: 14.5,
+    marginLeftMm: 25.5,
+    gapHorizontalMm: 4.9,
     gapVerticalMm: 2.5,
     isJewelryTag: true,
   },
