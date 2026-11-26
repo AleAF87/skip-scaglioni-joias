@@ -53,9 +53,14 @@ routerAdd(
 
     // Código de barras: preserva o ORIGINAL (auditoria, zeros à esquerda) e deriva
     // a chave de comparação removendo APENAS zeros à esquerda.
-    const parseBarcode = (raw) => {
+    const parseBarcode = (raw, normFallback) => {
       const original = String(raw || '').trim()
-      if (!original) return { original: '', key: '' }
+      if (!original) {
+        // Frontend já envia codigo_barras_norm (só zeros à esquerda removidos):
+        // usado como fallback da chave quando o original vier vazio.
+        const nf = String(normFallback || '').trim()
+        return { original: original || nf, key: nf }
+      }
       if (!/^\d+$/.test(original)) return { original: original, key: original }
       return { original: original, key: original.replace(/^0+/, '') || '0' }
     }
@@ -89,7 +94,7 @@ routerAdd(
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i]
       const line = row.line || i + 2
-      const bc = parseBarcode(row.codigo_barras)
+      const bc = parseBarcode(row.codigo_barras, row.codigo_barras_norm)
       if (!bc.key || bc.key === '0') {
         result.skipped.push({
           line: line,
@@ -260,6 +265,8 @@ routerAdd(
             if (importedImage) product.set('image_url', importedImage)
             if (row.description) product.set('nome_original_tecson', row.description)
             if (row.selling_price) product.set('selling_price', parseFloat(row.selling_price) || 0)
+            // FORNECEDOR: informativo, vindo do CSV (ex.: 'Scaglioni Joias').
+            if (row.fornecedor) product.set('fornecedor', String(row.fornecedor).trim())
             txApp.save(product)
             result.products_created++
 
@@ -299,6 +306,11 @@ routerAdd(
             // IMAGEM: mantém a imagem cadastrada; só usa a importada se não houver.
             if (importedImage && !product.getString('image_url')) {
               product.set('image_url', importedImage)
+              txApp.save(product)
+            }
+            // FORNECEDOR: só preenche se o produto não tinha nenhum.
+            if (row.fornecedor && !product.getString('fornecedor')) {
+              product.set('fornecedor', String(row.fornecedor).trim())
               txApp.save(product)
             }
           }

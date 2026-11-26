@@ -35,6 +35,8 @@ export interface TecsonParseResult {
   headers: string[]
   delimiter: string
   errors: string[]
+  /** Mapa campo canônico → índice da coluna detectado no cabeçalho. */
+  headerMap: Record<string, number | null>
 }
 
 /** Normaliza o valor ORIGINAL do código de barras (trim). */
@@ -80,6 +82,9 @@ export function parseTecsonQuantityInt(raw: string): number {
   return Math.trunc(n)
 }
 
+// Aliases por campo, escritos na forma canônica do CSV (com _, $, acentos,
+// espaços e hífens). TODOS passam pela MESMA normalização que os cabeçalhos
+// antes da comparação — nunca literal.
 const HEADER_ALIASES: Record<string, string[]> = {
   imagem: ['IMAGEM', 'IMAGE', 'FOTO', 'URL_IMAGEM', 'IMG'],
   nome: ['NOME', 'DESCRICAO', 'DESCRIÇÃO', 'DESCRICAO_PRODUTO', 'NOME_PRODUTO', 'PRODUTO'],
@@ -114,14 +119,30 @@ const HEADER_ALIASES: Record<string, string[]> = {
   preco: ['PRECO', 'PREÇO', 'R$_VENDA', 'VALOR_VENDA', 'PRECO_VENDA', 'R$_PRECO', 'VALOR'],
 }
 
-function normHeader(raw: string): string {
+/** Rótulo legível de cada campo canônico, para a prévia da página. */
+export const FIELD_LABELS: Record<string, string> = {
+  imagem: 'imagem',
+  nome: 'nome/descrição',
+  codProduto: 'código do produto (Tecson)',
+  fornecedor: 'fornecedor',
+  codigoBarras: 'código de barras',
+  quantidade: 'quantidade',
+  preco: 'preço',
+}
+
+/**
+ * NORMALIZAÇÃO ÚNICA de cabeçalhos (e aliases): remove BOM, acentos, `_`,
+ * espaços, `$` e hífens, e uppercase. A comparação é sempre entre valores já
+ * normalizados — nunca literal. Ex.: 'CODIGO_BARRAS', 'codigo barras' e
+ * 'Código-de-Barras' ⇒ 'CODIGOBARRAS'; 'R$_VENDA' ⇒ 'RVENDA'.
+ */
+export function normHeader(raw: string): string {
   return String(raw || '')
     .replace(/^\uFEFF/, '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toUpperCase()
-    .replace(/[^A-Z0-9$]/g, ' ')
-    .replace(/\s+/g, ' ')
+    .replace(/[^A-Z0-9]/g, '')
     .trim()
 }
 
@@ -136,10 +157,17 @@ export function mapHeaders(headers: string[]): Record<string, number | null> {
     quantidade: null,
     preco: null,
   }
+  // Normaliza os aliases UMA vez, com a MESMA função usada nos cabeçalhos.
+  const normalizedAliases: Record<string, string[]> = Object.fromEntries(
+    Object.entries(HEADER_ALIASES).map(([field, aliases]) => [
+      field,
+      aliases.map(normHeader).filter(Boolean),
+    ]),
+  )
   headers.forEach((h, index) => {
     const n = normHeader(h)
     if (!n) return
-    for (const [field, aliases] of Object.entries(HEADER_ALIASES)) {
+    for (const [field, aliases] of Object.entries(normalizedAliases)) {
       if (aliases.includes(n) && map[field] === null) {
         map[field] = index
         break
@@ -199,7 +227,21 @@ function decodeText(buffer: ArrayBuffer): string {
 }
 
 export function parseTecsonCsv(text: string): TecsonParseResult {
-  const result: TecsonParseResult = { rows: [], headers: [], delimiter: ';', errors: [] }
+  const result: TecsonParseResult = {
+    rows: [],
+    headers: [],
+    delimiter: ';',
+    errors: [],
+    headerMap: {
+      imagem: null,
+      nome: null,
+      codProduto: null,
+      fornecedor: null,
+      codigoBarras: null,
+      quantidade: null,
+      preco: null,
+    },
+  }
   if (!text || !text.trim()) {
     result.errors.push('Arquivo vazio.')
     return result
@@ -222,10 +264,22 @@ export function parseTecsonCsv(text: string): TecsonParseResult {
   const headerCells = splitLine(lines[0], delimiter)
   result.headers = headerCells.map((h) => h.trim().replace(/^"|"$/g, ''))
   const map = mapHeaders(result.headers)
+  result.headerMap = map
 
   if (map.codigoBarras === null) {
     result.errors.push(
-      'Coluna CODIGO_BARRAS não encontrada no cabeçalho — ela é a chave principal da importação.',
+      'Coluna CODIGO_BARRAS não encontrada no cabeçalho — ela é a chave principal da importação. ' +
+        'Confira os cabeçalhos detectados acima; nenhuma importação pode ser confirmada sem ela.',
+    )
+  }
+  if (map.quantidade === null) {
+    result.errors.push(
+      'Coluna de QUANTIDADE não encontrada no cabeçalho (aliases: QUANTIDADE, QUANT_EM_ESTOQUES, QTD, QTDE, QTD_ESTOQUE).',
+    )
+  }
+  if (map.preco === null) {
+    result.errors.push(
+      'Coluna de PREÇO não encontrada no cabeçalho (aliases: PRECO, R$_VENDA, VALOR_VENDA, PRECO_VENDA, VALOR).',
     )
   }
 

@@ -20,6 +20,8 @@ import {
   parseTecsonCsv,
   readTecsonFileAsText,
   stripLeadingZerosBarcode,
+  normHeader,
+  FIELD_LABELS,
   type ParsedTecsonRow,
 } from '@/pages/imports/tecsonCsvParser'
 import type { Reseller } from '@/types'
@@ -84,6 +86,7 @@ export default function ImportTecsonResellerPage() {
   const [parsedRows, setParsedRows] = useState<ParsedTecsonRow[]>([])
   const [parseErrors, setParseErrors] = useState<string[]>([])
   const [parseHeaders, setParseHeaders] = useState<string[]>([])
+  const [headerMap, setHeaderMap] = useState<Record<string, number | null> | null>(null)
   const [resellers, setResellers] = useState<Reseller[]>([])
   const [resellerId, setResellerId] = useState('')
   const [newResellerName, setNewResellerName] = useState('')
@@ -115,9 +118,14 @@ export default function ImportTecsonResellerPage() {
       const text = await readTecsonFileAsText(file)
       const parsed = parseTecsonCsv(text)
       setParseHeaders(parsed.headers)
+      setHeaderMap(parsed.headerMap)
       setParseErrors(parsed.errors)
       setParsedRows(parsed.rows)
-      if (parsed.rows.length === 0) {
+      if (parsed.headerMap.codigoBarras === null) {
+        toast.error(
+          'Cabeçalho CODIGO_BARRAS não encontrado — a importação ficará bloqueada até corrigir o CSV.',
+        )
+      } else if (parsed.rows.length === 0) {
         toast.error('CSV sem linhas de dados válidas.')
       } else {
         toast.success(`${parsed.rows.length} linha(s) lida(s) por cabeçalho.`)
@@ -127,8 +135,12 @@ export default function ImportTecsonResellerPage() {
       setParsedRows([])
       setParseErrors([])
       setParseHeaders([])
+      setHeaderMap(null)
     }
   }, [])
+
+  /** Coluna CODIGO_BARRAS mapeada? Sem ela a confirmação é BLOQUEADA. */
+  const barcodeHeaderOk = !!headerMap && headerMap.codigoBarras !== null
 
   // Agrupamento por CÓDIGO DE BARRAS normalizado (+ variação do COD_PRODUTO).
   const grouped = useMemo<PreviewRow[]>(() => {
@@ -271,6 +283,12 @@ export default function ImportTecsonResellerPage() {
       toast.error('Selecione um CSV primeiro.')
       return
     }
+    if (!barcodeHeaderOk) {
+      toast.error(
+        'Coluna CODIGO_BARRAS não encontrada no cabeçalho do CSV — corrija o arquivo antes de importar.',
+      )
+      return
+    }
     if (!resellerId && !createMode) {
       toast.error('Selecione ou cadastre a revendedora.')
       return
@@ -299,7 +317,7 @@ export default function ImportTecsonResellerPage() {
     } catch (err: any) {
       toast.error(err?.message || 'Erro ao gerar prévia.')
     }
-  }, [parsedRows, resellerId, createMode, buildPreview])
+  }, [parsedRows, resellerId, createMode, buildPreview, barcodeHeaderOk])
 
   const handleCreateReseller = useCallback(async () => {
     const name = newResellerName.trim()
@@ -341,6 +359,14 @@ export default function ImportTecsonResellerPage() {
 
   const handleConfirm = useCallback(async () => {
     if (!preview || !resellerId) return
+    // BLOQUEIO DURO: sem CODIGO_BARRAS mapeado no cabeçalho, nada é gravado.
+    if (!barcodeHeaderOk) {
+      toast.error(
+        'Importação BLOQUEADA: a coluna CODIGO_BARRAS não foi encontrada no cabeçalho do CSV. ' +
+          'Ela é a chave principal — corrija o arquivo antes de confirmar.',
+      )
+      return
+    }
     const importable = preview.filter((p) => p.status === 'existing' || p.status === 'new')
     if (importable.length === 0) {
       toast.error('Nada importável (todas as linhas inválidas ou em conflito).')
@@ -372,7 +398,7 @@ export default function ImportTecsonResellerPage() {
     } finally {
       setCommitting(false)
     }
-  }, [preview, resellerId, parsedRows])
+  }, [preview, resellerId, parsedRows, barcodeHeaderOk])
 
   const stats = useMemo(() => {
     if (!preview) return null
@@ -475,8 +501,36 @@ export default function ImportTecsonResellerPage() {
               Preço brasileiro (140,00). Separador ; ou ,
             </p>
             {parseHeaders.length > 0 && (
-              <p>
-                Cabeçalhos detectados: <code className="font-mono">{parseHeaders.join('; ')}</code>
+              <div className="space-y-1">
+                <p>Cabeçalhos detectados:</p>
+                <div className="flex flex-wrap gap-1">
+                  {parseHeaders.map((h, i) => {
+                    const mappedField = headerMap
+                      ? Object.keys(headerMap).find((f) => headerMap[f] === i)
+                      : null
+                    return (
+                      <Badge
+                        key={i}
+                        variant={mappedField ? 'secondary' : 'outline'}
+                        title={mappedField ? `mapeado: ${h} → ${FIELD_LABELS[mappedField]}` : h}
+                        className="font-mono text-[11px]"
+                      >
+                        {h}
+                        {mappedField && (
+                          <span className="ml-1 text-green-700">→ {FIELD_LABELS[mappedField]}</span>
+                        )}
+                      </Badge>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+            {!barcodeHeaderOk && (
+              <p className="text-destructive font-medium">
+                Importação BLOQUEADA: nenhuma coluna de código de barras (CODIGO_BARRAS ou aliases
+                CODIGO_DE_BARRAS, COD_BARRAS, EAN, EAN13, GTIN, CODIGO_BARRAS_TECSON) foi encontrada
+                no cabeçalho. Ela é a chave principal — a confirmação fica desabilitada até o CSV
+                ser corrigido.
               </p>
             )}
             {parseErrors.map((e, i) => (
@@ -568,6 +622,24 @@ export default function ImportTecsonResellerPage() {
                 )}
                 <Badge>Qtd total em posse: {stats.totalQtyOwned}</Badge>
               </div>
+              {headerMap && (
+                <p className="text-xs text-muted-foreground">
+                  Mapeamento:{' '}
+                  {Object.entries(headerMap).map(([field, idx], i) => (
+                    <span key={field}>
+                      {i > 0 && '; '}
+                      <span
+                        className={cn(
+                          'font-mono',
+                          idx === null ? 'text-red-600' : 'text-green-700',
+                        )}
+                      >
+                        {field} → {idx === null ? 'NÃO ENCONTRADO' : parseHeaders[idx]}
+                      </span>
+                    </span>
+                  ))}
+                </p>
+              )}
               <div className="border rounded-md overflow-auto max-h-96">
                 <Table>
                   <TableHeader>
@@ -641,8 +713,12 @@ export default function ImportTecsonResellerPage() {
                   </TableBody>
                 </Table>
               </div>
-              <Button onClick={handleConfirm} disabled={committing}>
-                {committing ? 'Importando…' : 'Confirmar importação'}
+              <Button onClick={handleConfirm} disabled={committing || !barcodeHeaderOk}>
+                {committing
+                  ? 'Importando…'
+                  : !barcodeHeaderOk
+                    ? 'Confirmar — bloqueado (sem CODIGO_BARRAS)'
+                    : 'Confirmar importação'}
               </Button>
             </>
           )}
