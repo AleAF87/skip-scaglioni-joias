@@ -14,49 +14,50 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
-import { normalizeBarcode, isValidBarcode, auditBarcode } from '@/lib/barcode'
 import { cn } from '@/lib/utils'
+import { getProductDisplayPhoto } from '@/lib/formatters'
+import {
+  parseTecsonCsv,
+  splitCodProduto,
+  type ParsedTecsonRow,
+} from '@/pages/imports/tecsonCsvParser'
 import type { Reseller } from '@/types'
 
-interface ParsedRow {
-  line: number
-  barcode: string // valor original do CSV
+/** Prévia: agrupamento por base+variação do COD_PRODUTO Tecson. */
+interface PreviewRow {
+  key: string // base + ' | ' + variação normalizada
+  codOriginal: string
+  baseCode: string
+  variation: string
+  codigoBarrasTecson: string
   description: string
   quantity: number
-  selling_price?: number
-}
-
-interface GroupedRow {
-  key: string // código de barras normalizado
-  barcode: string // valor original (auditoria)
-  description: string
-  quantity: number
-  selling_price?: number
+  sellingPrice: string
   lines: number[]
-}
-
-interface ExistingMatch {
-  id: string
-  description: string
-  fisico: number
-  posseAtual: number
-  preco: number
-}
-
-interface PreviewRow extends GroupedRow {
   status: 'existing' | 'new' | 'invalid' | 'conflict'
-  existing?: ExistingMatch
+  /** Situação de posse quando qty === 0 (cadastro/mapeamento somente). */
+  zeroQty: boolean
+  existing?: {
+    id: string
+    description: string
+    photo: string
+    fisico: number
+    posseAtual: number
+    variationFound: boolean
+    variationLabel: string
+  }
   reason?: string
 }
 
 interface ImportResult {
   products_updated: number
   products_created: number
+  variations_created: number
   stock_items_created: number
   stock_items_updated: number
   maleta_id?: string
   maleta_code?: string
-  skipped: Array<{ line: number; barcode: string; reason: string }>
+  skipped: Array<{ line: number; code?: string; barcode?: string; reason: string }>
 }
 
 function parseNumberBr(v: string): number {
@@ -66,68 +67,19 @@ function parseNumberBr(v: string): number {
   return isNaN(n) ? 0 : n
 }
 
-function parseCsvLine(line: string): string[] {
-  const out: string[] = []
-  let cur = ''
-  let inQuotes = false
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i]
-    if (ch === '"') {
-      if (inQuotes && line[i + 1] === '"') {
-        cur += '"'
-        i++
-      } else {
-        inQuotes = !inQuotes
-      }
-    } else if ((ch === ';' || ch === ',') && !inQuotes) {
-      out.push(cur)
-      cur = ''
-    } else {
-      cur += ch
-    }
-  }
-  out.push(cur)
-  return out
-}
-
-function decodeFileTolerant(buf: ArrayBuffer): string {
-  try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(buf)
-  } catch (_) {
-    return new TextDecoder('iso-8859-1').decode(buf)
-  }
-}
-
-const HEADER_ALIASES: Record<string, string> = {
-  codigo_barras: 'barcode',
-  codigobarras: 'barcode',
-  ean: 'barcode',
-  ean13: 'barcode',
-  gtin: 'barcode',
-  descricao: 'description',
-  produto: 'description',
-  nome_produto: 'description',
-  quantidade: 'quantity',
-  qtde: 'quantity',
-  qtd: 'quantity',
-  estoque: 'quantity',
-  preco: 'selling_price',
-  preco_venda: 'selling_price',
-  preco_unitario: 'selling_price',
-}
-
-function normalizeHeaderKey(h: string): string {
-  return h
-    .toLowerCase()
+const normForCompare = (v: string) =>
+  String(v || '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]/g, '')
-}
+    .toUpperCase()
+    .replace(/\s+/g, ' ')
+    .trim()
 
 export default function ImportTecsonResellerPage() {
   const [csvText, setCsvText] = useState('')
   const [fileName, setFileName] = useState('')
-  const [rows, setRows] = useState<ParsedRow[]>([])
+  const [parsedRows, setParsedRows] = useState<ParsedTecsonRow[]>([])
+  const [invalidRows, setInvalidRows] = useState<ParsedTecsonRow[]>([])
   const [resellers, setResellers] = useState<Reseller[]>([])
   const [resellerId, setResellerId] = useState('')
   const [newResellerName, setNewResellerName] = useState('')
@@ -153,100 +105,91 @@ export default function ImportTecsonResellerPage() {
 
   const handleFile = useCallback(async (file: File) => {
     const buf = await file.arrayBuffer()
-    const text = decodeFileTolerant(buf)
+    let text: string
+    try {
+      text = new TextDecoder('utf-8', { fatal: true }).decode(buf)
+    } catch (_) {
+      text = new TextDecoder('iso-8859-1').decode(buf)
+    }
     setCsvText(text)
     setFileName(file.name)
     setResult(null)
     setPreview(null)
 
-    const lines = text.split(/\r?\n/).filter((l) => l.trim() !== '')
-    if (lines.length < 2) {
+    const { rows, invalidRows } = parseTecsonCsv(text)
+    if (rows.length === 0 && invalidRows.length === 0) {
       toast.error('CSV sem linhas de dados.')
-      setRows([])
+      setParsedRows([])
+      setInvalidRows([])
       return
     }
-    // Header: detecta separador na primeira linha
-    const headerLine = lines[0]
-    const sep =
-      (headerLine.match(/;/g) || []).length > (headerLine.match(/,/g) || []).length ? ';' : ','
-    const headers = parseCsvLine(headerLine).map(normalizeHeaderKey)
-    const colMap: Record<string, number> = {}
-    headers.forEach((h, idx) => {
-      const alias = HEADER_ALIASES[h]
-      if (alias && colMap[alias] === undefined) colMap[alias] = idx
-    })
-    if (colMap['barcode'] === undefined) {
-      toast.error('Coluna de código de barras não encontrada. Use: CODIGO_BARRAS (ou EAN/GTIN).')
-      setRows([])
-      return
-    }
-    if (colMap['quantity'] === undefined) {
-      toast.error('Coluna de quantidade não encontrada. Use: QUANTIDADE (ou QTDE/ESTOQUE).')
-      setRows([])
-      return
-    }
-
-    const parsed: ParsedRow[] = []
-    for (let i = 1; i < lines.length; i++) {
-      const cells = parseCsvLine(lines[i])
-      const barcode = (cells[colMap['barcode']] || '').trim()
-      const description = (cells[colMap['description']] || '').trim()
-      const quantity = parseInt(cells[colMap['quantity']] || '0', 10) || 0
-      const selling_price =
-        colMap['selling_price'] !== undefined
-          ? parseNumberBr(cells[colMap['selling_price']])
-          : undefined
-      parsed.push({ line: i + 1, barcode, description, quantity, selling_price })
-    }
-    setRows(parsed)
+    setParsedRows(rows)
+    setInvalidRows(invalidRows)
   }, [])
 
-  // Agrupamento por código de barras normalizado (mesmo código repetido soma).
-  const grouped = useMemo<GroupedRow[]>(() => {
-    const map = new Map<string, GroupedRow>()
-    rows.forEach((r) => {
-      const key = normalizeBarcode(r.barcode)
+  // Agrupamento por base+variação do COD_PRODUTO (mesmo par repetido soma; qty 0 preservada).
+  const grouped = useMemo<PreviewRow[]>(() => {
+    const map = new Map<string, PreviewRow>()
+    parsedRows.forEach((r) => {
+      const key = r.base_code + (r.variation ? ' | ' + r.variation : '')
       if (!map.has(key)) {
         map.set(key, {
           key,
-          barcode: auditBarcode(r.barcode),
+          codOriginal: r.cod_produto,
+          baseCode: r.base_code,
+          variation: r.variation,
+          codigoBarrasTecson: r.codigo_barras_tecson,
           description: r.description,
           quantity: r.quantity,
-          selling_price: r.selling_price,
+          sellingPrice: r.selling_price,
           lines: [r.line],
+          status: 'new',
+          zeroQty: r.quantity === 0,
         })
       } else {
         const g = map.get(key)!
         g.quantity += r.quantity
+        g.zeroQty = g.quantity === 0
         g.lines.push(r.line)
         if (!g.description && r.description) g.description = r.description
+        if (!g.sellingPrice && r.selling_price) g.sellingPrice = r.selling_price
+        if (!g.codigoBarrasTecson && r.codigo_barras_tecson)
+          g.codigoBarrasTecson = r.codigo_barras_tecson
       }
     })
     return Array.from(map.values())
-  }, [rows])
+  }, [parsedRows])
 
   const buildPreview = useCallback(
     async (targetResellerId: string) => {
-      // Busca produtos + posses atuais da revendedora para classificar cada linha
-      const previewRows: PreviewRow[] = []
-      // Códigos agrupados
-      const byKey = new Map(grouped.map((g) => [g.key, g]))
-      const keys = Array.from(byKey.keys()).filter((k) => k !== '')
-      // Busca produtos por código de barras (por dígito, em memória, via getFullList
-      // paginado — o volume de produtos é de poucos milhares)
+      const previewRows: PreviewRow[] = grouped.map((g) => ({ ...g }))
+
+      // Busca TODOS os produtos paginado (o volume é de poucos milhares) e faz a
+      // correspondência em memória por code/sku_novo/sku_interno/codigo_produto_tecson/
+      // id_tecson — NUNCA por código de barras (auditoria somente).
       const products = await pb.collection('products').getFullList<any>({
-        filter: "codigo_barras != ''",
-        fields: 'id,description,quantity,codigo_barras,selling_price',
+        fields:
+          'id,description,nome_produto,quantity,code,sku_novo,sku_interno,codigo_produto_tecson,id_tecson,image_url,photos,selling_price',
       })
-      const byBarcode = new Map<string, any>()
+      const byBase = new Map<string, any>()
       products.forEach((p) => {
-        const k = normalizeBarcode(p.codigo_barras)
-        if (byBarcode.has(k)) {
-          byBarcode.set(k, { conflict: true, first: byBarcode.get(k), second: p })
-        } else {
-          byBarcode.set(k, p)
-        }
+        const candidates = [p.code, p.sku_novo, p.sku_interno, p.codigo_produto_tecson, p.id_tecson]
+          .map((c) => normForCompare(c))
+          .filter(Boolean)
+        candidates.forEach((c) => {
+          if (byBase.has(c)) {
+            // mesmo código em mais de um produto: marca conflito
+            const cur = byBase.get(c)
+            if (cur !== p && !cur.__conflict) {
+              cur.__conflict = true
+            }
+          } else {
+            p.__conflict = false
+            byBase.set(c, p)
+          }
+        })
       })
+
       const stockItems = await pb
         .collection('reseller_stock_items')
         .getFullList<any>({ filter: `reseller = '${targetResellerId}'` })
@@ -255,38 +198,89 @@ export default function ImportTecsonResellerPage() {
         posseByProduct.set(s.product, (posseByProduct.get(s.product) || 0) + (s.quantity || 0))
       })
 
-      for (const g of grouped) {
-        if (!isValidBarcode(g.barcode)) {
-          previewRows.push({
-            ...g,
-            status: 'invalid',
-            reason: 'Código de barras inválido (menos de 8 dígitos úteis ou repetido).',
+      // Variações existentes por produto (para detectar variação nova x existente).
+      const varFilter = previewRows
+        .filter((g) => g.variation && g.status !== 'invalid')
+        .map((g) => g.baseCode)
+        .filter(Boolean)
+      const variationsByProduct = new Map<string, Array<Record<string, any>>>()
+      if (varFilter.length > 0) {
+        const baseCodes = Array.from(new Set(varFilter))
+        const filters = baseCodes.map((b) => `product.code ~ '${b}'`).join(' || ')
+        try {
+          const vars = await pb.collection('product_variations').getFullList<any>({
+            filter: filters,
+            fields: 'id,product,sku,attributes',
           })
+          vars.forEach((v) => {
+            const arr = variationsByProduct.get(v.product) || []
+            arr.push(v)
+            variationsByProduct.set(v.product, arr)
+          })
+        } catch (_) {
+          /* sem variação localizada: cai no fluxo de variação nova */
+        }
+      }
+
+      for (const g of previewRows) {
+        if (!g.baseCode) {
+          g.status = 'invalid'
+          g.reason = 'COD_PRODUTO ilegível.'
           continue
         }
-        const found = byBarcode.get(g.key)
-        if (found && found.conflict) {
-          previewRows.push({
-            ...g,
-            status: 'conflict',
-            reason: 'Mais de um produto cadastrado com este código de barras.',
-          })
+        const found = byBase.get(normForCompare(g.baseCode))
+        if (found && found.__conflict) {
+          g.status = 'conflict'
+          g.reason = 'Mais de um produto cadastrado com este código.'
           continue
         }
         if (found) {
-          previewRows.push({
-            ...g,
-            status: 'existing',
-            existing: {
-              id: found.id,
-              description: found.description || '',
-              fisico: found.quantity || 0,
-              posseAtual: posseByProduct.get(found.id) || 0,
-              preco: found.selling_price || 0,
-            },
-          })
+          // Variação: existe no produto?
+          let variationFound = false
+          let variationLabel = ''
+          if (g.variation) {
+            const vars = variationsByProduct.get(found.id) || []
+            const vNorm = normForCompare(g.variation)
+            const hit = vars.find((v) => {
+              const sku = String(v.sku || '')
+              let label = ''
+              try {
+                const attrs = JSON.parse(String(v.attributes || '{}'))
+                label = Object.values(attrs)
+                  .map((a) => String(a).trim())
+                  .filter(Boolean)
+                  .join(' / ')
+              } catch (_) {
+                /* atributos inválidos: ignora */
+              }
+              const skuSuffix = sku.replace(
+                new RegExp(
+                  '^' + String(found.id).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[\\s\\-_]*',
+                ),
+                '',
+              )
+              return [label, sku, skuSuffix].some((c) => normForCompare(c) === vNorm)
+            })
+            variationFound = !!hit
+            variationLabel = g.variation
+          }
+          g.status = 'existing'
+          g.existing = {
+            id: found.id,
+            description: found.nome_produto || found.description || '',
+            photo: getProductDisplayPhoto(found),
+            fisico: found.quantity || 0,
+            posseAtual: posseByProduct.get(found.id) || 0,
+            variationFound,
+            variationLabel,
+          }
+          // Variação nova num produto existente conta como "variação nova" nos totais.
+          g.reason =
+            g.variation && !variationFound
+              ? 'Variação nova — será criada no produto existente.'
+              : undefined
         } else {
-          previewRows.push({ ...g, status: 'new' })
+          g.status = 'new'
         }
       }
       return previewRows
@@ -295,7 +289,7 @@ export default function ImportTecsonResellerPage() {
   )
 
   const handlePreview = useCallback(async () => {
-    if (rows.length === 0) {
+    if (parsedRows.length === 0 && invalidRows.length === 0) {
       toast.error('Selecione um CSV primeiro.')
       return
     }
@@ -308,17 +302,17 @@ export default function ImportTecsonResellerPage() {
       setPreview(p)
       // Validação server-side extra (dry_run) — opcional, silenciosa.
       try {
-        const targetId = resellerId || 'new'
-        if (targetId !== 'new') {
+        if (resellerId) {
           await pb.send('/backend/v1/tecson/reseller-import', {
             method: 'POST',
             body: JSON.stringify({
-              reseller_id: targetId,
-              rows: rows.map((r) => ({
+              reseller_id: resellerId,
+              rows: parsedRows.map((r) => ({
                 line: r.line,
-                barcode: r.barcode,
-                description: r.description,
+                cod_produto: r.cod_produto,
+                codigo_barras_tecson: r.codigo_barras_tecson,
                 quantity: r.quantity,
+                description: r.description,
                 selling_price: r.selling_price,
               })),
               dry_run: true,
@@ -332,10 +326,9 @@ export default function ImportTecsonResellerPage() {
     } catch (err: any) {
       toast.error(err?.message || 'Erro ao gerar prévia.')
     }
-  }, [rows, resellerId, createMode, buildPreview])
+  }, [parsedRows, invalidRows, resellerId, createMode, buildPreview])
 
   const handleCreateReseller = useCallback(async () => {
-    // Localizar por nome normalizado; se não existir, cadastrar com acesso pendente
     const name = newResellerName.trim()
     if (!name) {
       toast.error('Informe o nome da revendedora.')
@@ -362,7 +355,7 @@ export default function ImportTecsonResellerPage() {
       const rec = await pb.collection('resellers').create<Reseller>({
         name,
         email,
-        status: 'pending', // acesso pendente, sem usuário fictício
+        status: 'pending',
       })
       setResellers((prev) => [...prev, rec])
       setResellerId(rec.id)
@@ -380,22 +373,28 @@ export default function ImportTecsonResellerPage() {
       toast.error('Nada importável (todas as linhas inválidas ou em conflito).')
       return
     }
+    const withPosse = preview.filter((p) => p.status !== 'invalid' && p.quantity > 0)
+    const onlyZero = preview.filter((p) => p.status !== 'invalid' && p.quantity === 0)
     const confirmed = window.confirm(
       `Confirmar importação de ${importable.length} código(s) para a revendedora selecionada?\n` +
+        `${withPosse.length} com posse (qty > 0) e ${onlyZero.length} só cadastro/mapeamento (qty 0).\n` +
         `Esta operação é tudo-ou-nada.`,
     )
     if (!confirmed) return
     setCommitting(true)
     try {
+      // Linhas com qty 0 vão também (o hook as trata como cadastro/mapeamento somente,
+      // sem criar posse nem alterar estoque).
       const res = await pb.send<ImportResult>('/backend/v1/tecson/reseller-import', {
         method: 'POST',
         body: JSON.stringify({
           reseller_id: resellerId,
-          rows: rows.map((r) => ({
+          rows: parsedRows.map((r) => ({
             line: r.line,
-            barcode: r.barcode,
-            description: r.description,
+            cod_produto: r.cod_produto,
+            codigo_barras_tecson: r.codigo_barras_tecson,
             quantity: r.quantity,
+            description: r.description,
             selling_price: r.selling_price,
           })),
           dry_run: false,
@@ -409,18 +408,32 @@ export default function ImportTecsonResellerPage() {
     } finally {
       setCommitting(false)
     }
-  }, [preview, resellerId, rows])
+  }, [preview, resellerId, parsedRows])
 
   const stats = useMemo(() => {
     if (!preview) return null
+    const existingRows = preview.filter((p) => p.status === 'existing')
+    const createdRows = preview.filter((p) => p.status === 'new')
+    const invalidRowsPrev = preview.filter((p) => p.status === 'invalid')
+    const conflictRows = preview.filter((p) => p.status === 'conflict')
+    const zeroRows = preview.filter(
+      (p) => p.status !== 'invalid' && p.status !== 'conflict' && p.quantity === 0,
+    )
+    const newVariationsOnExisting = existingRows.filter(
+      (p) => p.existing && p.variation && !p.existing.variationFound,
+    ).length
     return {
       total: preview.length,
-      existing: preview.filter((p) => p.status === 'existing').length,
-      created: preview.filter((p) => p.status === 'new').length,
-      invalid: preview.filter((p) => p.status === 'invalid').length,
-      conflict: preview.filter((p) => p.status === 'conflict').length,
-      totalQty: preview
-        .filter((p) => p.status !== 'invalid' && p.status !== 'conflict')
+      existing: existingRows.length,
+      existingVariationsFound: existingRows.filter((p) => p.existing?.variationFound).length,
+      newVariationsOnExisting,
+      created: createdRows.length,
+      createdWithVariation: createdRows.filter((p) => p.variation).length,
+      zeroRows: zeroRows.length,
+      invalid: invalidRowsPrev.length,
+      conflict: conflictRows.length,
+      totalQtyOwned: preview
+        .filter((p) => p.status === 'existing' || p.status === 'new')
         .reduce((a, p) => a + p.quantity, 0),
     }
   }, [preview])
@@ -431,7 +444,8 @@ export default function ImportTecsonResellerPage() {
         <h1 className="text-2xl font-bold">Importar Tecson — Revendedora</h1>
         <p className="text-sm text-muted-foreground">
           Uma revendedora por vez. CSV do depósito dela no Tecson. Prévia antes de gravar;
-          confirmação explícita; transação tudo-ou-nada.
+          confirmação explícita; transação tudo-ou-nada. COD_PRODUTO é a chave (aceita código de 6
+          dígitos e código+variação, ex. "631587 N15"); CODIGO_BARRAS_TECSON é só auditoria.
         </p>
       </div>
 
@@ -454,8 +468,8 @@ export default function ImportTecsonResellerPage() {
             {fileName && <span className="text-sm text-muted-foreground">{fileName}</span>}
           </div>
           <div className="text-xs text-muted-foreground">
-            Colunas esperadas: CODIGO_BARRAS (ou EAN/GTIN), QUANTIDADE (ou QTDE/ESTOQUE), DESCRICAO
-            (opcional), PRECO (opcional). Separador ; ou ,
+            Colunas esperadas: COD_PRODUTO;CODIGO_BARRAS_TECSON (opcional, auditoria);QUANTIDADE
+            (aceita 0);DESCRICAO (opcional);PRECO (opcional). Separador ; ou ,
           </div>
         </CardContent>
       </Card>
@@ -520,25 +534,51 @@ export default function ImportTecsonResellerPage() {
           <CardTitle>3. Prévia</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <Button onClick={handlePreview} disabled={rows.length === 0}>
+          <Button
+            onClick={handlePreview}
+            disabled={parsedRows.length === 0 && invalidRows.length === 0}
+          >
             Gerar prévia
           </Button>
           {preview && stats && (
             <>
               <div className="flex flex-wrap gap-2 text-sm">
                 <Badge>Códigos: {stats.total}</Badge>
-                <Badge variant="secondary">Existentes: {stats.existing}</Badge>
-                <Badge variant="secondary">Novos: {stats.created}</Badge>
-                <Badge variant="destructive">Inválidos: {stats.invalid}</Badge>
-                <Badge variant="destructive">Conflitos: {stats.conflict}</Badge>
-                <Badge>Qtd total: {stats.totalQty}</Badge>
+                <Badge variant="secondary">Existentes encontrados: {stats.existing}</Badge>
+                {stats.existingVariationsFound > 0 && (
+                  <Badge variant="secondary">
+                    Variações encontradas: {stats.existingVariationsFound}
+                  </Badge>
+                )}
+                {stats.newVariationsOnExisting > 0 && (
+                  <Badge variant="secondary">
+                    Variações novas: {stats.newVariationsOnExisting}
+                  </Badge>
+                )}
+                <Badge variant="secondary">Produtos novos: {stats.created}</Badge>
+                {stats.createdWithVariation > 0 && (
+                  <Badge variant="secondary">
+                    Variações novas (produto novo): {stats.createdWithVariation}
+                  </Badge>
+                )}
+                {stats.zeroRows > 0 && (
+                  <Badge variant="secondary">Linhas com saldo zero: {stats.zeroRows}</Badge>
+                )}
+                {stats.invalid > 0 && (
+                  <Badge variant="destructive">Inválidos: {stats.invalid}</Badge>
+                )}
+                {stats.conflict > 0 && (
+                  <Badge variant="destructive">Conflitos: {stats.conflict}</Badge>
+                )}
+                <Badge>Qtd total em posse: {stats.totalQtyOwned}</Badge>
               </div>
               <div className="border rounded-md overflow-auto max-h-96">
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Linhas</TableHead>
-                      <TableHead>Código de barras</TableHead>
+                      <TableHead>COD_PRODUTO</TableHead>
+                      <TableHead>Imagem</TableHead>
                       <TableHead>Descrição</TableHead>
                       <TableHead>Qtd</TableHead>
                       <TableHead>Situação</TableHead>
@@ -550,8 +590,33 @@ export default function ImportTecsonResellerPage() {
                     {preview.map((p) => (
                       <TableRow key={p.key + '-' + p.lines.join('-')}>
                         <TableCell>{p.lines.join(', ')}</TableCell>
-                        <TableCell className="font-mono">{p.barcode || p.key}</TableCell>
-                        <TableCell>{p.description || '—'}</TableCell>
+                        <TableCell className="font-mono">
+                          {p.codOriginal || p.baseCode}
+                          {p.variation && (
+                            <span className="text-muted-foreground"> ({p.variation})</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {p.status === 'existing' && p.existing?.photo ? (
+                            <img
+                              src={p.existing.photo}
+                              alt={`Imagem do produto ${p.codOriginal}`}
+                              className="h-12 w-12 rounded object-cover"
+                              width={48}
+                              height={48}
+                              loading="lazy"
+                            />
+                          ) : p.status === 'existing' ? (
+                            <span className="text-xs text-muted-foreground">Sem imagem</span>
+                          ) : p.status === 'new' ? (
+                            <span className="text-xs text-muted-foreground">
+                              Produto novo — sem imagem cadastrada
+                            </span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell>{p.description || p.existing?.description || '—'}</TableCell>
                         <TableCell>{p.quantity}</TableCell>
                         <TableCell>
                           <span
@@ -562,8 +627,14 @@ export default function ImportTecsonResellerPage() {
                               (p.status === 'invalid' || p.status === 'conflict') && 'text-red-600',
                             )}
                           >
-                            {p.status === 'existing' && 'Existente — aumenta posse'}
-                            {p.status === 'new' && 'Novo — cria com Físico 0'}
+                            {p.status === 'existing' &&
+                              (p.quantity === 0
+                                ? 'Sem posse atual — cadastro/mapeamento somente'
+                                : 'Existente — aumenta posse')}
+                            {p.status === 'new' &&
+                              (p.quantity === 0
+                                ? 'Produto novo, sem posse — cadastro/mapeamento somente'
+                                : 'Novo — cria com Físico 0')}
                             {p.status === 'invalid' && 'Inválido — pendência'}
                             {p.status === 'conflict' && 'Conflito — pendência'}
                           </span>
@@ -573,6 +644,25 @@ export default function ImportTecsonResellerPage() {
                         </TableCell>
                         <TableCell>{p.existing ? p.existing.fisico : '—'}</TableCell>
                         <TableCell>{p.existing ? p.existing.posseAtual : '—'}</TableCell>
+                      </TableRow>
+                    ))}
+                    {invalidRows.map((r) => (
+                      <TableRow key={'inv-' + r.line}>
+                        <TableCell>{r.line}</TableCell>
+                        <TableCell className="font-mono">{r.cod_produto || '—'}</TableCell>
+                        <TableCell>
+                          <span className="text-xs text-muted-foreground">—</span>
+                        </TableCell>
+                        <TableCell>{r.description || '—'}</TableCell>
+                        <TableCell>{r.quantity}</TableCell>
+                        <TableCell>
+                          <span className="text-xs font-medium text-red-600">
+                            Inválida — pendência
+                          </span>
+                          <div className="text-xs text-muted-foreground">{r.invalid_reason}</div>
+                        </TableCell>
+                        <TableCell>—</TableCell>
+                        <TableCell>—</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -594,6 +684,7 @@ export default function ImportTecsonResellerPage() {
           <CardContent className="space-y-2 text-sm">
             <div>Produtos atualizados (posse): {result.products_updated}</div>
             <div>Produtos criados: {result.products_created}</div>
+            <div>Variações criadas: {result.variations_created ?? 0}</div>
             <div>Registros de posse criados: {result.stock_items_created}</div>
             <div>Registros de posse atualizados: {result.stock_items_updated}</div>
             {result.maleta_code && (
@@ -608,7 +699,7 @@ export default function ImportTecsonResellerPage() {
                 <ul className="list-disc pl-5">
                   {result.skipped.map((s, i) => (
                     <li key={i}>
-                      Linha {s.line} — {s.barcode || 'sem código'}: {s.reason}
+                      Linha {s.line} — {s.code || s.barcode || 'sem código'}: {s.reason}
                     </li>
                   ))}
                 </ul>
