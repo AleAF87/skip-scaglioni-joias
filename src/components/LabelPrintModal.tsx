@@ -325,41 +325,32 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
                            Tecson/Pimaco: aba esquerda 27mm + picote + aba direita
                            27mm + haste final 25mm SEM NENHUMA impressão (é a parte
                            que envolve a peça). Arte interna com 1mm de margem em
-                           todas as direções (25×8mm dentro de cada aba). O picote
-                           (linha pontilhada vertical) fica VISÍVEL TAMBÉM NA
-                           IMPRESSÃO como guia de dobra — nenhuma regra de print o
-                           esconde nas partes impressas. */
+todas as direções (25×8mm dentro de cada aba). O picote
+(linha pontilhada vertical) aparece na PRÉVIA da tela e
+some na IMPRESSÃO (classe print:border-0 — o espaço de
+1mm permanece, para a aba direita não mudar de posição). */
                         <div className="w-full h-full flex items-stretch font-sans text-black">
-                          {/* Aba esquerda (27mm): código de barras + número legível embaixo */}
+                          {/* Aba esquerda (27mm): apenas o código de barras, com 1mm
+   extra de respiro à direita (sem número/SKU embaixo) */}
                           <div
                             className="h-full flex flex-col items-center justify-center overflow-hidden"
-                            style={{ width: '27mm', padding: '1mm' }}
+                            style={{ width: '27mm', padding: '1mm 2mm 1mm 1mm' }}
                           >
                             <div className="w-full min-h-0 flex-1 flex items-center justify-center">
                               <BarcodeSvg
                                 value={cell.barcodeValue}
-                                displayText={showCode ? cell.code : ''}
+                                displayText=""
                                 height={26}
                                 showText={false}
                               />
                             </div>
-                            {showCode && (
-                              <span className="font-mono font-black text-[7.5px] tracking-tight leading-none mt-[0.2mm]">
-                                {cell.barcodeValue}
-                              </span>
-                            )}
-                            {showCode && cell.skuEcommerce && (
-                              <span className="font-mono text-[6px] text-gray-600 tracking-tight leading-none mt-[0.2mm]">
-                                SKU {cell.skuEcommerce}
-                              </span>
-                            )}
                           </div>
 
-                          {/* Picote (linha pontilhada vertical) — guia de dobra,
-                              presente na tela E na folha impressa */}
+                          {/* Picote (linha pontilhada vertical) — guia de dobra:
+   visível na tela, oculto na folha impressa */}
                           <div
                             aria-hidden="true"
-                            className="h-full shrink-0 border-l border-dotted border-gray-600"
+                            className="h-full shrink-0 border-l border-dotted border-gray-600 print:border-l-0"
                             style={{ width: '1mm' }}
                           />
 
