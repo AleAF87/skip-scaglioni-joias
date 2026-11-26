@@ -82,12 +82,15 @@ export const LABEL_TEMPLATES: Record<string, LabelTemplateModel> = {
       '2 colunas × 20 linhas | 80,0 × 10,0 mm (duas abas de 27mm + picote + haste de 25mm)',
     sheetType: 'Carta',
     // Folha Carta 215.9 x 279.4 mm — encaixe confirmado pelo usuário (v0.0.267):
-    // @page sup 14,5 / esq 25,5 / dir 25,5 / inf 13,5.
+    // @page sup 15,5 / esq 25,5 / dir 25,5 / inf 13,5.
     // Horizontal: 25,5 + (2×80) + 4,9 + 25,5 = 215,9mm ✓
-    // v0.0.268: gapVertical 2,63mm — passo real da folha física medido pelo
-    // usuário (~12,63mm entre topos, 20 linhas de 10mm). Com 2,5mm o erro de
-    // ~0,13mm por vão acumulava 2,5mm na 20ª etiqueta.
-    // Vertical: 14,5 + (20×10) + (19×2,63) + 13,5 ≈ 278mm — cabe na Carta ✓
+    // v0.0.269: marginTop 14,5 → 15,5 (pedido do usuário, +1mm na margem
+    // superior) e gapVertical 2,63 → 2,76mm — reimpressão em 100% da v0.0.268
+    // mostrou a 20ª etiqueta ainda ~2,5mm acima da posição correta (cada linha
+    // subindo progressivamente); vão real da folha ~12,76mm entre topos de
+    // etiquetas (10mm de etiqueta + ~2,76mm de vão).
+    // Vertical: 15,5 + (20×10) + (19×2,76) + 13,5 ≈ 279,9mm — a Carta tem
+    // 279,4mm úteis, então a grade fica NO LIMITE da folha.
     sheetWidthMm: 215.9,
     sheetHeightMm: 279.4,
     labelsPerSheet: 40,
@@ -95,10 +98,10 @@ export const LABEL_TEMPLATES: Record<string, LabelTemplateModel> = {
     rows: 20,
     labelWidthMm: 80.0,
     labelHeightMm: 10.0,
-    marginTopMm: 14.5,
+    marginTopMm: 15.5, // v0.0.269: +1mm na margem superior (pedido do usuário; era 14,5)
     marginLeftMm: 25.5,
     gapHorizontalMm: 4.9,
-    gapVerticalMm: 2.63, // v0.0.268: passo ~12,63mm medido na folha física (era 2,5)
+    gapVerticalMm: 2.76, // v0.0.269: vão real ~12,76mm entre topos na folha física (era 2,63)
     isJewelryTag: true,
   },
 }

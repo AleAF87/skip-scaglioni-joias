@@ -137,13 +137,16 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
   // Vertical:   13 + (18×15) + 14 = 297mm ✓ (0mm entre linhas)
   // Demais gabaritos mantêm suas margens originais.
   // EBF23 (medidas confirmadas pelo usuário contra a folha Carta física):
-  // @page sup 14,5 / esq 25,5 / dir 25,5 / inf 13,5.
+  // @page sup 15,5 / esq 25,5 / dir 25,5 / inf 13,5.
   // Horizontal: 25,5 + (2×80) + 4,9 + 25,5 = 215,9mm ✓
-  // Vertical:   14,5 + (20×10) + (19×2,63) + 13,5 ≈ 278mm ✓
-  //   v0.0.268: gapVertical 2,63mm = passo real ~12,63mm medido pelo usuário
-  //   (com 2,5mm o erro de ~0,13mm/vão acumulava 2,5mm na 20ª etiqueta).
+  // Vertical:   15,5 + (20×10) + (19×2,76) + 13,5 ≈ 279,9mm — a Carta tem
+  //   279,4mm úteis, então a grade fica NO LIMITE da folha.
+  //   v0.0.269: marginTop 14,5 → 15,5 (+1mm pedido pelo usuário) e gapVertical
+  //   2,63 → 2,76mm = passo real ~12,76mm medido pelo usuário (a reimpressão
+  //   em 100% da v0.0.268 mostrou a 20ª etiqueta ainda ~2,5mm acima da posição
+  //   correta, com cada linha subindo progressivamente).
   //   Prévia em tela e impressão usam o MESMO rowGap (effectiveGapY).
-  const pageMarginTop = isA4349 ? 13 : isEBF23 ? 14.5 : effectiveMarginTop
+  const pageMarginTop = isA4349 ? 13 : isEBF23 ? 15.5 : effectiveMarginTop
   const pageMarginLeft = isA4349 ? 8 : isEBF23 ? 25.5 : effectiveMarginLeft
   const pageMarginRight = isA4349 ? 8 : isEBF23 ? 25.5 : effectiveMarginLeft
   const pageMarginBottom = isA4349 ? 14 : isEBF23 ? 13.5 : effectiveMarginTop
