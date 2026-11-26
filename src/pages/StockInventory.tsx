@@ -1,6 +1,16 @@
 import React, { useState, useEffect } from 'react'
+import pb from '@/lib/pocketbase/client'
 import { productService } from '@/services/productService'
-import { Product, ProductType, ProductMaterial, ProductSize, ResellerStockItem } from '@/types'
+import { productCreationService } from '@/services/productCreationService'
+import {
+  Product,
+  ProductType,
+  ProductMaterial,
+  ProductSize,
+  Brand,
+  ProductCategory,
+  ResellerStockItem,
+} from '@/types'
 import { resellerStockService } from '@/services/resellerStockService'
 import {
   formatCurrency,
@@ -55,6 +65,12 @@ import {
   Eye,
   EyeOff,
   Barcode,
+  Check,
+  Loader2,
+  RefreshCw,
+  Lock,
+  Unlock,
+  Star,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { BarcodeScannerModal } from '@/components/pos/BarcodeScannerModal'
@@ -200,6 +216,20 @@ export default function StockInventory() {
     observations: '',
     status: 'available',
   })
+  // Campos novos do modal de edição da /estoque (v0.0.264): categorias multi-seleção,
+  // SKU com regenerar, marca, fornecedor, preço promocional e destaque no e-commerce
+  const [editBrands, setEditBrands] = useState<Brand[]>([])
+  const [editCategories, setEditCategories] = useState<ProductCategory[]>([])
+  const [editCategoriaIds, setEditCategoriaIds] = useState<string[]>([])
+  const [editSkuEcommerce, setEditSkuEcommerce] = useState('')
+  const [editSkuDirty, setEditSkuDirty] = useState(false)
+  const [isRegeneratingSku, setIsRegeneratingSku] = useState(false)
+  const [editMarcaId, setEditMarcaId] = useState('')
+  const [editFornecedor, setEditFornecedor] = useState('')
+  const [editPrecoPromocional, setEditPrecoPromocional] = useState('')
+  const [editDestaqueEcommerce, setEditDestaqueEcommerce] = useState(false)
+  // Estoque Inicial abre sempre bloqueado; botão (cadeado) libera a edição
+  const [editInitialStockLocked, setEditInitialStockLocked] = useState(true)
 
   useEffect(() => {
     loadAuxiliaries()
@@ -525,6 +555,14 @@ export default function StockInventory() {
     setEditExistingPhotos(p.photos ? [...p.photos] : [])
     setEditNewPhotoFiles([])
     setEditPublishEcommerce((p.qtde_loja_virtual || 0) > 0)
+    setEditSkuEcommerce((p.sku_ecommerce || '').trim())
+    setEditSkuDirty(false)
+    setEditMarcaId(p.marca_id || '')
+    setEditFornecedor(p.fornecedor || '')
+    setEditPrecoPromocional(p.preco_promocional ? String(p.preco_promocional) : '')
+    setEditDestaqueEcommerce(Boolean(p.destaque_ecommerce))
+    // Estoque Inicial sempre abre bloqueado; o botão de cadeado libera a edição
+    setEditInitialStockLocked(true)
 
     // Estoque inicial gravado ou fallback sensato para quantity atual em memória (sem gravar no banco antes de salvar)
     const initialStockVal =
@@ -557,6 +595,9 @@ export default function StockInventory() {
       status: p.status || 'available',
     })
     setEditProductModalOpen(true)
+
+    // Carregar marcas, categorias e os vínculos já existentes da peça
+    loadEditMetadata(p.id)
 
     // Carregar estoque desta peça em posse de revendedoras
     setLoadingResellerStock(true)
@@ -601,6 +642,71 @@ export default function StockInventory() {
     setEditNewPhotoFiles((prev) => prev.filter((_, i) => i !== index))
   }
 
+  // ===== Campos novos do modal de edição da /estoque (v0.0.264) =====
+
+  // Carrega marcas, categorias e os vínculos já existentes do produto
+  const loadEditMetadata = async (productId: string) => {
+    try {
+      const [brandList, catList, links] = await Promise.all([
+        productCreationService.getBrands(),
+        productCreationService.getCategories(),
+        productService.getProductCategoryLinks(productId).catch(() => []),
+      ])
+      setEditBrands(brandList)
+      setEditCategories(catList)
+      setEditCategoriaIds(links.map((l) => l.category))
+    } catch (err) {
+      console.warn('Erro ao carregar marcas/categorias na edição (estoque):', err)
+    }
+  }
+
+  const toggleEditCategory = (catId: string) => {
+    setEditCategoriaIds((prev) =>
+      prev.includes(catId) ? prev.filter((id) => id !== catId) : [...prev, catId],
+    )
+  }
+
+  /**
+   * Regenera a SKU e-commerce pela regra do servidor (tipo + metal + iniciais
+   * do nome + numerador, com anti-duplicidade) — igual ao cadastro/edição da
+   * página de produtos. Apenas PREENCHE o campo; gravação acontece ao salvar.
+   */
+  const handleRegenerateEditSku = async () => {
+    if (!editingProduct || isRegeneratingSku) return
+    const hints = productCreationService.deriveSkuHints(editCategoriaIds, editCategories)
+    if (!hints.tipo || !hints.metal) {
+      toast.error('Marque ao menos um Tipo e um Material para gerar a SKU.')
+      return
+    }
+    setIsRegeneratingSku(true)
+    try {
+      const res = await pb.send<{ sku: string; regra: string }>(
+        '/backend/v1/products/regenerate-sku',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            productId: editingProduct.id,
+            nome: editForm.description.trim() || editingProduct.description || '',
+            tipo: hints.tipo,
+            metal: hints.metal,
+          }),
+        },
+      )
+      if (res?.sku) {
+        setEditSkuEcommerce(res.sku)
+        setEditSkuDirty(true)
+        toast.success('SKU gerada: ' + res.sku)
+      } else {
+        toast.error('Não foi possível gerar a SKU (verifique Tipo/Material/nome).')
+      }
+    } catch (err: any) {
+      console.error(err)
+      toast.error('Erro ao regenerar SKU: ' + (err?.message || ''))
+    } finally {
+      setIsRegeneratingSku(false)
+    }
+  }
+
   const handleMoveNewPhoto = (index: number, direction: 'left' | 'right') => {
     const targetIndex = direction === 'left' ? index - 1 : index + 1
     if (targetIndex < 0 || targetIndex >= editNewPhotoFiles.length) return
@@ -623,16 +729,35 @@ export default function StockInventory() {
       return
     }
 
-    // Estoque Atual Total não pode superar o Estoque Inicial: para salvar, o usuário
-    // deve liberar a edição do Estoque Inicial e aumentá-lo.
+    // Estoque Atual Total (Físico + soma das posses em revendedoras, a mesma conta
+    // que o painel de divisão exibe) não pode superar o Estoque Inicial: para salvar,
+    // o usuário deve liberar a edição do Estoque Inicial e aumentá-lo.
     const baseInitialQty =
       !isNaN(parsedInitQty) && parsedInitQty >= 0
         ? parsedInitQty
         : (editingProduct.qtde_inicial ?? 0)
-    if (parsedQty > baseInitialQty) {
+    const totalEmRevendedoras = productResellerStock.reduce(
+      (acc, item) => acc + (item.quantity || 0),
+      0,
+    )
+    const totalAtualGeral = parsedQty + totalEmRevendedoras
+    if (totalAtualGeral > baseInitialQty) {
       toast.error(
-        'O Estoque Atual Total não pode ser maior que o Estoque Inicial. Libere o Estoque Inicial e aumente-o para salvar.',
+        `O Estoque Atual Total (${totalAtualGeral}) não pode ser maior que o Estoque Inicial (${baseInitialQty}). Libere o Estoque Inicial (botão de cadeado) e aumente-o para salvar.`,
       )
+      return
+    }
+
+    // Preço promocional não pode ser maior ou igual ao preço de venda
+    const normPromo = normalizeCurrencyValue(editPrecoPromocional)
+    const normSellingCheck = normalizeCurrencyValue(editForm.selling_price)
+    if (
+      normPromo !== null &&
+      normPromo > 0 &&
+      normSellingCheck !== null &&
+      normPromo >= normSellingCheck
+    ) {
+      toast.error('Preço promocional não pode ser maior ou igual ao preço de venda.')
       return
     }
 
@@ -677,6 +802,27 @@ export default function StockInventory() {
                 ),
         observations: editForm.observations,
         status: parsedQty > 0 ? 'available' : 'unavailable',
+        // ===== Campos novos do modal da /estoque (v0.0.264) =====
+        marca_id: editMarcaId,
+        fornecedor: editFornecedor.trim(),
+        preco_promocional: normPromo !== null && normPromo > 0 ? normPromo : 0,
+        publicar_no_ecommerce: editPublishEcommerce,
+        destaque_ecommerce: editPublishEcommerce && editDestaqueEcommerce,
+        sku_ecommerce: editSkuEcommerce.trim(),
+      }
+
+      // Sincroniza type/material a partir das categorias marcadas: a PRIMEIRA
+      // marcada de cada grupo vira a principal nos campos únicos que alimentam
+      // SKU, relatórios e imports. Sem categoria correspondente, preserva o atual.
+      try {
+        const relIds = await productCreationService.resolveTypeMaterialIds(
+          editCategoriaIds,
+          editCategories,
+        )
+        if (relIds.typeId) fields.type = relIds.typeId
+        if (relIds.materialId) fields.material = relIds.materialId
+      } catch (relErr) {
+        console.warn('Erro ao derivar type/material das categorias (edição estoque):', relErr)
       }
 
       const filesToUpload = editNewPhotoFiles.map((item) => item.file)
@@ -687,6 +833,14 @@ export default function StockInventory() {
         filesToUpload,
         editExistingPhotos,
       )
+
+      // Grava TODAS as categorias marcadas em product_category_links
+      // (a primeira marcada fica como principal)
+      try {
+        await productService.setProductCategoryLinks(editingProduct.id, editCategoriaIds)
+      } catch (linkErr) {
+        console.warn('Erro ao salvar vínculos de categorias (edição estoque):', linkErr)
+      }
 
       toast.success('Produto e fotos atualizados com sucesso!')
       setEditProductModalOpen(false)
@@ -2095,68 +2249,122 @@ export default function StockInventory() {
               <span className="text-[10px] text-[#7A5C2E] font-medium">Bloqueado para edição</span>
             </div>
 
-            {/* Ordem exata: Tipo, Material, Perfil, Tamanho */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div>
-                <Label className="text-xs font-semibold">Tipo</Label>
-                <select
-                  value={editForm.type}
-                  onChange={(e) => setEditForm({ ...editForm, type: e.target.value })}
-                  className="w-full h-10 rounded-md border border-[#E5DFD5] px-3 text-sm mt-1"
-                >
-                  <option value="">Selecione...</option>
-                  {types.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
+            {/* Categorias Tipo/Material em botões multi-seleção + Marca + Fornecedor */}
+            <div className="p-3 rounded-xl border border-[#E5DFD5] bg-[#FDFBF7] space-y-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-semibold">Categorias (Tipo e Material)</Label>
+                <span className="text-[11px] font-medium text-[#7A5C2E]">
+                  {editCategoriaIds.length} selecionada(s)
+                </span>
               </div>
 
+              {/* Grupo Tipo */}
               <div>
-                <Label className="text-xs font-semibold">Material</Label>
-                <select
-                  value={editForm.material}
-                  onChange={(e) => setEditForm({ ...editForm, material: e.target.value })}
-                  className="w-full h-10 rounded-md border border-[#E5DFD5] px-3 text-sm mt-1"
-                >
-                  <option value="">Selecione...</option>
-                  {materials.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#7A5C2E]" />
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-[#7A5C2E]">
+                    Tipo
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5 pl-3">
+                  {editCategories
+                    .filter((c) => c.group !== 'metal')
+                    .map((cat) => {
+                      const isSelected = editCategoriaIds.includes(cat.id)
+                      return (
+                        <button
+                          key={cat.id}
+                          type="button"
+                          onClick={() => toggleEditCategory(cat.id)}
+                          aria-pressed={isSelected}
+                          className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-colors flex items-center gap-1.5 ${
+                            isSelected
+                              ? 'bg-[#7A5C2E] text-white border-[#7A5C2E]'
+                              : 'bg-white text-[#6B655E] border-[#E5DFD5] hover:border-[#C6A664]'
+                          }`}
+                        >
+                          {cat.name}
+                          {isSelected && <Check className="h-3 w-3" />}
+                        </button>
+                      )
+                    })}
+                  {editCategories.filter((c) => c.group !== 'metal').length === 0 && (
+                    <span className="text-[11px] text-[#8C8275] italic">
+                      Nenhum tipo cadastrado ainda.
+                    </span>
+                  )}
+                </div>
               </div>
 
-              <div>
-                <Label className="text-xs font-semibold">Perfil</Label>
-                <select
-                  value={editForm.target_audience}
-                  onChange={(e) => setEditForm({ ...editForm, target_audience: e.target.value })}
-                  className="w-full h-10 rounded-md border border-[#E5DFD5] px-3 text-sm mt-1"
-                >
-                  <option value="">Selecione...</option>
-                  <option value="feminino">Feminino</option>
-                  <option value="masculino">Masculino</option>
-                  <option value="unissex">Unissex</option>
-                </select>
+              {/* Grupo Material (metal) */}
+              <div className="pt-1.5 border-t border-[#E5DFD5]/70">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#C6A664]" />
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-[#7A5C2E]">
+                    Material
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5 pl-3">
+                  {editCategories
+                    .filter((c) => c.group === 'metal')
+                    .map((cat) => {
+                      const isSelected = editCategoriaIds.includes(cat.id)
+                      return (
+                        <button
+                          key={cat.id}
+                          type="button"
+                          onClick={() => toggleEditCategory(cat.id)}
+                          aria-pressed={isSelected}
+                          className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-colors flex items-center gap-1.5 ${
+                            isSelected
+                              ? 'bg-[#7A5C2E] text-white border-[#7A5C2E]'
+                              : 'bg-white text-[#6B655E] border-[#E5DFD5] hover:border-[#C6A664]'
+                          }`}
+                        >
+                          {cat.name}
+                          {isSelected && <Check className="h-3 w-3" />}
+                        </button>
+                      )
+                    })}
+                  {editCategories.filter((c) => c.group === 'metal').length === 0 && (
+                    <span className="text-[11px] text-[#8C8275] italic">
+                      Nenhum material cadastrado ainda.
+                    </span>
+                  )}
+                </div>
               </div>
 
-              <div>
-                <Label className="text-xs font-semibold">Tamanho</Label>
-                <select
-                  value={editForm.size}
-                  onChange={(e) => setEditForm({ ...editForm, size: e.target.value })}
-                  className="w-full h-10 rounded-md border border-[#E5DFD5] px-3 text-sm mt-1"
-                >
-                  <option value="">Selecione...</option>
-                  {sizes.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
+              <span className="text-[10px] text-[#8C8275] block">
+                Todas as opções marcadas ficam vinculadas à peça; a primeira de cada grupo
+                sincroniza os campos Tipo/Material usados na SKU, relatórios e imports.
+              </span>
+
+              {/* Marca e Fornecedor */}
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <div>
+                  <Label className="text-xs font-semibold">Marca</Label>
+                  <select
+                    value={editMarcaId}
+                    onChange={(e) => setEditMarcaId(e.target.value)}
+                    className="mt-1 w-full h-10 rounded-md border border-[#E5DFD5] bg-white px-2.5 text-xs"
+                  >
+                    <option value="">Selecione...</option>
+                    {editBrands.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <Label className="text-xs font-semibold">Fornecedor</Label>
+                  <Input
+                    value={editFornecedor}
+                    onChange={(e) => setEditFornecedor(e.target.value)}
+                    placeholder="Nome do fornecedor..."
+                    className="mt-1 h-10 text-xs"
+                  />
+                </div>
               </div>
             </div>
 
@@ -2169,6 +2377,44 @@ export default function StockInventory() {
                 required
                 className="mt-1"
               />
+            </div>
+
+            {/* SKU E-commerce com botão regenerar (igual ao cadastro) */}
+            <div>
+              <Label htmlFor="edit-sku-ecommerce" className="text-xs font-semibold">
+                SKU (E-commerce)
+              </Label>
+              <div className="flex gap-2 mt-1">
+                <Input
+                  id="edit-sku-ecommerce"
+                  value={editSkuEcommerce}
+                  onChange={(e) => {
+                    setEditSkuEcommerce(e.target.value)
+                    setEditSkuDirty(true)
+                  }}
+                  placeholder="Gerada pela regra: tipo + metal + iniciais do nome"
+                  className="font-mono text-xs font-semibold flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={isRegeneratingSku || isSavingEdit}
+                  onClick={handleRegenerateEditSku}
+                  title="Regenerar SKU pela regra (tipo + metal + iniciais do nome + numerador)"
+                  className="px-3 border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] font-semibold text-xs flex items-center gap-1.5"
+                >
+                  {isRegeneratingSku ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                  Regenerar
+                </Button>
+              </div>
+              <span className="text-[10px] text-[#8C8275] block mt-0.5">
+                Regenera pela regra (2 letras do tipo + 2 do metal + iniciais do nome + numerador),
+                evitando duplicidade. Gravado ao salvar.
+              </span>
             </div>
 
             {/* Ordem: Valor Investido, Preço de Venda, Estoque Inicial, Estoque Atual, Publicar no E-commerce e Mínimo */}
@@ -2198,23 +2444,66 @@ export default function StockInventory() {
                 </div>
 
                 <div>
+                  <Label className="text-xs font-semibold">Preço Promocional (R$)</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={editPrecoPromocional}
+                    onChange={(e) => setEditPrecoPromocional(e.target.value)}
+                    title="Preço promocional deve ser menor que o preço de venda"
+                    className="mt-1 font-semibold"
+                  />
+                </div>
+
+                <div>
                   <div className="flex items-center justify-between">
                     <Label className="text-xs font-semibold text-[#2D2A26]">
                       Estoque Inicial *
                     </Label>
                     <span className="text-[10px] text-[#7A5C2E] font-medium">Entrada</span>
                   </div>
-                  <Input
-                    type="number"
-                    min="0"
-                    step="1"
-                    required
-                    value={editForm.qtde_inicial}
-                    onChange={(e) => setEditForm({ ...editForm, qtde_inicial: e.target.value })}
-                    placeholder="1"
-                    title="Quantidade inicial registrada no cadastro (independente do estoque atual)"
-                    className="mt-1 font-bold border-[#C6A664]/60 text-[#2D2A26]"
-                  />
+                  <div className="flex gap-1.5 mt-1">
+                    <Input
+                      type="number"
+                      min="0"
+                      step="1"
+                      required
+                      disabled={editInitialStockLocked}
+                      value={editForm.qtde_inicial}
+                      onChange={(e) => setEditForm({ ...editForm, qtde_inicial: e.target.value })}
+                      placeholder="1"
+                      title="Quantidade inicial registrada no cadastro (independente do estoque atual)"
+                      className="font-bold border-[#C6A664]/60 text-[#2D2A26] disabled:bg-[#F3EAD8]/60 disabled:text-[#6B655E]"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={() => setEditInitialStockLocked((v) => !v)}
+                      aria-label={
+                        editInitialStockLocked
+                          ? 'Liberar edição do Estoque Inicial'
+                          : 'Bloquear Estoque Inicial'
+                      }
+                      title={
+                        editInitialStockLocked
+                          ? 'Liberar edição do Estoque Inicial'
+                          : 'Bloquear Estoque Inicial'
+                      }
+                      className={`shrink-0 ${
+                        editInitialStockLocked
+                          ? 'border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8]'
+                          : 'border-[#B3261E] text-[#B3261E] hover:bg-[#B3261E]/10'
+                      }`}
+                    >
+                      {editInitialStockLocked ? (
+                        <Lock className="h-4 w-4" />
+                      ) : (
+                        <Unlock className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
                 </div>
 
                 <div>
@@ -2268,6 +2557,64 @@ export default function StockInventory() {
                       <span
                         className={`h-3 w-3 rounded-full bg-white shadow-sm transition-transform ${
                           editPublishEcommerce ? 'translate-x-4' : ''
+                        }`}
+                      />
+                    </span>
+                  </button>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-semibold text-[#2D2A26]">
+                      Destaque no E-commerce
+                    </Label>
+                    <span
+                      className={`text-[10px] font-semibold ${
+                        editPublishEcommerce && editDestaqueEcommerce
+                          ? 'text-[#C6A664]'
+                          : 'text-[#6B655E]'
+                      }`}
+                    >
+                      {editPublishEcommerce
+                        ? editDestaqueEcommerce
+                          ? 'Com destaque'
+                          : 'Sem destaque'
+                        : 'Requer Publicar'}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={!editPublishEcommerce}
+                    onClick={() => setEditDestaqueEcommerce((v) => !v)}
+                    aria-pressed={editDestaqueEcommerce}
+                    className={`mt-1 w-full inline-flex items-center justify-between px-3 py-2 rounded-md border text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                      editPublishEcommerce && editDestaqueEcommerce
+                        ? 'border-[#C6A664] bg-[#C6A664]/10 text-[#7A5C2E]'
+                        : 'border-[#E5DFD5] bg-white text-[#6B655E]'
+                    }`}
+                    title={
+                      editPublishEcommerce
+                        ? 'Exibe esta peça com destaque na loja virtual'
+                        : 'Ative o Publicar no E-commerce para habilitar o destaque'
+                    }
+                  >
+                    <span>
+                      {!editPublishEcommerce
+                        ? 'Depende do Publicar'
+                        : editDestaqueEcommerce
+                          ? 'Em destaque'
+                          : 'Sem destaque'}
+                    </span>
+                    <span
+                      className={`inline-flex h-4 w-8 rounded-full p-0.5 transition-colors ${
+                        editPublishEcommerce && editDestaqueEcommerce
+                          ? 'bg-[#C6A664]'
+                          : 'bg-[#E5DFD5]'
+                      }`}
+                    >
+                      <span
+                        className={`h-3 w-3 rounded-full bg-white shadow-sm transition-transform ${
+                          editPublishEcommerce && editDestaqueEcommerce ? 'translate-x-4' : ''
                         }`}
                       />
                     </span>
