@@ -9,9 +9,12 @@ import {
   Tags,
   PackageOpen,
   Check,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
 import { productService } from '@/services/productService'
 import { Product } from '@/types'
+import { formatDate } from '@/lib/formatters'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
@@ -25,15 +28,22 @@ import {
   DEFAULT_LABEL_CONTENT,
   LabelContentOptions,
   getProductFullName,
+  getProductVariationBadge,
 } from '@/types/labelContent'
 import { getProductBarcodeValue } from '@/lib/barcodeSearch'
 import { BarcodeScannerModal } from '@/components/pos/BarcodeScannerModal'
 import { BarcodeBatchUploadModal } from '@/components/labels/BarcodeBatchUploadModal'
 import { MatchResult } from '@/lib/barcodeBatchMatcher'
 
+// Categoria principal do produto (primeiro link com categoria expandida).
+function productCategoryName(p: Product): string {
+  const links = p.expand?.['product_category_links(product)'] || []
+  return links.find((l) => l.expand?.category?.name)?.expand?.category?.name?.trim() || '—'
+}
+
 /**
- * Geração de Etiquetas (v0.0.265 — comportamento do '+ Adicionar' restaurado
- * do gabarito gerar-etiquetas-tecson-f4380.html + quadro de configuração).
+ * Geração de Etiquetas (v0.0.266 — tabela 'Produtos encontrados' paginada em
+ * 10 linhas por página, com coluna 'Data de cadastro', categoria e variação).
  * Regras consolidadas:
  * - Produto adicionado entra no TOPO da fila; etiqueta em branco entra no FINAL.
  * - Produto JÁ PRESENTE na fila: botão VERDE "Adicionado" DESABILITADO (como no
@@ -47,7 +57,12 @@ import { MatchResult } from '@/lib/barcodeBatchMatcher'
  * - Quadro "Dados e configuração de impressão" ENTRE a tabela e a fila, com a
  *   contagem, as 3 opções de impressão (cada uma em sua linha), o gabarito e os
  *   botões 'Etiqueta em branco' e 'Imprimir fila'.
+ * - Tabela 'Produtos encontrados' pagina LOCALMENTE (10 por página) sobre os
+ *   50 resultados do servidor; colunas: Código, Nome, Categoria, Variação,
+ *   Estoque atual, Valor unitário, Data de cadastro e Ação.
  * - Impressão via LabelPrintModal (ordem e geometria de folha intocadas).
+ * - A4349 intocada: grade 7×18, margens 13/8/14/8mm e arte do backup, com o
+ *   único padding direito interno de 2,5mm (pedido explícito do usuário).
  */
 export default function LabelGenerationPage() {
   // ---------- Fila de impressão ----------
@@ -62,6 +77,8 @@ export default function LabelGenerationPage() {
   const [results, setResults] = useState<Product[]>([])
   const [totalFound, setTotalFound] = useState(0)
   const [loading, setLoading] = useState(false)
+  const [page, setPage] = useState(1)
+  const RESULTS_PER_PAGE = 10
 
   // ---------- Leitor / destaque ----------
   const [scannerOpen, setScannerOpen] = useState(false)
@@ -102,6 +119,28 @@ export default function LabelGenerationPage() {
     return set
   }, [queue])
 
+  // ---------- Paginação local da tabela 'Produtos encontrados' (10/página) ----------
+  const pageCount = Math.max(1, Math.ceil(results.length / RESULTS_PER_PAGE))
+  const safePage = Math.min(page, pageCount)
+  const pagedResults = useMemo(
+    () => results.slice((safePage - 1) * RESULTS_PER_PAGE, safePage * RESULTS_PER_PAGE),
+    [results, safePage],
+  )
+
+  const pageNumbersToShow = useMemo(() => {
+    const all = Array.from({ length: pageCount }, (_, i) => i + 1)
+    if (pageCount <= 5) return all
+    const windowStart = Math.min(Math.max(1, safePage - 2), pageCount - 4)
+    const window = all.slice(windowStart, windowStart + 5)
+    if (!window.includes(1)) {
+      return [1, ...(safePage - 2 > 2 ? [-1] : []), ...window]
+    }
+    if (!window.includes(pageCount)) {
+      return [...window, ...(safePage + 2 < pageCount - 1 ? [-1] : []), pageCount]
+    }
+    return window
+  }, [pageCount, safePage])
+
   // ---------- Busca com debounce (filter no backend) ----------
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search.trim()), 350)
@@ -121,6 +160,7 @@ export default function LabelGenerationPage() {
         if (!cancelled) {
           setResults(res.items)
           setTotalFound(res.totalItems)
+          setPage(1)
         }
       } catch (err) {
         console.error('Erro ao buscar produtos:', err)
@@ -417,20 +457,23 @@ export default function LabelGenerationPage() {
                 <tr className="border-b border-[#E5DFD5] bg-[#FDFBF7] text-left text-xs uppercase tracking-wide text-[#6B655E]">
                   <th className="py-2.5 px-4 font-semibold">Código</th>
                   <th className="py-2.5 px-4 font-semibold">Nome do produto</th>
-                  <th className="py-2.5 px-4 font-semibold">Estoque atual</th>
+                  <th className="py-2.5 px-4 font-semibold">Categoria</th>
+                  <th className="py-2.5 px-4 font-semibold">Variação</th>
+                  <th className="py-2.5 px-4 font-semibold text-center">Estoque atual</th>
                   <th className="py-2.5 px-4 font-semibold">Valor unitário</th>
+                  <th className="py-2.5 px-4 font-semibold">Data de cadastro</th>
                   <th className="py-2.5 px-4 font-semibold text-right">Ação</th>
                 </tr>
               </thead>
               <tbody>
                 {results.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="py-10 text-center text-[#6B655E]">
+                    <td colSpan={8} className="py-10 text-center text-[#6B655E]">
                       {loading ? 'Buscando produtos…' : 'Nenhum produto encontrado.'}
                     </td>
                   </tr>
                 ) : (
-                  results.map((p) => {
+                  pagedResults.map((p) => {
                     const isHighlighted = highlightedProductId === p.id
                     const isAdded = queuedProductIds.has(p.id)
                     const varBadge = isHighlighted
@@ -466,6 +509,12 @@ export default function LabelGenerationPage() {
                         <td className="py-2.5 px-4 text-[#2D2A26]">
                           {p.nome_produto?.trim() || p.description}
                         </td>
+                        <td className="py-2.5 px-4 text-xs text-[#6B655E]">
+                          {productCategoryName(p)}
+                        </td>
+                        <td className="py-2.5 px-4 text-xs text-[#6B655E]">
+                          {getProductVariationBadge(p) || '—'}
+                        </td>
                         <td className="py-2.5 px-4 font-mono text-xs font-semibold text-[#2E7D4F] text-center">
                           {p.quantity ?? 0}
                         </td>
@@ -474,6 +523,9 @@ export default function LabelGenerationPage() {
                             style: 'currency',
                             currency: 'BRL',
                           })}
+                        </td>
+                        <td className="py-2.5 px-4 text-xs whitespace-nowrap text-[#2D2A26]">
+                          {formatDate(p.created)}
                         </td>
                         <td className="py-2.5 px-4 text-right">
                           {isAdded ? (
@@ -507,6 +559,60 @@ export default function LabelGenerationPage() {
               </tbody>
             </table>
           </div>
+          {results.length > RESULTS_PER_PAGE && (
+            <div className="px-4 py-3 border-t border-[#E5DFD5] flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-[#6B655E]">
+                Página <span className="font-semibold text-[#2D2A26]">{safePage}</span> de{' '}
+                {pageCount} — exibindo {(safePage - 1) * RESULTS_PER_PAGE + 1}–
+                {Math.min(safePage * RESULTS_PER_PAGE, results.length)} de {results.length} produtos
+                {totalFound > results.length ? ` (${totalFound} no servidor — refine a busca)` : ''}
+              </p>
+              <div className="flex items-center gap-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((pg) => Math.max(1, pg - 1))}
+                  disabled={safePage <= 1}
+                  className="h-8 border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] disabled:opacity-40"
+                  aria-label="Página anterior de produtos encontrados"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Anterior
+                </Button>
+                {pageNumbersToShow.map((n) => (
+                  <Button
+                    key={n}
+                    type="button"
+                    variant={n === safePage ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setPage(n)}
+                    className={
+                      n === safePage
+                        ? 'h-8 w-8 p-0 bg-[#7A5C2E] hover:bg-[#634924] text-white'
+                        : 'h-8 w-8 p-0 border-[#E5DFD5] text-[#7A5C2E] hover:bg-[#F3EAD8]'
+                    }
+                    aria-label={`Ir para a página ${n} de produtos encontrados`}
+                    aria-current={n === safePage ? 'page' : undefined}
+                  >
+                    {n}
+                  </Button>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((pg) => Math.min(pageCount, pg + 1))}
+                  disabled={safePage >= pageCount}
+                  className="h-8 border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8] disabled:opacity-40"
+                  aria-label="Próxima página de produtos encontrados"
+                >
+                  Próxima
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
