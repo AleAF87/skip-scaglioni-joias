@@ -1,5 +1,15 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
-import { Printer, Plus, Trash2, ScanLine, Search, Upload, Tags, PackageOpen } from 'lucide-react'
+import {
+  Printer,
+  Plus,
+  Trash2,
+  ScanLine,
+  Search,
+  Upload,
+  Tags,
+  PackageOpen,
+  Check,
+} from 'lucide-react'
 import { productService } from '@/services/productService'
 import { Product } from '@/types'
 import { Button } from '@/components/ui/button'
@@ -22,15 +32,22 @@ import { BarcodeBatchUploadModal } from '@/components/labels/BarcodeBatchUploadM
 import { MatchResult } from '@/lib/barcodeBatchMatcher'
 
 /**
- * Geração de Etiquetas (v0.0.247 — página reconstruída).
+ * Geração de Etiquetas (v0.0.265 — comportamento do '+ Adicionar' restaurado
+ * do gabarito gerar-etiquetas-tecson-f4380.html + quadro de configuração).
  * Regras consolidadas:
  * - Produto adicionado entra no TOPO da fila; etiqueta em branco entra no FINAL.
- * - Contagem no badge: "N etiquetas · M preenchidas · K vazias".
- * - Busca CONSULTA O SERVIDOR (productService.getProducts com filter no backend).
+ * - Produto JÁ PRESENTE na fila: botão VERDE "Adicionado" DESABILITADO (como no
+ *   gabarito original: btn-success → btn-primary "Adicionado") e o clique NÃO
+ *   duplica; vale também para o upload em lote (sem repetidos). Remoção apenas
+ *   pela fila.
  * - Leitor de código: igual ao PDV — lê sem campo selecionado, apaga o valor
  *   anterior e preenche o novo; Enter aciona resolveBarcode (inclusive variação).
- * - Tabela SEM "Produto ID"; "Valor unitário" após "Estoque atual".
- * - Impressão via LabelPrintModal (geometria e ordem intocadas).
+ * - Contagem de ETIQUETAS soma a quantidade de cada item da fila (não o nº de
+ *   itens): "N etiquetas · M preenchidas · K vazias".
+ * - Quadro "Dados e configuração de impressão" ENTRE a tabela e a fila, com a
+ *   contagem, as 3 opções de impressão (cada uma em sua linha), o gabarito e os
+ *   botões 'Etiqueta em branco' e 'Imprimir fila'.
+ * - Impressão via LabelPrintModal (ordem e geometria de folha intocadas).
  */
 export default function LabelGenerationPage() {
   // ---------- Fila de impressão ----------
@@ -62,11 +79,27 @@ export default function LabelGenerationPage() {
 
   const template: LabelTemplateModel = LABEL_TEMPLATES[templateId] || LABEL_TEMPLATES.A4349
 
-  // ---------- Contadores ----------
+  // ---------- Contadores (ETIQUETAS, não itens: soma a quantity) ----------
   const counts = useMemo(() => {
-    const filled = queue.filter((i) => i.type === 'product').length
-    const empty = queue.filter((i) => i.type === 'empty').length
-    return { total: queue.length, filled, empty }
+    let labels = 0
+    let filled = 0
+    let empty = 0
+    for (const item of queue) {
+      const qty = Math.max(1, Math.floor(item.quantity || 1))
+      labels += qty
+      if (item.type === 'empty') empty += qty
+      else filled += qty
+    }
+    return { total: labels, filled, empty }
+  }, [queue])
+
+  // Ids de produtos já presentes na fila (qualquer posição/quantidade).
+  const queuedProductIds = useMemo(() => {
+    const set = new Set<string>()
+    for (const item of queue) {
+      if (item.type === 'product' && item.productId) set.add(item.productId)
+    }
+    return set
   }, [queue])
 
   // ---------- Busca com debounce (filter no backend) ----------
@@ -123,10 +156,16 @@ export default function LabelGenerationPage() {
   }, [])
 
   // Produto vai ao TOPO da fila, com a quantidade = estoque atual.
+  // Produto JÁ presente na fila: ignora (não duplica).
   const addProductToQueue = useCallback(
     (p: Product) => {
-      setQueue((prev) => [toQueueItem(p), ...prev])
-      toast({ title: `Etiqueta adicionada: ${p.code || p.description}` })
+      let added = false
+      setQueue((prev) => {
+        if (prev.some((i) => i.type === 'product' && i.productId === p.id)) return prev
+        added = true
+        return [toQueueItem(p), ...prev]
+      })
+      if (added) toast({ title: `Etiqueta adicionada: ${p.code || p.description}` })
     },
     [toQueueItem],
   )
@@ -256,12 +295,25 @@ export default function LabelGenerationPage() {
 
   const handleApplyBatch = useCallback(
     (matchedIds: string[], result: MatchResult) => {
+      const seen = new Set<string>()
       const matched = matchedIds
         .map((id) => batchProducts.find((p) => p.id === id))
-        .filter((p): p is Product => Boolean(p))
-      // Produtos do lote entram no TOPO da fila (mais recentes primeiro);
-      // etiquetas em branco que já estavam no final permanecem no final.
-      setQueue((prev) => [...matched.map((p) => toQueueItem(p)), ...prev])
+        .filter((p): p is Product => {
+          if (!p) return false
+          if (seen.has(p.id)) return false
+          seen.add(p.id)
+          return true
+        })
+      // Produtos do lote entram no TOPO da fila (mais recentes primeiro),
+      // SEM repetir os que já estão na fila; etiquetas em branco que já
+      // estavam no final permanecem no final.
+      setQueue((prev) => {
+        const already = new Set(
+          prev.filter((i) => i.type === 'product' && i.productId).map((i) => i.productId as string),
+        )
+        const fresh = matched.filter((p) => !already.has(p.id))
+        return [...fresh.map((p) => toQueueItem(p)), ...prev]
+      })
       toast({
         title: `${result.matchedCount} produto(s) adicionado(s) de ${result.totalInputCodes} códigos da lista; ${result.unmatchedCount} sem correspondência.`,
       })
@@ -302,24 +354,6 @@ export default function LabelGenerationPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* Badge de contagem: três quantidades */}
-          <Badge
-            variant="outline"
-            className="border-[#C6A664] bg-[#FDFBF7] text-[#7A5C2E] text-xs px-3 py-1.5 h-auto"
-          >
-            {counts.total} etiquetas · {counts.filled} preenchidas · {counts.empty} vazias
-          </Badge>
-
-          <Button
-            type="button"
-            variant="outline"
-            onClick={addBlankToQueue}
-            className="border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8]"
-          >
-            <PackageOpen className="h-4 w-4 mr-1.5" />
-            Etiqueta em branco
-          </Button>
-
           <Button
             type="button"
             variant="outline"
@@ -328,16 +362,6 @@ export default function LabelGenerationPage() {
           >
             <Upload className="h-4 w-4 mr-1.5" />
             Upload em lote
-          </Button>
-
-          <Button
-            type="button"
-            onClick={() => setPrintOpen(true)}
-            disabled={counts.total === 0}
-            className="bg-[#7A5C2E] hover:bg-[#634924] text-white font-bold"
-          >
-            <Printer className="h-4 w-4 mr-1.5" />
-            Imprimir fila ({counts.total})
           </Button>
         </div>
       </div>
@@ -408,6 +432,7 @@ export default function LabelGenerationPage() {
                 ) : (
                   results.map((p) => {
                     const isHighlighted = highlightedProductId === p.id
+                    const isAdded = queuedProductIds.has(p.id)
                     const varBadge = isHighlighted
                       ? scannedVariation?.variacao || scannedVariation?.code || ''
                       : ''
@@ -451,16 +476,29 @@ export default function LabelGenerationPage() {
                           })}
                         </td>
                         <td className="py-2.5 px-4 text-right">
-                          <Button
-                            type="button"
-                            size="sm"
-                            onClick={() => addProductToQueue(p)}
-                            className="h-8 bg-[#7A5C2E] hover:bg-[#634924] text-white"
-                            aria-label={`Adicionar etiqueta do produto ${p.code || p.description}`}
-                          >
-                            <Plus className="h-4 w-4 mr-1" />
-                            Adicionar
-                          </Button>
+                          {isAdded ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              disabled
+                              className="h-8 bg-[#2E7D4F] hover:bg-[#2E7D4F] text-white opacity-90 cursor-not-allowed"
+                              aria-label={`Produto ${p.code || p.description} já está na fila de impressão`}
+                            >
+                              <Check className="h-4 w-4 mr-1" />
+                              Adicionado
+                            </Button>
+                          ) : (
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={() => addProductToQueue(p)}
+                              className="h-8 bg-[#7A5C2E] hover:bg-[#634924] text-white"
+                              aria-label={`Adicionar etiqueta do produto ${p.code || p.description}`}
+                            >
+                              <Plus className="h-4 w-4 mr-1" />
+                              Adicionar
+                            </Button>
+                          )}
                         </td>
                       </tr>
                     )
@@ -468,6 +506,75 @@ export default function LabelGenerationPage() {
                 )}
               </tbody>
             </table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Quadro de dados e configuração de impressão (entre a tabela e a fila) */}
+      <Card className="border-[#C6A664]/60 bg-[#FDFBF7] shadow-xs">
+        <CardContent className="p-4">
+          <h2 className="text-sm font-bold text-[#2D2A26] mb-3">
+            Dados e configuração de impressão
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-3">
+              {/* Contagem de etiquetas (soma as quantidades da fila) */}
+              <Badge
+                variant="outline"
+                className="border-[#C6A664] bg-white text-[#7A5C2E] text-xs px-3 py-1.5 h-auto"
+              >
+                {counts.total} etiquetas · {counts.filled} preenchidas · {counts.empty} vazias
+              </Badge>
+
+              {/* Gabarito de impressão */}
+              <div className="flex items-center gap-2">
+                <Label htmlFor="label-template-select" className="text-xs text-[#6B655E] shrink-0">
+                  Gabarito:
+                </Label>
+                <select
+                  id="label-template-select"
+                  value={templateId}
+                  onChange={(e) => setTemplateId(e.target.value)}
+                  className="h-8 rounded-md border border-[#E5DFD5] bg-white px-2 text-xs text-[#2D2A26]"
+                >
+                  {Object.values(LABEL_TEMPLATES).map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Botões de ação da impressão */}
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={addBlankToQueue}
+                  className="border-[#C6A664] text-[#7A5C2E] hover:bg-[#F3EAD8]"
+                >
+                  <PackageOpen className="h-4 w-4 mr-1.5" />
+                  Etiqueta em branco
+                </Button>
+
+                <Button
+                  type="button"
+                  onClick={() => setPrintOpen(true)}
+                  disabled={counts.total === 0}
+                  className="bg-[#7A5C2E] hover:bg-[#634924] text-white font-bold"
+                >
+                  <Printer className="h-4 w-4 mr-1.5" />
+                  Imprimir fila ({counts.total})
+                </Button>
+              </div>
+            </div>
+
+            {/* Opções de impressão — uma por linha */}
+            <div className="flex flex-col gap-2 md:border-l md:border-[#E5DFD5] md:pl-4 justify-center">
+              {contentToggle('showCode', 'Imprimir código abaixo do código de barras')}
+              {contentToggle('showFullName', 'Imprimir nome/categoria')}
+              {contentToggle('showSellingPrice', 'Imprimir preço de venda')}
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -482,37 +589,17 @@ export default function LabelGenerationPage() {
                 (produtos no topo · brancas no final)
               </span>
             </h2>
-            <div className="flex items-center gap-2">
-              <select
-                value={templateId}
-                onChange={(e) => setTemplateId(e.target.value)}
-                className="h-8 rounded-md border border-[#E5DFD5] bg-white px-2 text-xs text-[#2D2A26]"
-                aria-label="Gabarito de impressão"
+            {queue.length > 0 && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setQueue([])}
+                className="h-8 text-[#B3261E] hover:bg-[#B3261E]/10"
               >
-                {Object.values(LABEL_TEMPLATES).map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-              {queue.length > 0 && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setQueue([])}
-                  className="h-8 text-[#B3261E] hover:bg-[#B3261E]/10"
-                >
-                  Limpar fila
-                </Button>
-              )}
-            </div>
-          </div>
-
-          <div className="px-4 py-3 flex flex-wrap items-center gap-4 border-b border-[#F3EAD8]">
-            {contentToggle('showCode', 'Imprimir código abaixo do código de barras')}
-            {contentToggle('showFullName', 'Imprimir nome/categoria')}
-            {contentToggle('showSellingPrice', 'Imprimir preço de venda')}
+                Limpar fila
+              </Button>
+            )}
           </div>
 
           <div className="overflow-x-auto">
@@ -603,7 +690,7 @@ export default function LabelGenerationPage() {
         onApplySelection={handleApplyBatch}
       />
 
-      {/* Prévia de impressão — geometria e ordem intocadas */}
+      {/* Prévia de impressão — ordem e geometria de folha intocadas */}
       <LabelPrintModal
         isOpen={printOpen}
         onClose={() => setPrintOpen(false)}
