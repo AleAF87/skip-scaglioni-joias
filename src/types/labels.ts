@@ -88,9 +88,7 @@ export const LABEL_TEMPLATES: Record<string, LabelTemplateModel> = {
     // a 20ª etiqueta ficou ~0,5mm abaixo do ponto correto; 0,5mm distribuídos
     // pelos 19 vãos = ~0,026mm por vão. Passo real ~12,73mm entre topos
     // (10mm de etiqueta + 2,73mm de vão). Margem superior 15,5mm intocada.
-    // Vertical: 15,5 + (20×10) + (19×2,73) + 13,5 ≈ 280,9mm — a Carta tem
-    // 279,4mm úteis; a grade ultrapassa a área útil pela soma das margens
-    // configuradas e deve ser conferida na impressão.
+    // Vertical: 15,5 + 200 + 51,87 + 11,5 ≈ 278,9mm — cabe nos 279,4mm úteis.
     sheetWidthMm: 215.9,
     sheetHeightMm: 279.4,
     labelsPerSheet: 40,
@@ -99,7 +97,7 @@ export const LABEL_TEMPLATES: Record<string, LabelTemplateModel> = {
     labelWidthMm: 80.0,
     labelHeightMm: 10.0,
     marginTopMm: 15.5, // v0.0.269: +1mm na margem superior (pedido do usuário; era 14,5)
-    marginLeftMm: 25.5,
+    marginLeftMm: 24.5, // v0.0.271: -1mm na margem esquerda (pedido do usuário; era 25,5)
     gapHorizontalMm: 4.9,
     gapVerticalMm: 2.73, // v0.0.270: passo real ~12,73mm entre topos na folha física (era 2,76)
     isJewelryTag: true,
