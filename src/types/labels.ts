@@ -84,7 +84,10 @@ export const LABEL_TEMPLATES: Record<string, LabelTemplateModel> = {
     // Folha Carta 215.9 x 279.4 mm — encaixe confirmado pelo usuário (v0.0.267):
     // @page sup 14,5 / esq 25,5 / dir 25,5 / inf 13,5.
     // Horizontal: 25,5 + (2×80) + 4,9 + 25,5 = 215,9mm ✓
-    // Vertical: 14,5 + (20×10) + (19×2,5) + 13,5 = 279,4mm ✓
+    // v0.0.268: gapVertical 2,63mm — passo real da folha física medido pelo
+    // usuário (~12,63mm entre topos, 20 linhas de 10mm). Com 2,5mm o erro de
+    // ~0,13mm por vão acumulava 2,5mm na 20ª etiqueta.
+    // Vertical: 14,5 + (20×10) + (19×2,63) + 13,5 ≈ 278mm — cabe na Carta ✓
     sheetWidthMm: 215.9,
     sheetHeightMm: 279.4,
     labelsPerSheet: 40,
@@ -95,7 +98,7 @@ export const LABEL_TEMPLATES: Record<string, LabelTemplateModel> = {
     marginTopMm: 14.5,
     marginLeftMm: 25.5,
     gapHorizontalMm: 4.9,
-    gapVerticalMm: 2.5,
+    gapVerticalMm: 2.63, // v0.0.268: passo ~12,63mm medido na folha física (era 2,5)
     isJewelryTag: true,
   },
 }
