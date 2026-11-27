@@ -651,16 +651,16 @@ routerAdd(
           txApp.delete(product)
           response.products_deleted++
 
-          // Recalcula o saldo derivado das revendedoras que tinham posse do produto.
+          // Saldo é DERIVADO (soma das posses): apagar as linhas já corrige os
+          // totais — não há campo de saldo gravado para recomputar. Registramos
+          // apenas as revendedoras afetadas, para o resumo na tela.
           for (const rid in affectedResellers) {
-            recalcResellerStockBalance(txApp, rid)
             if (response.resellers_affected.indexOf(rid) === -1) {
               response.resellers_affected.push(rid)
             }
           }
         }
       })
-
       response.success = true
       console.log(
         'tecson cleanup-preview:',
