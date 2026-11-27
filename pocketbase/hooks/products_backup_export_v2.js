@@ -1,5 +1,11 @@
 /**
- * products_backup_export.js — backup completo (CSV + fotos) 100% server-side.
+ * products_backup_export_v2.js — backup completo (CSV + fotos) 100% server-side.
+ *
+ * ARQUIVO NOVO (v2): o deploy anterior do products_backup_export.js falhava
+ * 4x com "Could not resolve" apontando para o pacote de base64 do Node,
+ * mesmo sem require() ativo no código — o scanner do deploy captura
+ * specifiers de módulo TAMBÉM DENTRO DE COMENTÁRIOS. Manter este arquivo
+ * 100% livre de qualquer texto que pareça um specifier de módulo.
  *
  * Motivação: o export antigo baixava cada foto via fetch no NAVEGADOR —
  * as URLs externas da CDN imagestecson.b-cdn.net falham por CORS, e o ZIP
@@ -22,12 +28,11 @@
  * contada e reportada na coluna "Status da Foto" do CSV e no header
  * X-Backup-Summary (JSON em base64) — o frontend mostra toast com o total.
  *
- * Escolha de desempenho (item 6 do pedido): o download é SEQUENCIAL, em um
- * único request, porque a JSVM é single-threaded e $http.send é bloqueante
- * (não há goroutines/await reais para lotes paralelos). Sem paginação
- * multi-rota para não complicar o cliente; o timeout é controlado por foto
- * (10s) e falhas são puladas. PocketBase não impõe WriteTimeout, então a
- * resposta longa é permitida. Registrado no header X-Backup-Strategy.
+ * Escolha de desempenho: o download é SEQUENCIAL, em um único request,
+ * porque a JSVM é single-threaded e $http.send é bloqueante (não há
+ * goroutines/await reais para lotes paralelos). Sem paginação multi-rota
+ * para não complicar o cliente; o timeout é controlado por foto (10s) e
+ * falhas são puladas. Registrado no header X-Backup-Strategy.
  *
  * ZIP montado byte a byte em MEMÓRIA (STORED, sem compressão; UTF-8 e
  * CRC-32 manuais — TextEncoder não existe na JSVM). Entradas com data
@@ -35,10 +40,16 @@
  * Explorer/WinRAR/7-Zip/unzip.
  *
  * Restrições da JSVM respeitadas: sem APIs de disco ($os.* não é usado),
- * sem require() (o bundler do deploy não resolve "encoding/base64" — base64
- * em JS puro inline), helpers 100% inline (handlers são isolados), sem
- * object spread, routerAdd sem middleware null, resposta via e.blob
- * (number[] | string) — nunca $os.writeBytesToFile.
+ * sem require() de módulo externo (base64 em JS puro inline), sem object
+ * spread, helpers 100% inline (handlers são isolados), routerAdd sem
+ * middleware null, resposta via e.blob (number[] | string) — nunca
+ * $os.writeBytesToFile.
+ *
+ * NOTA para o bundler do deploy: este arquivo NÃO declara NENHUMA
+ * dependência externa — nenhum specifier de módulo aparece aqui, nem em
+ * comentários (a menção entre aspas ao pacote de base64 do Node, presente
+ * na versão antiga deste arquivo, era captada pelo scanner do deploy e
+ * causava "Could not resolve"). Não reintroduza esse texto neste arquivo.
  *
  * Rota: POST /backend/v1/products/export/backup (superadmin-only)
  * Resposta: o binário .zip (Content-Disposition attachment) +
@@ -125,8 +136,9 @@ routerAdd(
       }
       return out
     }
-    // base64 em JS puro — require('encoding/base64') NÃO é resolvido pelo
-    // bundler do deploy, e atob/btoa não existem na JSVM.
+    // base64 em JS puro (atob/btoa não existem na JSVM). Usado só para o
+    // header X-Backup-Summary. SEM specifier de módulo aqui — o scanner do
+    // deploy captura textos entre aspas e tenta empacotá-los como pacote.
     const B64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
     const base64Encode = function (bytes) {
       let out = ''
