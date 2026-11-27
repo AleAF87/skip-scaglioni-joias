@@ -13,9 +13,14 @@
 //      o valor ORIGINAL da Tecson é preservado para auditoria (inclusive zeros).
 //      COD_PRODUTO (código Tecson) é dado complementar/origem — NUNCA localiza
 //      produto nem vira quantidade. FORNECEDOR é informativo.
-//  - IMAGEM: produto novo → URL importada como imagem principal (image_url);
-//    produto existente → mantém a imagem cadastrada; só usa a importada se o
-//    produto não tiver nenhuma.
+//  - IMAGEM (v0.0.285): produto novo → foto baixada SERVER-SIDE da CDN Tecson
+//    e gravada no campo photos (upload no PocketBase), com a URL mantida em
+//    image_url como referência de origem; produto existente SEM imagem nenhuma
+//    (photos vazio e image_url vazio) → photos preenchido com a imagem
+//    importada. Produto que JÁ tem foto/photos preenchido NUNCA é tocado.
+//    Falha no download de uma foto individual NÃO aborta a importação — o
+//    produto entra sem foto e a URL externa fica em image_url como fallback
+//    (getProductDisplayPhoto prioriza photos).
 //  - Quantidade 0: NÃO cria posse nem altera estoque — só cadastro/mapeamento.
 //  - v0.0.279 (BUG CORRIGIDO): dry_run=true executa SOMENTE a validação —
 //    nenhum save() é feito. Antes, a prévia gravava produtos/posses de verdade.
@@ -57,6 +62,8 @@ routerAdd(
       variations_created: 0,
       stock_items_created: 0,
       stock_items_updated: 0,
+      photos_attached: 0,
+      photos_failed: 0,
       skipped: [],
     }
 
@@ -88,6 +95,54 @@ routerAdd(
     }
 
     const escapeFilter = (s) => String(s).replace(/'/g, "\\'")
+
+    // Foto: baixa a imagem da CDN Tecson SERVER-SIDE (sem CORS) e devolve um
+    // arquivo pronto para o campo photos (upload no PocketBase). Máx. 15MB.
+    // Qualquer falha devolve null — o produto entra sem foto e a URL externa
+    // permanece em image_url como fallback. (APIs JSVM, padrão do
+    // products_cdn_photo_migration: $http.send + $filesystem.fileFromBytes.)
+    const MAX_PHOTO_BYTES = 15 * 1024 * 1024
+    const downloadPhotoFile = (url, productId) => {
+      if (!url) return null
+      try {
+        const res = $http.send({ url: url, method: 'GET', timeout: 60 })
+        if (res.statusCode !== 200 || !res.body || res.body.length === 0) {
+          console.log('tecson/import foto: HTTP ' + res.statusCode + ' em ' + url)
+          return null
+        }
+        if (res.body.length > MAX_PHOTO_BYTES) {
+          console.log('tecson/import foto: maior que 15MB em ' + url)
+          return null
+        }
+        // Extensão pela URL; default jpg (a CDN serve jpg/png/webp).
+        let ext = 'jpg'
+        try {
+          const name = String(url).split('?')[0].split('#')[0].split('/')
+          const last = name[name.length - 1] || ''
+          const dot = last.lastIndexOf('.')
+          const e2 = dot >= 0 ? last.substring(dot + 1).toLowerCase() : ''
+          if (e2 === 'png' || e2 === 'webp' || e2 === 'gif') ext = e2
+          else if (e2 === 'jpeg' || e2 === 'jpg') ext = 'jpg'
+        } catch (_) {}
+        return $filesystem.fileFromBytes(res.body, 'tecson_' + productId + '.' + ext)
+      } catch (err) {
+        console.log('tecson/import foto: falha em ' + url + ': ' + err.message)
+        return null
+      }
+    }
+
+    // Produto JÁ TEM foto? (photos preenchido ou imagem própria cadastrada).
+    // Regra intocável: quem já tem foto não é sobrescrito nem duplicado.
+    const productHasPhoto = (p) => {
+      try {
+        const ph = p.get('photos')
+        if (Object.prototype.toString.call(ph) === '[object Array]' && ph.length > 0) return true
+      } catch (_) {}
+      try {
+        if (String(p.getString('image_url') || '').trim() !== '') return true
+      } catch (_) {}
+      return false
+    }
     const normForCompare = (v) =>
       String(v || '')
         .normalize('NFD')
@@ -417,14 +472,31 @@ routerAdd(
               product.set('sku_interno', entry.cod_base)
               product.set('sku_novo', entry.cod_base)
             }
-            // IMAGEM: produto novo → URL importada como imagem principal.
-            if (importedImage) product.set('image_url', importedImage)
+            // IMAGEM (v0.0.285): produto novo → baixa a foto da CDN SERVER-SIDE
+            // e grava no campo photos (upload PB). image_url mantém a URL como
+            // referência de origem/fallback. Falha no download NÃO aborta.
+            if (importedImage) {
+              product.set('image_url', importedImage)
+              try {
+                const file = downloadPhotoFile(importedImage, entry.barcode_key || 'novo')
+                if (file) product.set('photos', [file])
+              } catch (errPhoto) {
+                console.log('tecson/import foto (novo): ' + errPhoto.message)
+              }
+            }
             if (row.description) product.set('nome_original_tecson', row.description)
             if (row.selling_price) product.set('selling_price', parseFloat(row.selling_price) || 0)
             // FORNECEDOR: informativo, vindo do CSV (ex.: 'Scaglioni Joias').
             if (row.fornecedor) product.set('fornecedor', String(row.fornecedor).trim())
             txApp.save(product)
             result.products_created++
+            if (importedImage) {
+              if (product.get('photos') && product.get('photos').length > 0) {
+                result.photos_attached++
+              } else {
+                result.photos_failed++
+              }
+            }
 
             if (entry.variation) {
               const colVar = txApp.findCollectionByNameOrId('product_variations')
@@ -459,10 +531,24 @@ routerAdd(
               product.set('codigo_barras_tecson', entry.barcode_original)
               txApp.save(product)
             }
-            // IMAGEM: mantém a imagem cadastrada; só usa a importada se não houver.
-            if (importedImage && !product.getString('image_url')) {
-              product.set('image_url', importedImage)
-              txApp.save(product)
+            // IMAGEM (v0.0.285): produto existente SEM foto nenhuma → baixa a
+            // foto da CDN SERVER-SIDE e grava no campo photos (upload PB).
+            // Regra intocável: quem JÁ TEM foto (photos preenchido ou imagem
+            // própria) não é sobrescrito nem duplicado. Preços/quantidades não
+            // são alterados por este bloco. Falha no download NÃO aborta.
+            if (importedImage && !productHasPhoto(product)) {
+              try {
+                const file = downloadPhotoFile(importedImage, entry.barcode_key || product.id)
+                if (file) {
+                  product.set('photos', [file])
+                  txApp.save(product) // image_url não é alterado (não era da CDN)
+                  result.photos_attached++
+                } else {
+                  result.photos_failed++
+                }
+              } catch (errPhoto) {
+                console.log('tecson/import foto (existente): ' + errPhoto.message)
+              }
             }
             // FORNECEDOR: só preenche se o produto não tinha nenhum.
             if (row.fornecedor && !product.getString('fornecedor')) {
