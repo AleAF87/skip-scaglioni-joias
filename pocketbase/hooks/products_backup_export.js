@@ -1,27 +1,48 @@
 /**
- * Backup de produtos gerado 100% no SERVIDOR, em MEMÓRIA (v0.0.286).
+ * products_backup_export.js — backup completo (CSV + fotos) 100% server-side.
  *
  * Motivação: o export antigo baixava cada foto via fetch no NAVEGADOR —
- * URLs externas da CDN imagestecson.b-cdn.net falham por CORS, e o ZIP saía
- * com 152 fotos de ~1386 produtos. Aqui o servidor baixa TUDO (sem CORS),
- * zipa em memória e devolve o arquivo pronto na própria resposta.
+ * as URLs externas da CDN imagestecson.b-cdn.net falham por CORS, e o ZIP
+ * saía com ~152 fotos de ~1386 produtos. Aqui o SERVIDOR baixa tudo (sem
+ * CORS), zipa em memória e devolve o arquivo pronto na própria resposta.
  *
- * Restrições da JSVM do PocketBase (Skip Cloud):
- *  - NÃO existem APIs de disco ($os.writeBytesToFile etc. não existem).
- *  - Handlers são isolados: helpers 100% inline, sem require/globais.
- *  - Sem object spread {...x} (usar cópia com for-in).
- *  - routerAdd não aceita middleware null.
+ * Estrutura do ZIP:
+ *   backup_produtos_<data>/produtos_<data>.csv   (51 colunas, ";" + BOM UTF-8)
+ *   backup_produtos_<data>/fotos/<código>.<ext>  (desambiguado _2, _3…)
  *
- * O ZIP é montado byte a byte em memória (STORED sem compressão, UTF-8 +
- * CRC-32 manuais — TextEncoder não existe no goja). Estilo "streaming" do
- * formato ZIP (data descriptor), idêntico ao que libarchive produz.
+ * Foto principal de cada produto, nesta ordem (precedência igual ao
+ * getProductDisplayPhoto do frontend):
+ *   (a) campo photos do PocketBase — lido server-side via filesystem
+ *       interno do PocketBase ($app.newFilesystem + getReader), sem rede;
+ *   (b) image_url externa (CDN Tecson) baixada via $http.send, timeout
+ *       de 10s por foto, limite de 15 MB por foto; URL relativa é
+ *       resolvida contra a URL pública do próprio PocketBase.
+ *
+ * Falhas individuais de download NÃO abortam o backup: a foto é pulada,
+ * contada e reportada na coluna "Status da Foto" do CSV e no header
+ * X-Backup-Summary (JSON em base64) — o frontend mostra toast com o total.
+ *
+ * Escolha de desempenho (item 6 do pedido): o download é SEQUENCIAL, em um
+ * único request, porque a JSVM é single-threaded e $http.send é bloqueante
+ * (não há goroutines/await reais para lotes paralelos). Sem paginação
+ * multi-rota para não complicar o cliente; o timeout é controlado por foto
+ * (10s) e falhas são puladas. PocketBase não impõe WriteTimeout, então a
+ * resposta longa é permitida. Registrado no header X-Backup-Strategy.
+ *
+ * ZIP montado byte a byte em MEMÓRIA (STORED, sem compressão; UTF-8 e
+ * CRC-32 manuais — TextEncoder não existe na JSVM). Entradas com data
+ * descriptor (flag 0x0800), como nas ZIPs geradas pelo Go — abrem no
+ * Explorer/WinRAR/7-Zip/unzip.
+ *
+ * Restrições da JSVM respeitadas: sem APIs de disco ($os.* não é usado),
+ * sem require() (o bundler do deploy não resolve "encoding/base64" — base64
+ * em JS puro inline), helpers 100% inline (handlers são isolados), sem
+ * object spread, routerAdd sem middleware null, resposta via e.blob
+ * (number[] | string) — nunca $os.writeBytesToFile.
  *
  * Rota: POST /backend/v1/products/export/backup (superadmin-only)
- * Resposta: o binário .zip com header X-Backup-Summary (resumo em base64).
- *
- * Estrutura do ZIP (mesma do export antigo):
- *   backup_produtos_<data>/produtos_<data>.csv  (51 colunas, ; e BOM UTF-8)
- *   backup_produtos_<data>/fotos/<código>.<ext> (desambiguado _2, _3…)
+ * Resposta: o binário .zip (Content-Disposition attachment) +
+ *           X-Backup-Summary (JSON em base64: contagens e falhas).
  */
 
 routerAdd(
@@ -29,21 +50,18 @@ routerAdd(
   '/backend/v1/products/export/backup',
   (e) => {
     const MAX_PHOTO_BYTES = 15 * 1024 * 1024
-    const DOWNLOAD_TIMEOUT = 45 // segundos, por foto
+    const DOWNLOAD_TIMEOUT = 10 // segundos, por foto
+    const PAGE_SIZE = 500
 
     // ── 1. Permissão superadmin server-side (403 para os demais) ───────────
-    const auth = e.auth
-    if (!auth) return e.json(401, { error: 'Não autorizado.' })
     let isSuper = false
     try {
-      isSuper = auth.collection().name === '_superusers'
-    } catch (_) {}
-    if (!isSuper) {
-      try {
-        isSuper = auth.getString('role') === 'superadmin'
-      } catch (err) {
-        isSuper = false
+      const auth = e.auth
+      if (auth && auth.collection().name === 'users' && auth.getString('role') === 'superadmin') {
+        isSuper = true
       }
+    } catch (_) {
+      isSuper = false
     }
     if (!isSuper) {
       return e.json(403, { error: 'Apenas o Superadmin pode exportar o backup completo.' })
@@ -57,6 +75,7 @@ routerAdd(
       photos_total: 0,
       photos_ok: 0,
       photos_failed: 0,
+      strategy: 'sequential-single-request',
       failures: [],
     }
 
@@ -77,7 +96,7 @@ routerAdd(
       }
       return (c ^ 0xffffffff) >>> 0
     }
-    // UTF-8 puro em JS (TextEncoder indisponível no goja).
+    // UTF-8 puro em JS (TextEncoder não existe no goja).
     const utf8Bytes = function (str) {
       const out = []
       for (let i = 0; i < str.length; i++) {
@@ -106,11 +125,28 @@ routerAdd(
       }
       return out
     }
-    // Normaliza arrays vindos de res.body (número[] do $http.send) e de
+    // base64 em JS puro — require('encoding/base64') NÃO é resolvido pelo
+    // bundler do deploy, e atob/btoa não existem na JSVM.
+    const B64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+    const base64Encode = function (bytes) {
+      let out = ''
+      const len = bytes.length
+      for (let i = 0; i < len; i += 3) {
+        const b1 = bytes[i]
+        const b2 = i + 1 < len ? bytes[i + 1] : 0
+        const b3 = i + 2 < len ? bytes[i + 2] : 0
+        out += B64_CHARS.charAt(b1 >> 2)
+        out += B64_CHARS.charAt(((b1 & 3) << 4) | (b2 >> 4))
+        out += i + 1 < len ? B64_CHARS.charAt(((b2 & 15) << 2) | (b3 >> 6)) : '='
+        out += i + 2 < len ? B64_CHARS.charAt(b3 & 63) : '='
+      }
+      return out
+    }
+    // Normaliza arrays vindos de res.body ($http.send, number[]) e de
     // toBytes(reader) — sempre Uint8Array para o ZIP.
     const toU8 = function (bytes) {
       if (bytes instanceof Uint8Array) return bytes
-      const len = bytes.length || 0
+      const len = bytes && bytes.length ? bytes.length : 0
       const out = new Uint8Array(len)
       for (let i = 0; i < len; i++) out[i] = bytes[i] & 0xff
       return out
@@ -138,16 +174,8 @@ routerAdd(
     const usedNames = {}
 
     const addZipEntry = function (entryName, dataBytes) {
-      const nameU8 = utf8Bytes(entryName)
-      let crc = 0
-      if (dataBytes instanceof Uint8Array) {
-        crc = crc32(dataBytes)
-      } else {
-        // número[] do $http.send — precisa virar Uint8Array antes do CRC
-        dataBytes = toU8(dataBytes)
-        crc = crc32(dataBytes)
-      }
-      zipEntries.push({ nameU8: nameU8, data: dataBytes, crc: crc })
+      const data = toU8(dataBytes)
+      zipEntries.push({ nameU8: utf8Bytes(entryName), data: data, crc: crc32(data) })
     }
 
     // ── 4. Foto principal de cada produto: photos[0] senão image_url ───────
@@ -159,8 +187,8 @@ routerAdd(
         .replace(/\s+/g, '_')
       return s || fallback
     }
-    const extFromUrl = function (url) {
-      const clean = String(url).split('?')[0].split('#')[0]
+    const extFromNameOrUrl = function (nameOrUrl) {
+      const clean = String(nameOrUrl).split('?')[0].split('#')[0]
       const parts = clean.split('/')
       const name = parts[parts.length - 1] || ''
       const dot = name.lastIndexOf('.')
@@ -170,38 +198,61 @@ routerAdd(
       if (ext === 'jpg' || ext === 'png' || ext === 'webp' || ext === 'gif') return ext
       return 'jpg'
     }
+    // Resolve URL relativa contra a URL pública do próprio PocketBase.
+    let baseUrl = ''
+    try {
+      baseUrl = $app.settings().meta.appUrl || ''
+    } catch (_) {
+      baseUrl = ''
+    }
+    const absoluteUrl = function (u) {
+      const s = String(u || '').trim()
+      if (!s || /^https?:\/\//i.test(s)) return s
+      if (s.charAt(0) === '/') return baseUrl + s
+      return baseUrl + '/' + s
+    }
     const photoNameFor = function (p) {
-      const photos = p.get('photos')
-      let displayUrl = ''
-      let isInternal = false
-      if (photos && photos.length > 0) {
-        displayUrl = '/api/files/products/' + p.id + '/' + photos[0]
-        isInternal = true
-      } else {
-        displayUrl = String(p.getString('image_url') || '')
+      let fileName = ''
+      let url = ''
+      let internal = false
+      let photos = []
+      try {
+        photos = p.get('photos') || []
+      } catch (_) {
+        photos = []
       }
-      if (!displayUrl) return { name: '', url: '', internal: false }
+      if (photos && photos.length > 0) {
+        internal = true
+        url = photos[0] // chave relativa no filesystem do PocketBase
+      } else {
+        url = absoluteUrl(p.getString('image_url'))
+      }
+      if (!url) return { name: '', url: '', internal: false }
       const base = safe(p.getString('code') || p.getString('produto_id') || p.id, p.id)
-      let ext = isInternal ? extFromUrl(photos[0]) : extFromUrl(displayUrl)
-      let fileName = base + '.' + ext
+      fileName = base + '.' + extFromNameOrUrl(url)
       let n = 2
       while (usedNames[fileName]) {
-        fileName = base + '_' + n++ + '.' + ext
+        fileName = base + '_' + n++ + '.' + extFromNameOrUrl(url)
       }
       usedNames[fileName] = true
-      return { name: fileName, url: displayUrl, internal: isInternal }
+      return { name: fileName, url: url, internal: internal }
     }
 
-    // Baixa a foto principal: interna via filesystem do PocketBase, externa via $http.
+    // Baixa a foto principal: interna via filesystem do PocketBase, externa
+    // via $http.send (server-side, sem CORS; timeout e limite de tamanho).
     const fetchPhotoBytes = function (info, p) {
       if (info.internal) {
         try {
           const fsys = $app.newFilesystem()
           let reader = null
           try {
-            const fileKey = p.baseFilesPath() + '/' + p.get('photos')[0]
+            const fileKey = p.baseFilesPath() + '/' + info.url
             reader = fsys.getReader(fileKey)
-            return { bytes: toU8(toBytes(reader)), err: '' }
+            const raw = toBytes(reader)
+            if (!raw || raw.length === 0) {
+              return { bytes: null, err: 'arquivo interno vazio' }
+            }
+            return { bytes: toU8(raw), err: '' }
           } finally {
             try {
               if (reader) reader.close()
@@ -217,32 +268,59 @@ routerAdd(
       // URL externa (CDN Tecson) — server-side, sem CORS.
       try {
         const res = $http.send({ url: info.url, method: 'GET', timeout: DOWNLOAD_TIMEOUT })
-        if (res.statusCode === 200 && res.body && res.body.length > 0) {
-          return { bytes: toU8(res.body), err: '' }
+        if (res.statusCode !== 200) {
+          return { bytes: null, err: 'HTTP ' + res.statusCode }
         }
-        return { bytes: null, err: 'HTTP ' + res.statusCode }
+        if (!res.body || res.body.length === 0) {
+          return { bytes: null, err: 'resposta vazia do servidor de imagem' }
+        }
+        return { bytes: res.body, err: '' }
       } catch (errExt) {
         return { bytes: null, err: 'download: ' + (errExt.message || String(errExt)) }
       }
     }
 
-    // ── 5. Busca TODOS os produtos em lotes de 500 ─────────────────────────
+    // ── 5. Busca TODOS os produtos em lotes de PAGE_SIZE ───────────────────
     const all = []
-    for (let offset = 0; ; offset += 500) {
-      const batch = $app.findRecordsByFilter('products', '', '-created', 500, offset)
+    for (let offset = 0; ; offset += PAGE_SIZE) {
+      const batch = $app.findRecordsByFilter('products', '', '-created', PAGE_SIZE, offset)
       for (let i = 0; i < batch.length; i++) all.push(batch[i])
-      if (batch.length < 500) break
+      if (batch.length < PAGE_SIZE) break
     }
     summary.products = all.length
     if (all.length === 0) {
       return e.json(400, { error: 'Nenhum produto cadastrado para exportar.' })
     }
 
-    // ── 6. CSV helpers ──────────────────────────────────────────────────────
+    // ── 6. Nomes das relações (type/material/size/marca), sem expand ────────
+    const relNames = {}
+    const loadRelNames = function (collection) {
+      const map = {}
+      try {
+        const list = $app.findRecordsByFilter(collection, '', '', 10000, 0)
+        for (let i = 0; i < list.length; i++) map[list[i].id] = list[i].getString('name') || ''
+      } catch (_) {}
+      relNames[collection] = map
+    }
+    loadRelNames('product_types')
+    loadRelNames('product_materials')
+    loadRelNames('product_sizes')
+    loadRelNames('brands')
+    const relName = function (rec, field, collection) {
+      try {
+        const id = rec.getString(field) || ''
+        if (!id) return ''
+        const map = relNames[collection] || {}
+        return map[id] || ''
+      } catch (_) {
+        return ''
+      }
+    }
+
+    // ── 7. CSV helpers ──────────────────────────────────────────────────────
     const num = function (v) {
       if (v === '' || v === undefined || v === null) return ''
-      const s = String(v).replace(',', '.')
-      const n = parseFloat(s)
+      const n = parseFloat(String(v).replace(',', '.'))
       if (isNaN(n)) return String(v)
       return n.toFixed(2).replace('.', ',')
     }
@@ -251,28 +329,19 @@ routerAdd(
       if (/[",;\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"'
       return s
     }
-    const relName = function (rec, field, relField) {
-      try {
-        const rel = rec.findExpand(field)
-        if (rel && rel.length > 0) return rel[0].getString(relField || 'name')
-      } catch (_) {}
-      return ''
-    }
 
-    // ── 7. Loop principal: foto + linha do CSV, um produto por iteração ────
+    // ── 8. Loop principal: foto + linha do CSV, um produto por iteração ────
     const csvRows = []
     for (let i = 0; i < all.length; i++) {
       const p = all[i]
       const info = photoNameFor(p)
       summary.photos_total++
 
+      let statusFoto = ''
       if (!info.url) {
-        // Produto sem foto nenhuma: entra no CSV com "Foto no ZIP" vazio
+        statusFoto = 'sem foto'
         summary.photos_failed++
-        summary.failures.push(p.id + ': sem foto')
-        csvRows.push(
-          // ... linha completa aqui (abaixo)
-        )
+        if (summary.failures.length < 300) summary.failures.push(p.id + ': sem foto')
       } else {
         const r = fetchPhotoBytes(info, p)
         let bytes = r.bytes
@@ -285,6 +354,7 @@ routerAdd(
           try {
             addZipEntry(rootDirName + '/fotos/' + info.name, bytes)
             summary.photos_ok++
+            statusFoto = 'ok'
           } catch (errZip) {
             summary.photos_failed++
             failMsg = 'zip: ' + (errZip.message || String(errZip))
@@ -292,34 +362,36 @@ routerAdd(
         } else {
           summary.photos_failed++
         }
-        if (failMsg) summary.failures.push(p.id + ': ' + failMsg)
+        if (failMsg) {
+          statusFoto = failMsg
+          if (summary.failures.length < 300) summary.failures.push(p.id + ': ' + failMsg)
+        }
       }
 
-      // Linha do CSV (51 colunas, mesma ordem do export antigo)
+      // Linha do CSV — 51 colunas (mesma ordem do export antigo)
       csvRows.push(
         [
           p.getString('code'),
           p.getString('produto_id'),
-          p.getString('sku_interno),
+          p.getString('sku_interno'),
           p.getString('sku_novo'),
           p.getString('sku_ecommerce'),
           p.getString('codigo_barras'),
           p.getString('nome_produto') || p.getString('description'),
           p.getString('description'),
           p.getString('variacao'),
-          relName(p, 'type'),
-          relName(p, 'material'),
-          relName(p, 'size'),
+          relName(p, 'type', 'product_types'),
+          relName(p, 'material', 'product_materials'),
+          relName(p, 'size', 'product_sizes'),
           p.getString('target_audience'),
-          p.getString sem foto, // ← CORRIGIR
           p.getString('fornecedor'),
-          relName(p, 'marca_id'),
+          relName(p, 'marca_id', 'brands'),
           p.getInt('quantity'),
           p.getInt('qtde_inicial'),
           p.getBool('qtde_loja_virtual') ? 1 : 0,
           p.getString('minimum_quantity'),
           num(p.get('selling_price')),
-          num(p row, (p.get('preco_promocional')),
+          num(p.get('preco_promocional')),
           num(p.get('custo_unitario')),
           num(p.get('invested_value')),
           num(p.get('altura_cm')),
@@ -348,39 +420,79 @@ routerAdd(
           p.getString('nome_original_scaglioni'),
           p.getString('created'),
           p.getString('updated'),
-          info.url || '',
-          info.name || '',
-        ].map(cell).join(';')
+          info.internal
+            ? '/api/files/products/' + p.id + '/' + info.url
+            : String(p.getString('image_url') || ''),
+          // "Foto no CSV"/"Foto no ZIP": nome do arquivo dentro do ZIP
+          // (photos PocketBase OU CDN Tecson) — vazio quando sem foto.
+          info.url ? info.name : '',
+          statusFoto,
+        ]
+          .map(cell)
+          .join(';'),
       )
     }
 
-    // ── 8. CSV: BOM + headers + linhas, tudo em um único Uint8Array ────────
+    // ── 9. CSV: BOM + headers + linhas, tudo em um único Uint8Array ────────
     const HEADERS = [
-      'Código', 'Produto ID', 'SKU Interno', 'SKU Novo', 'SKU E-commerce',
-      'Código de Barras', 'Nome do Produto', 'Descrição', 'Variação', 'Tipo',
-      'Material', 'Tamanho', 'Público', 'Fornecedor', 'Marca',
-      'Quantidade', 'Qtde Inicial', 'Loja Virtual', 'Qtde Mínima',
-      'Preço de Venda (R$)', 'Preço Promocional (R$)', 'Custo Unitário (R$)',
-      'Valor Investido (R$)', 'Altura (cm)', 'Lref (cm)', 'Largura (cm)',
-      'Comprimento (cm)', 'Peso (g)', 'Ativo Interno', 'Publicado no E-commerce',
-      'Destaque no E-commerce', 'Status', 'Slug', ' headers', 'Observações',
-      'Data de Entrada', 'Origem', 'Origem da Importação', 'Criado em Origem',
-      'Data de Inclusão Tecson', 'Criado em (Scaglioni)',
-      'Atualizado em (Scaglioni)', 'ID Tecson', 'Código Produto Tecson',
-      'Código de Barras Tecson', 'Nome Original Tecson', 'ID Scaglioni',
-      'SKU Scaglioni', 'Nome Original Scgaglioni', 'Criado em', 'Atualizado em',
-      'URL da Foto', 'Foto no ZIP',
+      'Código',
+      'Produto ID',
+      'SKU Interno',
+      'SKU Novo',
+      'SKU E-commerce',
+      'Código de Barras',
+      'Nome do Produto',
+      'Descrição',
+      'Variação',
+      'Tipo',
+      'Material',
+      'Tamanho',
+      'Público',
+      'Fornecedor',
+      'Marca',
+      'Quantidade',
+      'Qtde Inicial',
+      'Loja Virtual',
+      'Qtde Mínima',
+      'Preço de Venda (R$)',
+      'Preço Promocional (R$)',
+      'Custo Unitário (R$)',
+      'Valor Investido (R$)',
+      'Altura (cm)',
+      'Largura (cm)',
+      'Comprimento (cm)',
+      'Peso (g)',
+      'Ativo Interno',
+      'Publicado no E-commerce',
+      'Destaque no E-commerce',
+      'Status',
+      'Slug',
+      'Observações',
+      'Data de Entrada',
+      'Origem',
+      'Origem da Importação',
+      'Criado em Origem',
+      'Data de Inclusão Tecson',
+      'Criado em (Scaglioni)',
+      'Atualizado em (Scaglioni)',
+      'ID Tecson',
+      'Código Produto Tecson',
+      'Código de Barras Tecson',
+      'Nome Original Tecson',
+      'ID Scaglioni',
+      'SKU Scaglioni',
+      'Nome Original Scaglioni',
+      'Criado em',
+      'Atualizado em',
+      'URL da Foto',
+      'Foto no ZIP',
+      'Status da Foto',
     ]
-    const csvText =
-      '\uFEFF' +
-      HEADERS.map(cell).join(';') +
-      '\r\n' +
-      csvRows.map(...).join('\r\n') +
-      '\r\n'
+    const csvText = '\uFEFF' + HEADERS.map(cell).join(';') + '\r\n' + csvRows.join('\r\n') + '\r\n'
     const csvBytes = utf8Bytes(csvText)
     addZipEntry(rootDirName + '/produtos_' + stamp + '.csv', csvBytes)
 
-    // ── 9. Montagem do ZIP em memória (STORED, streaming-style) ───────────
+    // ── 10. Montagem do ZIP em memória (STORED, estilo streaming) ──────────
     const localParts = []
     const centralParts = []
     let runningOffset = 0
@@ -397,8 +509,8 @@ routerAdd(
       pushU16(lfh, 0) // method STORED
       pushU16(lfh, 0) // mod time
       pushU16(lfh, 0x21) // mod date (1980-01-01)
-      pushU32(lfh, 0) // crc = 0 (no data descriptor)
-      pushU32(lfh, 0) // compressed size = 0 (no data descriptor)
+      pushU32(lfh, 0) // crc = 0 (fica no data descriptor)
+      pushU32(lfh, 0) // compressed size = 0
       pushU32(lfh, 0) // uncompressed size = 0
       pushU16(lfh, nameLen)
       pushU16(lfh, 0) // extra len
@@ -419,13 +531,12 @@ routerAdd(
       pushU16(cdh, 20) // version needed
       pushU16(cdh, 0x0800) // flags (bate com o local)
       pushU16(cdh, 0) // method STORED
-      pushU16(ch, 0) // mod time
+      pushU16(cdh, 0) // mod time
       pushU16(cdh, 0x21) // mod date
       pushU32(cdh, en.crc)
       pushU32(cdh, dataLen)
       pushU32(cdh, dataLen)
       pushU16(cdh, nameLen)
-      pushU1386 = nameLen
       pushU16(cdh, 0) // extra len
       pushU16(cdh, 0) // comment len
       pushU16(cdh, 0) // disk number start
@@ -438,7 +549,6 @@ routerAdd(
 
     const centralOffset = runningOffset
     let centralSize = 0
-    for (let i = 0; memory; i++) centralSize += centralParts[i].for
     for (let i = 0; i < centralParts.length; i++) centralSize += centralParts[i].length
 
     // EOCD (End of Central Directory, 22 bytes)
@@ -462,27 +572,33 @@ routerAdd(
         summary.products +
         ' fotos ok=' +
         summary.photos_ok +
-        ' falhas= ' +
+        ' falhas=' +
         summary.photos_failed +
         ' zip=' +
         zipBytes.length +
         ' bytes',
     )
 
-    // ── 10. Responde o ZIP pronto na própria resposta da rota ─────────────
-    const summaryJson = JSON.stringify({
-      products: summary.products,
-      photos_total: summary.photos_total,
-      photos_ok: summary.photos_ok,
-      photos_failed: myerr
-    })
-    const summaryB64 = base64Encode(stdEnc, summaryJson)
-    e.response.header().set('X-Backup-Summary', summaryB64)
-    e.response.header().set(
-      'Content-Disposition',
-      "attachment; filename=\"" + rootDirName + '.zip' + '"'
-    )
-    return e.stream(200, 'application/zip', $filesystem.fileFromBytes(zipBytes, rootDirName + '.zip').reader.open())
+    // ── 11. Responde o ZIP pronto na própria resposta da rota ─────────────
+    // Headers informativos; se falharem, o download segue (frontend tem
+    // fallback de filename e de contagens zeradas).
+    try {
+      const summaryJson = JSON.stringify({
+        products: summary.products,
+        photos_total: summary.photos_total,
+        photos_ok: summary.photos_ok,
+        photos_failed: summary.photos_failed,
+        zip_bytes: summary.zip_bytes,
+      })
+      const summaryB64 = base64Encode(utf8Bytes(summaryJson))
+      e.response.header().set('X-Backup-Summary', summaryB64)
+      e.response.header().set('X-Backup-Strategy', summary.strategy)
+      e.response
+        .header()
+        .set('Content-Disposition', 'attachment; filename="' + rootDirName + '.zip"')
+    } catch (_) {}
+    // e.blob aceita number[]/string no corpo (doc oficial da JSVM).
+    return e.blob(200, 'application/zip', zipBytes)
   },
   $apis.requireAuth(),
 )

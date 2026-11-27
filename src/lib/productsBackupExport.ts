@@ -65,7 +65,10 @@ function parseSummaryHeader(headerValue: string | null): Partial<ProductsBackupR
         i += 3
       } else {
         text += String.fromCharCode(
-          ((b & 0x07) << 18) | ((bytes[i + 1] & 0x3f) << 12) | ((bytes[i + 2] & 0x3f) << 6) | (bytes[i + 3] & 0x3f),
+          ((b & 0x07) << 18) |
+            ((bytes[i + 1] & 0x3f) << 12) |
+            ((bytes[i + 2] & 0x3f) << 6) |
+            (bytes[i + 3] & 0x3f),
         )
         i += 4
       }
@@ -147,13 +150,16 @@ export async function exportProductsBackup(
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err || '')
-    throw new Error(msg.includes('Superadmin') ? msg : 'Falha ao gerar o backup no servidor: ' + msg)
+    throw new Error(
+      msg.includes('Superadmin') ? msg : 'Falha ao gerar o backup no servidor: ' + msg,
+    )
   }
 
   // 3. Download do ZIP
   if (onStage) onStage('baixando')
   const fileName =
-    fileNameFromDisposition(dispositionHeader) || 'backup_produtos_' + new Date().toISOString().slice(0, 10) + '.zip'
+    fileNameFromDisposition(dispositionHeader) ||
+    'backup_produtos_' + new Date().toISOString().slice(0, 10) + '.zip'
   triggerBlobDownload(blob, fileName)
 
   const summary = parseSummaryHeader(summaryHeader)
