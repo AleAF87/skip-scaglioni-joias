@@ -534,17 +534,21 @@ routerAdd(
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ROTINA DE LIMPEZA — remove os produtos-lixo criados por PRÉVIAS com o bug
-// v0.0.278 (a prévia gravava de verdade em 2026-11-26 ~20:47 UTC).
+// ROTINA DE LIMPEZA (v0.0.280) — remove o lixo criado pelas PRÉVIAS com o bug
+// v0.0.278 (gerar prévia gravava de verdade em 2026-11-26 ~20:47→00:24 UTC).
 //
-// Só apaga produtos com criado_em_origem = IMPORT_ORIGIN_TAG (marcador gravado
-// pelo próprio hook) criados na DATA informada (default 2026-11-26) — produtos
-// de importações legítimas (ex. 2026-11-24) têm outra origem e NÃO são tocados.
-// Para cada produto apagado, remove também:
-//   - product_variations do produto
-//   - reseller_stock_items do produto (posse da revendedora)
-//   - product_category_links do produto (evita órfãos)
-// e recomputa o saldo da revendedora afetada via recalcResellerStockBalance.
+// O usuário NUNCA confirmou importação nenhuma nesse dia, então o critério
+// passa a ser (MARCADOR OU JANELA DE CRIAÇÃO):
+//   1. MARCADOR: produtos com criado_em_origem = IMPORT_ORIGIN_TAG criados na
+//      janela — e as posses/variações/links ligados a eles.
+//   2. JANELA DE CRIAÇÃO: QUALQUER produto OU posse (reseller_stock_items)
+//      criado na janela informada, MESMO sem o marcador — reseller_stock_items
+//      nem tem o campo criado_em_origem, e as 79 posses de 26/11 ~21:24 BRT
+//      (00:24 UTC de 27/11) sobreviveram à limpeza anterior por isso.
+// Dados legítimos de outras datas (ex. importação de 24/11) NÃO são tocados.
+//
+// dry_run=true conta e classifica sem apagar nada (usado pelo diálogo de
+// confirmação da página, que mostra o resumo POR CRITÉRIO antes de apagar).
 // Protegido: apenas admin/superadmin.
 // ─────────────────────────────────────────────────────────────────────────────
 routerAdd(
@@ -564,24 +568,32 @@ routerAdd(
     const IMPORT_ORIGIN_TAG = 'Migração Tecson — posse de revendedora'
 
     const body = e.requestInfo().body || {}
-    const dayStart = String(body.day_start || '2026-11-26 00:00:00.000Z')
-    const dayEnd = String(body.day_end || '2026-11-27 00:00:00.000Z')
+    const dayStart = String(body.day_start || '2026-11-26 12:00:00.000Z')
+    const dayEnd = String(body.day_end || '2026-11-27 03:00:00.000Z')
+    const dryRun = !!body.dry_run
 
     const response = {
       success: false,
+      dry_run: dryRun,
       day_start: dayStart,
       day_end: dayEnd,
       products_deleted: 0,
-      variations_deleted: 0,
+      products_deleted_by_tag: 0,
+      products_deleted_by_window: 0,
       stock_items_deleted: 0,
+      stock_items_deleted_by_tag: 0,
+      stock_items_deleted_by_window: 0,
+      variations_deleted: 0,
       category_links_deleted: 0,
       resellers_affected: [],
     }
 
     try {
       $app.runInTransaction((txApp) => {
-        // Busca APENAS produtos do marcador de origem do import Tecson revendedora.
-        const targets = txApp.findRecordsByFilter(
+        // Produtos-lixo da janela: com o marcador (critério 1) OU sem ele
+        // (critério 2 — mesmo bug da prévia). Tudo criado na janela é lixo,
+        // pois nenhuma importação real foi confirmada nesse período.
+        const productsByTag = txApp.findRecordsByFilter(
           'products',
           "criado_em_origem = '" +
             IMPORT_ORIGIN_TAG +
@@ -594,11 +606,50 @@ routerAdd(
           1000,
           0,
         )
-        for (let i = 0; i < targets.length; i++) {
-          const product = targets[i]
-          const pid = product.id
+        const productsByWindow = txApp.findRecordsByFilter(
+          'products',
+          "created >= '" + dayStart + "' && created < '" + dayEnd + "'",
+          '-created',
+          1000,
+          0,
+        )
 
-          // Posses ligadas a este produto (para saber as revendedoras afetadas).
+        // Posses criadas na janela (critério 2). reseller_stock_items não tem
+        // criado_em_origem — a janela de criação é o único critério possível.
+        const stockByWindow = txApp.findRecordsByFilter(
+          'reseller_stock_items',
+          "created >= '" + dayStart + "' && created < '" + dayEnd + "'",
+          '',
+          1000,
+          0,
+        )
+
+        // Dedup de posses por id: cada apagado é contado no SEU critério
+        // (janela tem prioridade; posses de produtos do marcador que tenham
+        // outra data de criação caem no critério do marcador).
+        const stockToDelete = {}
+        for (let i = 0; i < stockByWindow.length; i++) {
+          stockToDelete[stockByWindow[i].id] = {
+            rec: stockByWindow[i],
+            byWindow: true,
+          }
+        }
+
+        // Produtos alvo: dedup por id (byWindow só quando NÃO veio do marcador).
+        const productsToDelete = {}
+        for (let i = 0; i < productsByTag.length; i++) {
+          productsToDelete[productsByTag[i].id] = { rec: productsByTag[i], byWindow: false }
+        }
+        for (let i = 0; i < productsByWindow.length; i++) {
+          const p = productsByWindow[i]
+          if (!productsToDelete[p.id]) {
+            productsToDelete[p.id] = { rec: p, byWindow: true }
+          }
+        }
+
+        // Posses dos produtos alvo criadas FORA da janela (defensivo — hoje não
+        // deve haver nenhuma): entram pelo critério do marcador/produto.
+        for (const pid in productsToDelete) {
           let posses = []
           try {
             posses = txApp.findRecordsByFilter(
@@ -611,13 +662,45 @@ routerAdd(
           } catch (_) {
             posses = []
           }
-          const affectedResellers = {}
           for (let j = 0; j < posses.length; j++) {
-            affectedResellers[posses[j].getString('reseller')] = true
-            txApp.delete(posses[j])
-            response.stock_items_deleted++
+            if (!stockToDelete[posses[j].id]) {
+              stockToDelete[posses[j].id] = { rec: posses[j], byWindow: false }
+            }
           }
+        }
 
+        if (dryRun) {
+          // Apenas contagem/classificação — NADA é apagado.
+          for (const sid in stockToDelete) {
+            response.stock_items_deleted++
+            if (stockToDelete[sid].byWindow) response.stock_items_deleted_by_window++
+            else response.stock_items_deleted_by_tag++
+            const rid = stockToDelete[sid].rec.getString('reseller')
+            if (response.resellers_affected.indexOf(rid) === -1) {
+              response.resellers_affected.push(rid)
+            }
+          }
+          for (const pid in productsToDelete) {
+            response.products_deleted++
+            if (productsToDelete[pid].byWindow) response.products_deleted_by_window++
+            else response.products_deleted_by_tag++
+          }
+          return
+        }
+
+        // Limpeza real: primeiro as posses, depois variações/links/produtos.
+        for (const sid in stockToDelete) {
+          txApp.delete(stockToDelete[sid].rec)
+          response.stock_items_deleted++
+          if (stockToDelete[sid].byWindow) response.stock_items_deleted_by_window++
+          else response.stock_items_deleted_by_tag++
+          const rid = stockToDelete[sid].rec.getString('reseller')
+          if (response.resellers_affected.indexOf(rid) === -1) {
+            response.resellers_affected.push(rid)
+          }
+        }
+
+        for (const pid in productsToDelete) {
           // Variações do produto.
           try {
             const vars = txApp.findRecordsByFilter(
@@ -648,18 +731,14 @@ routerAdd(
             }
           } catch (_) {}
 
-          txApp.delete(product)
+          txApp.delete(productsToDelete[pid].rec)
           response.products_deleted++
-
-          // Saldo é DERIVADO (soma das posses): apagar as linhas já corrige os
-          // totais — não há campo de saldo gravado para recomputar. Registramos
-          // apenas as revendedoras afetadas, para o resumo na tela.
-          for (const rid in affectedResellers) {
-            if (response.resellers_affected.indexOf(rid) === -1) {
-              response.resellers_affected.push(rid)
-            }
-          }
+          if (productsToDelete[pid].byWindow) response.products_deleted_by_window++
+          else response.products_deleted_by_tag++
         }
+
+        // Saldo é DERIVADO (soma das posses): apagar as linhas já corrige os
+        // totais — não há campo de saldo gravado para recomputar.
       })
       response.success = true
       console.log(
@@ -667,7 +746,8 @@ routerAdd(
         response.products_deleted,
         'produtos,',
         response.stock_items_deleted,
-        'posses apagadas',
+        'posses,',
+        dryRun ? 'dry_run (nada apagado)' : 'APAGADO',
       )
       return e.json(200, response)
     } catch (err) {
