@@ -196,7 +196,14 @@ routerAdd(
 
     const validKeys = Object.keys(perBarcode)
     if (validKeys.length === 0) {
-      return e.json(200, { ...result, success: true, message: 'Nada importável.' })
+      // JSVM: sem spread de objeto ({ ...x } vira __spreadValues, não definido
+      // no handler isolado — foi a causa de todo 400 deste import). Copia
+      // explícita no lugar.
+      const noRows = {}
+      for (const k in result) noRows[k] = result[k]
+      noRows.success = true
+      noRows.message = 'Nada importável.'
+      return e.json(200, noRows)
     }
 
     // Encontra uma variação do produto cujo label/sku bata com a variação do COD_PRODUTO.
@@ -406,10 +413,13 @@ routerAdd(
           }
         }
         result.success = true
-        return e.json(200, {
-          ...result,
-          message: 'Prévia validada no servidor — nenhum registro foi gravado.',
-        })
+        // JSVM: sem spread de objeto ({ ...x } vira __spreadValues, não
+        // definido no handler isolado — causa dos 400 das prévias). Cópia
+        // explícita no lugar.
+        const preview = {}
+        for (const k in result) preview[k] = result[k]
+        preview.message = 'Prévia validada no servidor — nenhum registro foi gravado.'
+        return e.json(200, preview)
       }
 
       // IMPORTAÇÃO REAL (dry_run=false): transação tudo-ou-nada.
