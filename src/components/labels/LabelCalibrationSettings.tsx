@@ -11,11 +11,18 @@ import { Label } from '@/components/ui/label'
  * - 4 campos em mm (Margem superior, Margem esquerda, Espaçamento entre
  *   linhas, Espaçamento entre colunas), default 0, aceitando positivos e
  *   negativos com casas decimais.
- * - Os valores são SOMADOS aos valores-base do gabarito (superior 15,5 /
- *   esquerda 24,5 / vertical 2,73 / horizontal 4,9) — ex.: +1mm de margem
- *   superior → 16,5mm impresso.
+ * - Os valores são SOMADOS aos valores-base do gabarito (EBF23, v0.0.290:
+ *   superior 12,5 / esquerda 24,5 / vertical 3,02 / horizontal 4,9) — ex.:
+ *   +1mm de margem superior → 13,5mm impresso.
  * - Persistência POR NAVEGADOR/DISPOSITIVO e POR MODELO, via localStorage
- *   (chave: "label-print-calibration-EBF23").
+ *   (chave: "label-print-calibration-EBF23-v2").
+ *
+ * - VERSIONAMENTO DA BASE (v0.0.290): a chave leva o sufixo "-v2" porque os
+ *   valores-base da EBF23 mudaram (sup 15,5→12,5 / vertical 2,73→3,02 /
+ *   inf 11,5→9,5). Offsets salvos na chave antiga ("label-print-calibration-
+ *   EBF23", feitos sobre a base antiga) são IGNORADOS — evita soma indevida
+ *   (dupla correção). Ninguém precisa limpar o navegador: na primeira leitura
+ *   a chave antiga é removida e a calibração parte de zero.
  * - Os valores chegam ao LabelPrintModal via prop manualOffsets e valem para
  *   a PRÉVIA e para o CSS de impressão (@page + gaps da grade).
  */
@@ -34,11 +41,31 @@ export const ZERO_OFFSETS: ManualOffsets = {
   gapVertical: 0,
 }
 
-const storageKey = (templateId: string) => `label-print-calibration-${templateId}`
+/**
+ * Versão da BASE do gabarito embutida na chave de calibração. Quando os
+ * valores-base mudam (ex.: v0.0.290 recalibrou a EBF23), o sufixo muda e os
+ * offsets salvos com a versão anterior são ignorados/removidos — evita que
+ * uma calibração antiga, feita sobre outra base, some indevidamente por cima
+ * da base nova (dupla correção / impressão deslocada).
+ */
+const CALIBRATION_BASE_VERSION = 'v2'
+
+const storageKey = (templateId: string) =>
+  `label-print-calibration-${templateId}-${CALIBRATION_BASE_VERSION}`
+
+/** Chave legada (sem versão) usada até a v0.0.289 — só para limpeza. */
+const legacyStorageKey = (templateId: string) => `label-print-calibration-${templateId}`
 
 /** Lê a calibração salva neste navegador/dispositivo para o gabarito. */
 export function loadCalibration(templateId: string): ManualOffsets {
   try {
+    // Descarta offsets feitos sobre uma base anterior do gabarito: a chave
+    // legada (sem sufixo de versão) é removida e a leitura parte de zero.
+    try {
+      localStorage.removeItem(legacyStorageKey(templateId))
+    } catch {
+      // ignora — a chave legada nem sempre existe
+    }
     const raw = localStorage.getItem(storageKey(templateId))
     if (!raw) return { ...ZERO_OFFSETS }
     const parsed = JSON.parse(raw) as Partial<ManualOffsets>

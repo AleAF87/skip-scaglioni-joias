@@ -82,13 +82,17 @@ export const LABEL_TEMPLATES: Record<string, LabelTemplateModel> = {
       '2 colunas × 20 linhas | 80,0 × 10,0 mm (duas abas de 27mm + picote + haste de 25mm)',
     sheetType: 'Carta',
     // Folha Carta 215.9 x 279.4 mm — encaixe confirmado pelo usuário (v0.0.267):
-    // @page sup 15,5 / esq 25,5 / dir 25,5 / inf 13,5.
-    // Horizontal: 25,5 + (2×80) + 4,9 + 25,5 = 215,9mm ✓
-    // v0.0.270: gapVertical 2,76 → 2,73mm — o usuário mediu na folha física que
-    // a 20ª etiqueta ficou ~0,5mm abaixo do ponto correto; 0,5mm distribuídos
-    // pelos 19 vãos = ~0,026mm por vão. Passo real ~12,73mm entre topos
-    // (10mm de etiqueta + 2,73mm de vão). Margem superior 15,5mm intocada.
-    // Vertical: 15,5 + 200 + 51,87 + 11,5 ≈ 278,9mm — cabe nos 279,4mm úteis.
+    // Horizontal: 24,5 + (2×80) + 4,9 + 25,5 = 214,9mm ✓ (margens esq/dir intocadas)
+    // v0.0.290: recalibração vertical (pedido do usuário) — a grade estava
+    // comprimida (primeiras etiquetas muito para baixo, últimas um pouco para
+    // cima). Margem superior 15,5 → 12,5mm (−3mm) e margem inferior 11,5 →
+    // 9,5mm (−2mm, no @page do LabelPrintModal); os 5mm recuperados foram
+    // distribuídos nas 19 folgas entre as 20 linhas: 5/19 ≈ 0,29mm por vão,
+    // gapVertical 2,73 → 3,02mm. Passo entre topos: ~12,73 → ~13,02mm.
+    // Vertical: 12,5 + 200 + (19×3,02 = 57,38) + 9,5 = 279,38mm — cabe nos
+    // 279,4mm úteis da Carta ✓. Offsets de calibração salvos no localStorage
+    // são versionados (LabelCalibrationSettings): offsets antigos, feitos sobre
+    // a base 15,5/2,73, são ignorados para não somar correção dupla.
     sheetWidthMm: 215.9,
     sheetHeightMm: 279.4,
     labelsPerSheet: 40,
@@ -96,10 +100,10 @@ export const LABEL_TEMPLATES: Record<string, LabelTemplateModel> = {
     rows: 20,
     labelWidthMm: 80.0,
     labelHeightMm: 10.0,
-    marginTopMm: 15.5, // v0.0.269: +1mm na margem superior (pedido do usuário; era 14,5)
+    marginTopMm: 12.5, // v0.0.290: −3mm (era 15,5 na v0.0.269) — sobe a 1ª linha
     marginLeftMm: 24.5, // v0.0.271: -1mm na margem esquerda (pedido do usuário; era 25,5)
     gapHorizontalMm: 4.9,
-    gapVerticalMm: 2.73, // v0.0.270: passo real ~12,73mm entre topos na folha física (era 2,76)
+    gapVerticalMm: 3.02, // v0.0.290: 5mm recuperados ÷ 19 vãos ≈ +0,29mm (era 2,73; passo ~13,02mm)
     isJewelryTag: true,
   },
 }

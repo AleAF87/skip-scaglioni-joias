@@ -192,16 +192,18 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
   // usuário contra a folha real): sup 13 / inf 14 / esq 8 / dir 8.
   // Horizontal: 8 + (7×26) + (6×2) + 8 = 210mm ✓
   // Vertical:   13 + (18×15) + 14 = 297mm ✓ (0mm entre linhas)
-  // EBF23 (folha CARTA 215,9 × 279,4mm — NÃO é A4): base sup 15,5 / esq 24,5 /
-  // dir 25,5 / inf 11,5 (backup em src/types/labels.ebf23.backup.ts).
-  // v0.0.273: as margens top/esq e os gaps da EBF23 passam a aceitar os
-  // offsets manuais da calibração (soma aos valores-base).
+  // EBF23 (folha CARTA 215,9 × 279,4mm — NÃO é A4): v0.0.290 recalibrou a
+  // vertical — base sup 12,5 / esq 24,5 / dir 25,5 / inf 9,5; gap 3,02
+  // (passo ~13,02mm). Offsets de calibração salvos sobre a base antiga são
+  // descartados via versionamento da chave (LabelCalibrationSettings).
   //   Horizontal: 24,5 + (2×80) + 4,9 + 25,5 = 214,9mm (cabe nos 215,9mm da Carta)
-  //   Vertical:   15,5 + 200 + 51,87 + 11,5 ≈ 278,9mm (cabe na Carta, 279,4mm úteis)
+  //   Vertical:   12,5 + 200 + 57,38 + 9,5 ≈ 279,38mm (cabe na Carta, 279,4mm úteis)
   const pageMarginTop = isA4349 ? 13 : effectiveMarginTop
   const pageMarginLeft = isA4349 ? 8 : effectiveMarginLeft
   const pageMarginRight = isA4349 ? 8 : isEBF23 ? 25.5 : effectiveMarginLeft
-  const pageMarginBottom = isA4349 ? 14 : isEBF23 ? 11.5 : effectiveMarginTop
+  // v0.0.290: margem inferior da EBF23 11,5 → 9,5mm (−2mm, pedido do usuário);
+  // as margens esquerda (24,5) e direita (25,5) ficam intocadas.
+  const pageMarginBottom = isA4349 ? 14 : isEBF23 ? 9.5 : effectiveMarginTop
   const effectiveGapX = template.gapHorizontalMm + (manualOffsets.gapHorizontal || 0)
   const effectiveGapY = template.gapVerticalMm + (manualOffsets.gapVertical || 0)
   // Gap horizontal impresso = gap do gabarito (2mm) para a A4349: a grade
@@ -624,8 +626,8 @@ export const LabelPrintModal: React.FC<LabelPrintModalProps> = ({
              folha real: sup 13 / inf 14 / esq 8 / dir 8.
              Horizontal: 8 + (7×26) + (6×2) + 8 = 210mm.
              Vertical: 13 + (18×15) + 14 = 297mm (0mm entre linhas).
-             EBF23: folha CARTA (não A4) — v0.0.273 aceita os offsets da
-             calibração somados aos valores-base. */
+             EBF23: folha CARTA (não A4) — v0.0.290 base sup 12,5 / inf 9,5
+             (offsets da calibração somados por cima dos valores-base). */
           margin: ${pageMarginTop}mm ${pageMarginRight}mm ${pageMarginBottom}mm ${pageMarginLeft}mm !important;
         }
       }
