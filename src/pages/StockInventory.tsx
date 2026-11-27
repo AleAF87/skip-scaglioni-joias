@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import pb from '@/lib/pocketbase/client'
+import { useAuth } from '@/contexts/AuthContext'
+import { exportProductsBackup } from '@/lib/productsBackupExport'
 import { productService } from '@/services/productService'
 import { productCreationService } from '@/services/productCreationService'
 import {
@@ -71,6 +73,7 @@ import {
   Lock,
   Unlock,
   Star,
+  Archive,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { BarcodeScannerModal } from '@/components/pos/BarcodeScannerModal'
@@ -90,8 +93,10 @@ import {
 import { Users } from 'lucide-react'
 
 export default function StockInventory() {
+  const { isSuperAdmin } = useAuth()
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
+  const [exportingBackup, setExportingBackup] = useState(false)
   const [types, setTypes] = useState<ProductType[]>([])
   const [materials, setMaterials] = useState<ProductMaterial[]>([])
   const [sizes, setSizes] = useState<ProductSize[]>([])
@@ -1036,6 +1041,39 @@ export default function StockInventory() {
               Novo Produto
             </Button>
           </Link>
+
+          {isSuperAdmin && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={exportingBackup}
+              onClick={async () => {
+                setExportingBackup(true)
+                try {
+                  const res = await exportProductsBackup()
+                  toast.success(
+                    `Backup exportado: ${res.totalProducts} produto(s), ${res.photosOk} foto(s) baixada(s)` +
+                      (res.photosFailed > 0 ? `, ${res.photosFailed} falha(s) na foto` : ''),
+                  )
+                } catch (err: unknown) {
+                  const msg = err instanceof Error ? err.message : 'Erro ao gerar o backup.'
+                  toast.error(msg)
+                } finally {
+                  setExportingBackup(false)
+                }
+              }}
+              className="border-[#7A5C2E] text-[#7A5C2E] bg-white hover:bg-[#F3EAD8] font-semibold shadow-2xs"
+              title="Exporta ZIP com CSV completo + a foto principal de cada produto (apenas Superadmin)"
+            >
+              {exportingBackup ? (
+                <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+              ) : (
+                <Archive className="h-4 w-4 mr-1.5" />
+              )}
+              {exportingBackup ? 'Gerando backup…' : 'Exportar backup (CSV + fotos)'}
+            </Button>
+          )}
         </div>
       </div>
 
