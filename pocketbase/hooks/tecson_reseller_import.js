@@ -1,7 +1,7 @@
 // Hook de importação Tecson → posse de revendedora.
 // Chamado pela página /importar-tecson-revendedora com pb.send('/backend/v1/tecson/reseller-import').
 // Recebe as linhas JÁ parseadas por cabeçalho no frontend (tecsonCsvParser.ts) e
-// executa TUDO-OU-NADA numa única transação.
+// executa TUDO-OU-NADA numa única transação (apenas quando dry_run = false).
 //
 // Regras do modelo invertido (decisão do usuário):
 //  - products.quantity = ESTOQUE FÍSICO (gravado/editável)
@@ -17,7 +17,11 @@
 //    produto existente → mantém a imagem cadastrada; só usa a importada se o
 //    produto não tiver nenhuma.
 //  - Quantidade 0: NÃO cria posse nem altera estoque — só cadastro/mapeamento.
+//  - v0.0.279 (BUG CORRIGIDO): dry_run=true executa SOMENTE a validação —
+//    nenhum save() é feito. Antes, a prévia gravava produtos/posses de verdade.
 //  - JSVM: cada handler roda isolado — tudo duplicado inline aqui.
+//    (JSVM: const IMPORT_ORIGIN_TAG é duplicada DENTRO de cada callback —
+//    declaração top-level não é visível aos handlers.)
 
 routerAdd(
   'POST',
@@ -30,6 +34,11 @@ routerAdd(
     if (role !== 'superadmin' && role !== 'admin') {
       return e.json(403, { error: 'Apenas superadmin/admin podem importar.' })
     }
+
+    // Marcador de origem gravado em TODOS os produtos criados por este import —
+    // é ele que a rotina de limpeza usa como filtro (JSVM: declarado inline,
+    // dentro do callback, pois top-level não é visível aos handlers).
+    const IMPORT_ORIGIN_TAG = 'Migração Tecson — posse de revendedora'
 
     const body = e.requestInfo().body || {}
     const resellerId = String(body.reseller_id || '')
@@ -202,6 +211,153 @@ routerAdd(
     }
 
     try {
+      // Resolvedor de produto APENAS-LEITURA (usado pela prévia): nunca salva.
+      const resolveRow = (appLike, entry, qty) => {
+        const outcome = { status: '', product: null, variation: null }
+        const matches = findProductsByBarcode(appLike, entry.barcode_key)
+        if (matches.length > 1) {
+          outcome.status = 'conflict'
+          return outcome
+        }
+        if (matches.length === 1) {
+          outcome.product = matches[0]
+          if (entry.variation) {
+            const variationRecord = findVariation(appLike, matches[0].id, entry.variation)
+            if (!variationRecord) {
+              outcome.status = 'new_variation'
+              return outcome
+            }
+            outcome.variation = variationRecord
+          }
+          outcome.status = qty === 0 ? 'existing_zero' : 'existing'
+          return outcome
+        }
+        outcome.status = qty === 0 ? 'new_zero' : 'new'
+        return outcome
+      }
+
+      // Prévia (dry_run): valida e classifica cada linha — NENHUM save().
+      if (dryRun) {
+        const resellerName = (function () {
+          try {
+            return $app.findRecordById('resellers', resellerId).getString('name')
+          } catch (_) {
+            return ''
+          }
+        })()
+        for (let k = 0; k < validKeys.length; k++) {
+          const entry = perBarcode[validKeys[k]]
+          const qty = entry.quantity
+          const row = entry.row
+          const line = row.line
+          const outcome = resolveRow($app, entry, qty)
+
+          if (outcome.status === 'conflict') {
+            result.skipped.push({
+              line: line,
+              code: entry.cod_produto_original,
+              barcode: entry.barcode_original,
+              reason:
+                'Conflito: mais de um produto com o código de barras ' +
+                entry.barcode_original +
+                '. Resolva manualmente.',
+            })
+            continue
+          }
+
+          if (outcome.status === 'new' || outcome.status === 'new_zero') {
+            const classification =
+              qty === 0
+                ? 'novo — cadastro/mapeamento somente (qty 0)'
+                : 'novo — estoque físico 0, quantidade na posse'
+            result.skipped.push({
+              line: line,
+              code: entry.cod_produto_original,
+              barcode: entry.barcode_original,
+              reason: 'Prévia: ' + classification,
+            })
+            result.products_created++
+            if (entry.variation) result.variations_created++
+            continue
+          }
+
+          if (outcome.status === 'new_variation') {
+            result.skipped.push({
+              line: line,
+              code: entry.cod_produto_original,
+              barcode: entry.barcode_original,
+              reason: 'Prévia: variação nova no produto existente (' + entry.variation + ')',
+            })
+            result.variations_created++
+            if (qty > 0) result.products_updated++
+            continue
+          }
+
+          // existing / existing_zero
+          const product = outcome.product
+          if (qty === 0) {
+            result.skipped.push({
+              line: line,
+              code: entry.cod_produto_original,
+              barcode: entry.barcode_original,
+              reason: 'Prévia: existente — cadastro/mapeamento somente (qty 0).',
+            })
+            continue
+          }
+          try {
+            const existing = $app.findRecordsByFilter(
+              'reseller_stock_items',
+              "reseller = '" +
+                escapeFilter(resellerId) +
+                "' && product = '" +
+                escapeFilter(product.id) +
+                "'",
+              '',
+              1,
+              0,
+            )
+            if (existing.length > 0) {
+              const cur = existing[0].getInt('quantity') || 0
+              if (cur === qty) {
+                result.skipped.push({
+                  line: line,
+                  code: entry.cod_produto_original,
+                  barcode: entry.barcode_original,
+                  reason: 'Prévia: já importado (mesmo saldo) — nada muda.',
+                })
+                continue
+              }
+              result.skipped.push({
+                line: line,
+                code: entry.cod_produto_original,
+                barcode: entry.barcode_original,
+                reason: 'Prévia: posse atual ' + cur + ' → ' + (cur + qty) + ' (aumenta posse)',
+              })
+              result.stock_items_updated++
+              result.products_updated++
+            } else {
+              result.skipped.push({
+                line: line,
+                code: entry.cod_produto_original,
+                barcode: entry.barcode_original,
+                reason: 'Prévia: posse nova de ' + qty + ' unidade(s)',
+              })
+              result.stock_items_created++
+              result.products_updated++
+            }
+          } catch (_) {
+            result.stock_items_created++
+            result.products_updated++
+          }
+        }
+        result.success = true
+        return e.json(200, {
+          ...result,
+          message: 'Prévia validada no servidor — nenhum registro foi gravado.',
+        })
+      }
+
+      // IMPORTAÇÃO REAL (dry_run=false): transação tudo-ou-nada.
       $app.runInTransaction((txApp) => {
         const reseller = txApp.findRecordById('resellers', resellerId)
         const resellerName = reseller.getString('name')
@@ -255,7 +411,7 @@ routerAdd(
             product.set('publicar_no_ecommerce', false)
             product.set('estado_ativo_ecommerce', false)
             product.set('status', 'unavailable')
-            product.set('criado_em_origem', 'Migração Tecson — posse de revendedora')
+            product.set('criado_em_origem', IMPORT_ORIGIN_TAG)
             product.set('sku_ecommerce', '')
             if (entry.cod_base) {
               product.set('sku_interno', entry.cod_base)
@@ -368,13 +524,155 @@ routerAdd(
       })
 
       result.success = true
-      if (dryRun) {
-        return e.json(200, { ...result, message: 'Prévia validada no servidor.' })
-      }
       return e.json(200, result)
     } catch (err) {
       console.log('tecson/reseller-import erro:', err.message)
       return e.json(400, { error: err.message || 'Falha na importação.' })
+    }
+  },
+  $apis.requireAuth(),
+)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ROTINA DE LIMPEZA — remove os produtos-lixo criados por PRÉVIAS com o bug
+// v0.0.278 (a prévia gravava de verdade em 2026-11-26 ~20:47 UTC).
+//
+// Só apaga produtos com criado_em_origem = IMPORT_ORIGIN_TAG (marcador gravado
+// pelo próprio hook) criados na DATA informada (default 2026-11-26) — produtos
+// de importações legítimas (ex. 2026-11-24) têm outra origem e NÃO são tocados.
+// Para cada produto apagado, remove também:
+//   - product_variations do produto
+//   - reseller_stock_items do produto (posse da revendedora)
+//   - product_category_links do produto (evita órfãos)
+// e recomputa o saldo da revendedora afetada via recalcResellerStockBalance.
+// Protegido: apenas admin/superadmin.
+// ─────────────────────────────────────────────────────────────────────────────
+routerAdd(
+  'POST',
+  '/backend/v1/tecson/reseller-import/cleanup-preview',
+  (e) => {
+    const authUser = e.auth
+    if (!authUser) return e.json(401, { error: 'Não autorizado.' })
+
+    const role = authUser.getString('role')
+    if (role !== 'superadmin' && role !== 'admin') {
+      return e.json(403, { error: 'Apenas superadmin/admin podem executar a limpeza.' })
+    }
+
+    // Mesmo marcador gravado pelo import (declaração duplicada inline — JSVM
+    // não compartilha top-level entre handlers).
+    const IMPORT_ORIGIN_TAG = 'Migração Tecson — posse de revendedora'
+
+    const body = e.requestInfo().body || {}
+    const dayStart = String(body.day_start || '2026-11-26 00:00:00.000Z')
+    const dayEnd = String(body.day_end || '2026-11-27 00:00:00.000Z')
+
+    const response = {
+      success: false,
+      day_start: dayStart,
+      day_end: dayEnd,
+      products_deleted: 0,
+      variations_deleted: 0,
+      stock_items_deleted: 0,
+      category_links_deleted: 0,
+      resellers_affected: [],
+    }
+
+    try {
+      $app.runInTransaction((txApp) => {
+        // Busca APENAS produtos do marcador de origem do import Tecson revendedora.
+        const targets = txApp.findRecordsByFilter(
+          'products',
+          "criado_em_origem = '" +
+            IMPORT_ORIGIN_TAG +
+            "' && created >= '" +
+            dayStart +
+            "' && created < '" +
+            dayEnd +
+            "'",
+          '-created',
+          1000,
+          0,
+        )
+        for (let i = 0; i < targets.length; i++) {
+          const product = targets[i]
+          const pid = product.id
+
+          // Posses ligadas a este produto (para saber as revendedoras afetadas).
+          let posses = []
+          try {
+            posses = txApp.findRecordsByFilter(
+              'reseller_stock_items',
+              "product = '" + pid + "'",
+              '',
+              100,
+              0,
+            )
+          } catch (_) {
+            posses = []
+          }
+          const affectedResellers = {}
+          for (let j = 0; j < posses.length; j++) {
+            affectedResellers[posses[j].getString('reseller')] = true
+            txApp.delete(posses[j])
+            response.stock_items_deleted++
+          }
+
+          // Variações do produto.
+          try {
+            const vars = txApp.findRecordsByFilter(
+              'product_variations',
+              "product = '" + pid + "'",
+              '',
+              100,
+              0,
+            )
+            for (let j = 0; j < vars.length; j++) {
+              txApp.delete(vars[j])
+              response.variations_deleted++
+            }
+          } catch (_) {}
+
+          // Links de categoria (relações cascade não configuradas).
+          try {
+            const links = txApp.findRecordsByFilter(
+              'product_category_links',
+              "product = '" + pid + "'",
+              '',
+              50,
+              0,
+            )
+            for (let j = 0; j < links.length; j++) {
+              txApp.delete(links[j])
+              response.category_links_deleted++
+            }
+          } catch (_) {}
+
+          txApp.delete(product)
+          response.products_deleted++
+
+          // Recalcula o saldo derivado das revendedoras que tinham posse do produto.
+          for (const rid in affectedResellers) {
+            recalcResellerStockBalance(txApp, rid)
+            if (response.resellers_affected.indexOf(rid) === -1) {
+              response.resellers_affected.push(rid)
+            }
+          }
+        }
+      })
+
+      response.success = true
+      console.log(
+        'tecson cleanup-preview:',
+        response.products_deleted,
+        'produtos,',
+        response.stock_items_deleted,
+        'posses apagadas',
+      )
+      return e.json(200, response)
+    } catch (err) {
+      console.log('tecson/cleanup-preview erro:', err.message)
+      return e.json(400, { error: err.message || 'Falha na limpeza.' })
     }
   },
   $apis.requireAuth(),

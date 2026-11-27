@@ -15,6 +15,8 @@ import {
 } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import { useAuth } from '@/contexts/AuthContext'
+import { CleanupPreviewCard } from '@/components/imports/TecsonCleanupPreviewCard'
 import { getProductDisplayPhoto } from '@/lib/formatters'
 import {
   parseTecsonCsv,
@@ -82,6 +84,7 @@ const normForCompare = (v: string) =>
     .trim()
 
 export default function ImportTecsonResellerPage() {
+  const { user } = useAuth()
   const [fileName, setFileName] = useState('')
   const [parsedRows, setParsedRows] = useState<ParsedTecsonRow[]>([])
   const [parseErrors, setParseErrors] = useState<string[]>([])
@@ -725,10 +728,15 @@ export default function ImportTecsonResellerPage() {
         </CardContent>
       </Card>
 
+      <div className="space-y-2">
+        <h2 className="text-lg font-semibold">5. Manutenção</h2>
+        <CleanupPreviewCard role={user?.role} />
+      </div>
+
       {result && (
         <Card>
           <CardHeader>
-            <CardTitle>4. Relatório final</CardTitle>
+            <CardTitle>Relatório final</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
             <div>Produtos atualizados (posse): {result.products_updated}</div>
