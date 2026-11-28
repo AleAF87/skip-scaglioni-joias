@@ -360,6 +360,8 @@ export interface ResellerDelivery {
   total_items_count: number
   total_value: number
   notes?: string
+  /** Texto editável do Termo de Recebimento de Maleta (v0.0.291) */
+  term_text?: string
   signature_image?: string
   signature_data?: string
   signed_at?: string
